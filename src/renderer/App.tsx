@@ -22,6 +22,10 @@ declare global {
   }
 }
 
+const rlog = (msg: string) => {
+  console.log(`[RENDERER] ${msg}`);
+};
+
 export function App() {
   const [context, setContext] = useState<ContextPayload | null>(null);
   const [response, setResponse] = useState("");
@@ -29,8 +33,20 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [pendingActions, setPendingActions] = useState<Action[]>([]);
 
+  rlog("App component rendering");
+
   useEffect(() => {
+    rlog("App useEffect - registering IPC listeners");
+
+    if (!window.hoverbuddy) {
+      rlog("ERROR: window.hoverbuddy is undefined! Preload script may not have loaded.");
+      return;
+    }
+
+    rlog("window.hoverbuddy API available");
+
     window.hoverbuddy.onContext((data) => {
+      rlog(`onContext received: element type="${data.element?.type}" name="${data.element?.name}"`);
       setContext(data);
       setResponse("");
       setError(null);
@@ -43,22 +59,29 @@ export function App() {
     });
 
     window.hoverbuddy.onStreamDone(() => {
+      rlog("Stream done");
       setStreaming(false);
     });
 
     window.hoverbuddy.onStreamError((err) => {
+      rlog(`Stream error: ${err}`);
       setStreaming(false);
       setError(err);
     });
 
     window.hoverbuddy.onActionResult((result) => {
+      rlog(`Action result: ${JSON.stringify(result).slice(0, 100)}`);
       if (result.pendingActions) {
+        rlog(`Pending actions: ${result.pendingActions.length}`);
         setPendingActions(result.pendingActions);
       }
     });
+
+    rlog("All IPC listeners registered");
   }, []);
 
   const handleSubmit = useCallback((prompt: string) => {
+    rlog(`Submit prompt: "${prompt}"`);
     setResponse("");
     setError(null);
     setStreaming(true);
@@ -66,10 +89,12 @@ export function App() {
   }, []);
 
   const handleExecuteAction = useCallback((action: Action) => {
+    rlog(`Execute action: type=${action.type}`);
     window.hoverbuddy.executeAction(action);
   }, []);
 
   const handleDismiss = useCallback(() => {
+    rlog("Dismiss clicked");
     window.hoverbuddy.dismiss();
   }, []);
 

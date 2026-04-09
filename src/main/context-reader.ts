@@ -1,6 +1,8 @@
 import { exec } from "child_process";
 import { UIElement } from "../shared/types";
 
+const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
+
 const POWERSHELL_SCRIPT = `
 Add-Type -AssemblyName UIAutomationClient
 $ErrorActionPreference = "Stop"
@@ -80,15 +82,30 @@ export async function readContextAtPoint(
   x: number,
   y: number
 ): Promise<{ element: UIElement; surrounding: UIElement[] }> {
+  log(`readContextAtPoint called: x=${x}, y=${y}`);
+  const startTime = Date.now();
+
   try {
     const result = await new Promise<string>((resolve, reject) => {
-      const proc = require("child_process").exec(
-        `powershell -NoProfile -Command "& { $env:HOVERBUDDY_X='${x}'; $env:HOVERBUDDY_Y='${y}'; ${POWERSHELL_SCRIPT.replace(/'/g, "''")} }"`,
-        { maxBuffer: 1024 * 1024, timeout: 5000 },
+      const escapedScript = POWERSHELL_SCRIPT.replace(/'/g, "''");
+      const cmd = `powershell -NoProfile -Command "& { $env:HOVERBUDDY_X='${x}'; $env:HOVERBUDDY_Y='${y}'; ${escapedScript} }"`;
+
+      log(`Spawning PowerShell for context read at (${x}, ${y})`);
+
+      const proc = exec(
+        cmd,
+        { maxBuffer: 1024 * 1024, timeout: 8000 },
         (err: any, stdout: string, stderr: string) => {
+          const elapsed = Date.now() - startTime;
           if (err) {
+            log(`PowerShell error after ${elapsed}ms: ${err.message}`);
+            log(`PowerShell stderr: ${stderr.slice(0, 200)}`);
             reject(new Error(stderr || err.message));
             return;
+          }
+          log(`PowerShell completed in ${elapsed}ms, output length=${stdout.length}`);
+          if (stderr) {
+            log(`PowerShell stderr (non-fatal): ${stderr.slice(0, 200)}`);
           }
           resolve(stdout.trim());
         }
@@ -96,15 +113,32 @@ export async function readContextAtPoint(
     });
 
     if (!result) {
+      log("ERROR: Empty response from PowerShell");
       return makeError(x, y, "Empty response from PowerShell");
     }
 
-    const parsed = JSON.parse(result);
-    return {
-      element: dotNetToUIElement(parsed.element),
-      surrounding: (parsed.surrounding || []).map(dotNetToUIElement),
-    };
+    log(`Parsing JSON response (${result.length} bytes)`);
+    let parsed: any;
+    try {
+      parsed = JSON.parse(result);
+    } catch (parseErr: any) {
+      log(`JSON parse error: ${parseErr.message}`);
+      log(`Raw response (first 500 chars): ${result.slice(0, 500)}`);
+      return makeError(x, y, `JSON parse error: ${parseErr.message}`);
+    }
+
+    const element = dotNetToUIElement(parsed.element);
+    const surrounding: UIElement[] = (parsed.surrounding || []).map(
+      (s: any, i: number) => {
+        log(`  surrounding[${i}]: type=${s?.type} name="${s?.name}"`);
+        return dotNetToUIElement(s);
+      }
+    );
+
+    log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", ${surrounding.length} surrounding elements`);
+    return { element, surrounding };
   } catch (err: any) {
+    log(`readContextAtPoint FAILED: ${err.message}`);
     return makeError(x, y, err.message || String(err));
   }
 }
@@ -113,7 +147,7 @@ function dotNetToUIElement(d: any): UIElement {
   return {
     name: d?.name || "",
     type: d?.type || "unknown",
-    value: d?.value || "",
+    value: typeof d?.value === "string" ? d.value : "",
     bounds: d?.bounds || { x: 0, y: 0, width: 0, height: 0 },
     children: (d?.children || []).map(dotNetToUIElement),
   };

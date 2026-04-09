@@ -7,8 +7,13 @@
       content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'"
     />
     <title>HoverBuddy</title>
+    <style>
+      /* Fallback styles in case CSS bundle fails to load */
+      body { margin: 0; padding: 0; font-family: "Segoe UI", Tahoma, sans-serif; background: #1e1e2e; color: #cdd6f4; }
+      #root-loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: #6c7086; font-size: 14px; }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div id="root-loading">Loading HoverBuddy...</div></div>
   </body>
 </html>
