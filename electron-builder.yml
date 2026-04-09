@@ -1,0 +1,15 @@
+appId: com.hoverbuddy.app
+productName: HoverBuddy
+directories:
+  output: release
+files:
+  - dist/**/*
+  - node_modules/**/*
+  - package.json
+win:
+  target: nsis
+  icon: assets/icon.ico
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
