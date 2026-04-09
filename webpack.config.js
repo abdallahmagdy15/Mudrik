@@ -17,6 +17,8 @@ module.exports = [
     output: { filename: "main.js", path: path.resolve(__dirname, "dist") },
     externals: {
       robotjs: "commonjs robotjs",
+      ollama: "commonjs ollama",
+      dotenv: "commonjs dotenv",
     },
   },
   {

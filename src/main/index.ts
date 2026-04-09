@@ -1,3 +1,4 @@
+import { config as loadDotEnv } from "dotenv";
 import { app, BrowserWindow, screen } from "electron";
 import * as path from "path";
 import * as fs from "fs";
@@ -6,6 +7,8 @@ import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
 import { registerIpcHandlers } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener } from "./hotkey";
 import { readContextAtPoint } from "./context-reader";
+
+loadDotEnv();
 
 const LOG_FILE = path.join(app.getPath("userData"), "hoverbuddy.log");
 

@@ -83,7 +83,7 @@ export function createTrayWithShow(onShow: (() => void) | undefined, onQuit: () 
     { label: "Quit", click: onQuit },
   ]);
 
-  tray.setToolTip("HoverBuddy - Alt+Space to activate");
+  tray.setToolTip("HoverBuddy - Ctrl+Alt+H to activate");
   tray.setContextMenu(contextMenu);
 
   log("Tray created successfully");

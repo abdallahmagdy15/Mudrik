@@ -22,7 +22,7 @@ function registerIOHook(
   onActivate: (cursorPos: { x: number; y: number }) => void
 ): void {
   app.whenReady().then(() => {
-    const accelerator = "Alt+Space";
+    const accelerator = "CommandOrControl+Alt+H";
     log(`Registering global shortcut: ${accelerator}`);
 
     const registered = globalShortcut.register(accelerator, () => {
