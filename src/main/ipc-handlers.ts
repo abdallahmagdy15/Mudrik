@@ -2,12 +2,17 @@ import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action } from "../shared/types";
 import { OllamaClient } from "./ollama-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
-import { executeAction, parseActionsFromResponse } from "./action-executor";
+import { executeAction, parseActionsFromResponse, ActionResult } from "./action-executor";
 
 const log = (msg: string) => console.log(`[IPC] ${msg}`);
 
 let ollama: OllamaClient;
 let currentContext: ContextPayload | null = null;
+
+export function setContext(context: ContextPayload): void {
+  currentContext = context;
+  log(`setContext: element type="${context.element?.type}" name="${context.element?.name}"`);
+}
 
 export function registerIpcHandlers(
   config: Config,
@@ -35,13 +40,9 @@ export function registerIpcHandlers(
     return config;
   });
 
-  ipcMain.on(IPC.CONTEXT_READY, (_e, context: ContextPayload) => {
-    log(`CONTEXT_READY received from renderer: element=${context.element?.type}`);
-    currentContext = context;
-  });
-
   ipcMain.on(IPC.SEND_PROMPT, async (_e, prompt: string) => {
     log(`SEND_PROMPT received: "${prompt.slice(0, 80)}..."`);
+    log(`currentContext is ${currentContext ? `set: element="${currentContext.element?.name}" type="${currentContext.element?.type}"` : "NULL"}`);
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) {
       log("ERROR: No window found for SEND_PROMPT");
@@ -62,7 +63,7 @@ export function registerIpcHandlers(
       },
     ];
 
-    log(`Sending to Ollama, model=${config.model}, ollamaUrl=${config.ollamaUrl}`);
+    log(`Sending to Ollama, model=${config.model}`);
     let fullResponse = "";
     try {
       for await (const token of ollama.chatStream(messages)) {
@@ -75,9 +76,23 @@ export function registerIpcHandlers(
       const actions = parseActionsFromResponse(fullResponse);
       if (actions.length > 0) {
         log(`Found ${actions.length} actions in response: ${actions.map((a) => a.type).join(", ")}`);
-        win.webContents.send(IPC.ACTION_RESULT, {
-          pendingActions: actions,
-        });
+
+        for (const action of actions) {
+          log(`Executing action: type=${action.type}`);
+          const result: ActionResult = await executeAction(action);
+          log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
+
+          if (action.type === "run_command") {
+            const outputMsg = result.success
+              ? `\n\n**Command:** \`${action.command}\`\n**Output:**\n\`\`\`\n${result.output || "(no output)"}\n\`\`\``
+              : `\n\n**Command:** \`${action.command}\`\n**Error:**\n\`\`\`\n${result.error || "unknown error"}\n\`\`\``;
+            win.webContents.send(IPC.STREAM_TOKEN, outputMsg);
+          }
+
+          win.webContents.send(IPC.ACTION_RESULT, result);
+        }
+
+        win.webContents.send(IPC.STREAM_DONE);
       }
     } catch (err: any) {
       log(`ERROR streaming from Ollama: ${err.message}`);
@@ -86,10 +101,19 @@ export function registerIpcHandlers(
   });
 
   ipcMain.on(IPC.EXECUTE_ACTION, async (_e, action: Action) => {
-    log(`EXECUTE_ACTION received: type=${action.type}, text=${action.text?.slice(0, 50)}...`);
+    log(`EXECUTE_ACTION received: type=${action.type}`);
     const win = BrowserWindow.getAllWindows()[0];
     const result = await executeAction(action);
     log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
+
+    if (action.type === "run_command" && win) {
+      const outputMsg = result.success
+        ? `\n\n**Command:** \`${action.command}\`\n**Output:**\n\`\`\`\n${result.output || "(no output)"}\n\`\`\``
+        : `\n\n**Command:** \`${action.command}\`\n**Error:**\n\`\`\`\n${result.error || "unknown error"}\n\`\`\``;
+      win.webContents.send(IPC.STREAM_TOKEN, outputMsg);
+      win.webContents.send(IPC.STREAM_DONE);
+    }
+
     if (win) {
       win.webContents.send(IPC.ACTION_RESULT, result);
     }

@@ -11,13 +11,15 @@ export type ActionType =
   | "paste_text"
   | "click_element"
   | "copy_to_clipboard"
-  | "press_keys";
+  | "press_keys"
+  | "run_command";
 
 export interface Action {
   type: ActionType;
   text?: string;
   selector?: string;
   combination?: string;
+  command?: string;
 }
 
 export interface Config {

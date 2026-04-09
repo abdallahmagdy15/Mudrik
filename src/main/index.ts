@@ -4,7 +4,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
-import { registerIpcHandlers } from "./ipc-handlers";
+import { registerIpcHandlers, setContext } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener } from "./hotkey";
 import { readContextAtPoint } from "./context-reader";
 
@@ -77,6 +77,7 @@ function createWindow(): BrowserWindow {
 
 function showPanel(context: ContextPayload): void {
   log(`showPanel called with context: element=${context.element?.type} "${context.element?.name}" (${context.element?.value?.slice(0, 50)}...)`);
+  setContext(context);
 
   if (!mainWindow) {
     log("No existing window, creating new one");

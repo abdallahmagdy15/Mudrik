@@ -1,4 +1,5 @@
 import robot from "robotjs";
+import { exec } from "child_process";
 import { Action } from "../shared/types";
 
 const log = (msg: string) => console.log(`[ACTION] ${msg}`);
@@ -85,11 +86,41 @@ function copyToClipboard(text: string): boolean {
   }
 }
 
-export async function executeAction(action: Action): Promise<{
+async function runCommand(command: string): Promise<{ success: boolean; output: string; error?: string }> {
+  log(`runCommand: "${command}"`);
+  return new Promise((resolve) => {
+    exec(
+      command,
+      { maxBuffer: 1024 * 1024, timeout: 30000, shell: "powershell.exe" },
+      (err, stdout, stderr) => {
+        if (err) {
+          log(`runCommand FAILED: ${err.message}`);
+          log(`  stderr: ${stderr.slice(0, 200)}`);
+          resolve({
+            success: false,
+            output: stdout || "",
+            error: stderr || err.message,
+          });
+          return;
+        }
+        log(`runCommand success, output length=${stdout.length}`);
+        if (stderr) {
+          log(`  stderr (non-fatal): ${stderr.slice(0, 200)}`);
+        }
+        resolve({ success: true, output: stdout, error: stderr || undefined });
+      }
+    );
+  });
+}
+
+export interface ActionResult {
   success: boolean;
   error?: string;
-}> {
-  log(`executeAction: type=${action.type}, text=${action.text?.slice(0, 50) || "(none)"}, selector=${action.selector || "(none)"}, combination=${action.combination || "(none)"}`);
+  output?: string;
+}
+
+export async function executeAction(action: Action): Promise<ActionResult> {
+  log(`executeAction: type=${action.type}, command=${action.command?.slice(0, 80) || "(none)"}, text=${action.text?.slice(0, 50) || "(none)"}`);
 
   try {
     switch (action.type) {
@@ -125,6 +156,11 @@ export async function executeAction(action: Action): Promise<{
           return { success: false, error: "No combination" };
         await pressKeys(action.combination);
         return { success: true };
+
+      case "run_command":
+        if (!action.command) return { success: false, error: "No command" };
+        const cmdResult = await runCommand(action.command);
+        return cmdResult;
 
       default:
         return { success: false, error: `Unknown action: ${action.type}` };
