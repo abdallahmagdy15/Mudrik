@@ -27,17 +27,15 @@ export class OllamaClient {
     messages: OllamaMessage[]
   ): AsyncGenerator<string, void, unknown> {
     const model = this.config.model;
-    const isCloud = model.endsWith(":cloud");
-    const actualModel = isCloud ? model.replace(":cloud", "") : model;
 
-    log(`chatStream: model="${model}", isCloud=${isCloud}, actualModel="${actualModel}"`);
+    log(`chatStream: model="${model}", cloudProxyUrl=${this.config.cloudProxyUrl || "(none)"}`);
 
-    if (isCloud && this.config.cloudProxyUrl) {
+    if (this.config.cloudProxyUrl) {
       log(`Routing to cloud proxy: ${this.config.cloudProxyUrl}`);
-      yield* this.streamCloud(actualModel, messages);
+      yield* this.streamCloud(model, messages);
     } else {
       log(`Routing to local Ollama: ${this.config.ollamaUrl}`);
-      yield* this.streamLocal(actualModel, messages);
+      yield* this.streamLocal(model, messages);
     }
   }
 
