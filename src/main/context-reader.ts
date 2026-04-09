@@ -10,6 +10,7 @@ const SCRIPT_NAME = "hoverbuddy-read-context.ps1";
 
 function getScriptContent(): string {
   return `
+Add-Type -AssemblyName PresentationCore
 Add-Type -AssemblyName UIAutomationClient
 $ErrorActionPreference = "Stop"
 
