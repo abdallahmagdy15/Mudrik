@@ -29,7 +29,7 @@ export interface Config {
 
 export const DEFAULT_CONFIG: Config = {
   ollamaUrl: "http://localhost:11434",
-  model: "llama3",
+  model: "glm-5.1:cloud",
   cloudProxyUrl: "",
   hotkeyModifier: "ctrl",
 };
