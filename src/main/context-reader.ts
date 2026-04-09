@@ -1,14 +1,20 @@
 import { exec } from "child_process";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
 import { UIElement } from "../shared/types";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const POWERSHELL_SCRIPT = `
+const SCRIPT_NAME = "hoverbuddy-read-context.ps1";
+
+function getScriptContent(): string {
+  return `
 Add-Type -AssemblyName UIAutomationClient
 $ErrorActionPreference = "Stop"
 
-$x = [int]$env:HOVERBUDDY_X
-$y = [int]$env:HOVERBUDDY_Y
+$x = [int]$args[0]
+$y = [int]$args[1]
 
 function ElementToDict($el) {
     $dict = @{}
@@ -71,6 +77,25 @@ try {
     exit 1
 }
 `;
+}
+
+let scriptPath: string | null = null;
+
+function ensureScriptFile(): string {
+  if (scriptPath && fs.existsSync(scriptPath)) {
+    return scriptPath;
+  }
+
+  const tmpDir = path.join(os.tmpdir(), "hoverbuddy");
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+
+  scriptPath = path.join(tmpDir, SCRIPT_NAME);
+  fs.writeFileSync(scriptPath, getScriptContent(), "utf-8");
+  log(`Script file written to: ${scriptPath}`);
+  return scriptPath;
+}
 
 export function getCursorPos(): { x: number; y: number } {
   const robot = require("robotjs");
@@ -86,20 +111,20 @@ export async function readContextAtPoint(
   const startTime = Date.now();
 
   try {
+    const script = ensureScriptFile();
+    const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" ${x} ${y}`;
+
+    log(`Spawning PowerShell: ${cmd}`);
+
     const result = await new Promise<string>((resolve, reject) => {
-      const escapedScript = POWERSHELL_SCRIPT.replace(/'/g, "''");
-      const cmd = `powershell -NoProfile -Command "& { $env:HOVERBUDDY_X='${x}'; $env:HOVERBUDDY_Y='${y}'; ${escapedScript} }"`;
-
-      log(`Spawning PowerShell for context read at (${x}, ${y})`);
-
-      const proc = exec(
+      exec(
         cmd,
         { maxBuffer: 1024 * 1024, timeout: 8000 },
         (err: any, stdout: string, stderr: string) => {
           const elapsed = Date.now() - startTime;
           if (err) {
             log(`PowerShell error after ${elapsed}ms: ${err.message}`);
-            log(`PowerShell stderr: ${stderr.slice(0, 200)}`);
+            log(`PowerShell stderr: ${stderr.slice(0, 500)}`);
             reject(new Error(stderr || err.message));
             return;
           }
