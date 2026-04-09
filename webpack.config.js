@@ -3,8 +3,9 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 
 module.exports = [
   {
-    mode: "development",
+    mode: "production",
     target: "electron-main",
+    devtool: "source-map",
     entry: "./src/main/index.ts",
     module: {
       rules: [{ test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ }],
@@ -19,8 +20,9 @@ module.exports = [
     },
   },
   {
-    mode: "development",
+    mode: "production",
     target: "electron-preload",
+    devtool: "source-map",
     entry: "./src/preload.ts",
     module: {
       rules: [{ test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ }],
@@ -35,8 +37,9 @@ module.exports = [
     },
   },
   {
-    mode: "development",
+    mode: "production",
     target: "electron-renderer",
+    devtool: "source-map",
     entry: "./src/renderer/index.tsx",
     module: {
       rules: [
