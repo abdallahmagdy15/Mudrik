@@ -3,41 +3,68 @@ import robot from "robotjs";
 
 const log = (msg: string) => console.log(`[HOTKEY] ${msg}`);
 
-let isListening = false;
+export interface HotkeyCallbacks {
+  onPointerActivate: (cursorPos: { x: number; y: number }) => void;
+  onAreaActivate: () => void;
+}
 
-export function startHotkeyListener(
-  onActivate: (cursorPos: { x: number; y: number }) => void
-): void {
+let lastPointerTime = 0;
+let lastAreaTime = 0;
+const DEBOUNCE_MS = 800;
+
+export function startHotkeyListener(callbacks: HotkeyCallbacks): void {
   log("Starting hotkey listener...");
-  registerIOHook(onActivate);
+  registerHotkeys(callbacks);
 }
 
 export function stopHotkeyListener(): void {
   globalShortcut.unregisterAll();
-  isListening = false;
   log("Hotkey listener stopped");
 }
 
-function registerIOHook(
-  onActivate: (cursorPos: { x: number; y: number }) => void
-): void {
+function registerHotkeys(callbacks: HotkeyCallbacks): void {
   app.whenReady().then(() => {
-    const accelerator = "CommandOrControl+Alt+H";
-    log(`Registering global shortcut: ${accelerator}`);
+    const pointerKey = "Alt+Space";
+    log(`Registering pointer shortcut: ${pointerKey}`);
 
-    const registered = globalShortcut.register(accelerator, () => {
+    const pointerRegistered = globalShortcut.register(pointerKey, () => {
+      const now = Date.now();
+      if (now - lastPointerTime < DEBOUNCE_MS) {
+        log(`Pointer hotkey debounced (${now - lastPointerTime}ms)`);
+        return;
+      }
+      lastPointerTime = now;
       const pos = robot.getMousePos();
-      log(`Hotkey triggered! Cursor at: x=${pos.x}, y=${pos.y}`);
-      onActivate({ x: pos.x, y: pos.y });
+      log(`Pointer hotkey triggered! Cursor at: x=${pos.x}, y=${pos.y}`);
+      callbacks.onPointerActivate({ x: pos.x, y: pos.y });
     });
 
-    if (!registered) {
-      log(`ERROR: Failed to register shortcut ${accelerator} — it may already be in use`);
+    if (!pointerRegistered) {
+      log(`ERROR: Failed to register ${pointerKey} — may already be in use`);
     } else {
-      log(`Shortcut ${accelerator} registered successfully`);
+      log(`Pointer shortcut ${pointerKey} registered`);
     }
 
-    isListening = true;
+    const areaKey = "CommandOrControl+Space";
+    log(`Registering area shortcut: ${areaKey}`);
+
+    const areaRegistered = globalShortcut.register(areaKey, () => {
+      const now = Date.now();
+      if (now - lastAreaTime < DEBOUNCE_MS) {
+        log(`Area hotkey debounced (${now - lastAreaTime}ms)`);
+        return;
+      }
+      lastAreaTime = now;
+      log(`Area hotkey triggered!`);
+      callbacks.onAreaActivate();
+    });
+
+    if (!areaRegistered) {
+      log(`ERROR: Failed to register ${areaKey} — may already be in use`);
+    } else {
+      log(`Area shortcut ${areaKey} registered`);
+    }
+
     log("Hotkey listener started");
   });
 }

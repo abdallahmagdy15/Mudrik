@@ -86,6 +86,17 @@ export function createTrayWithShow(onShow: (() => void) | undefined, onQuit: () 
   tray.setToolTip("HoverBuddy - Ctrl+Alt+H to activate");
   tray.setContextMenu(contextMenu);
 
+  if (onShow) {
+    tray.on("double-click", () => {
+      log("Tray double-clicked — showing panel");
+      onShow();
+    });
+    tray.on("balloon-click", () => {
+      log("Balloon notification clicked — showing panel");
+      onShow();
+    });
+  }
+
   log("Tray created successfully");
   return tray;
 }
@@ -95,5 +106,16 @@ export function destroyTray(): void {
     tray.destroy();
     tray = null;
     log("Tray destroyed");
+  }
+}
+
+export function showNotification(title: string, body: string): void {
+  if (tray) {
+    tray.displayBalloon({
+      title,
+      content: body,
+      iconType: "info",
+    });
+    log(`Notification: ${title} - ${body}`);
   }
 }

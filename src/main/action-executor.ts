@@ -1,22 +1,52 @@
 import robot from "robotjs";
 import { exec } from "child_process";
+import * as path from "path";
+import * as fs from "fs";
+import * as os from "os";
 import { Action } from "../shared/types";
-
-const log = (msg: string) => console.log(`[ACTION] ${msg}`);
+import { runPowerShell } from "./powershell-runner";
+import { log } from "./logger";
+const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v3.ps1";
+const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v3.ps1";
 
 const VK_MAP: Record<string, string> = {
   ctrl: "control",
   alt: "alt",
   shift: "shift",
-  enter: "enter",
+  enter: "return",
   tab: "tab",
   escape: "escape",
   backspace: "backspace",
   delete: "delete",
+  space: "space",
+  up: "up",
+  down: "down",
+  left: "left",
+  right: "right",
+  home: "home",
+  end: "end",
+  pageup: "pageup",
+  pagedown: "pagedown",
+  f1: "f1", f2: "f2", f3: "f3", f4: "f4",
+  f5: "f5", f6: "f6", f7: "f7", f8: "f8",
+  f9: "f9", f10: "f10", f11: "f11", f12: "f12",
 };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function clickAtBounds(bounds: { x: number; y: number; width: number; height: number }): boolean {
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
+    log(`clickAtBounds: invalid bounds ${JSON.stringify(bounds)}`);
+    return false;
+  }
+  const cx = Math.round(bounds.x + bounds.width / 2);
+  const cy = Math.round(bounds.y + bounds.height / 2);
+  log(`clickAtBounds: clicking at (${cx}, ${cy}) from bounds (${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`);
+  robot.moveMouse(cx, cy);
+  robot.mouseClick();
+  return true;
 }
 
 async function typeText(text: string): Promise<void> {
@@ -25,13 +55,25 @@ async function typeText(text: string): Promise<void> {
   await sleep(text.length * 10);
 }
 
+async function bringWindowToFront(bounds: { x: number; y: number; width: number; height: number }): Promise<void> {
+  log(`bringWindowToFront: clicking at (${bounds.x}, ${bounds.y}) to focus window`);
+  robot.moveMouse(Math.round(bounds.x + bounds.width / 2), Math.round(bounds.y + 5));
+  robot.mouseClick();
+  await sleep(100);
+}
+
 async function pasteText(text: string): Promise<boolean> {
   log(`pasteText: length=${text.length}`);
   try {
     const { clipboard } = require("electron");
     clipboard.writeText(text);
     await sleep(50);
-    robot.keyTap("v", "control");
+    await new Promise<void>((resolve, reject) => {
+      exec('powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\\"^v\\")"', { timeout: 5000 }, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
     await sleep(100);
     log("pasteText: completed");
     return true;
@@ -57,11 +99,28 @@ async function pressKeys(combination: string): Promise<void> {
 
   await sleep(30);
 
+  const sendKeysMap: Record<string, string> = {
+    enter: "{ENTER}", tab: "{TAB}", escape: "{ESC}", backspace: "{BS}",
+    delete: "{DEL}", space: " ", up: "{UP}", down: "{DOWN}",
+    left: "{LEFT}", right: "{RIGHT}", home: "{HOME}", end: "{END}",
+    pageup: "{PGUP}", pagedown: "{PGDN}",
+    f1: "{F1}", f2: "{F2}", f3: "{F3}", f4: "{F4}",
+    f5: "{F5}", f6: "{F6}", f7: "{F7}", f8: "{F8}",
+    f9: "{F9}", f10: "{F10}", f11: "{F11}", f12: "{F12}",
+  };
+
   for (const key of keys) {
     const mapped = VK_MAP[key] || key;
     if (!["control", "alt", "shift"].includes(mapped)) {
-      robot.keyTap(mapped);
-      log(`  key tap: ${mapped}`);
+      const sendKey = sendKeysMap[mapped] || mapped;
+      await new Promise<void>((resolve, reject) => {
+        const cmd = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${sendKey.replace(/'/g, "''")}')\""`;
+        exec(cmd, { timeout: 5000 }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      log(`  SendKeys: ${sendKey}`);
     }
   }
 
@@ -113,36 +172,604 @@ async function runCommand(command: string): Promise<{ success: boolean; output: 
   });
 }
 
+function getFindScriptContent(): string {
+  const lines: string[] = [];
+  lines.push('param([string]$SelectorFile, [string]$OutputFile)');
+  lines.push('Add-Type -AssemblyName PresentationCore');
+  lines.push('Add-Type -AssemblyName UIAutomationClient');
+  lines.push('$ErrorActionPreference = "Stop"');
+  lines.push('');
+  lines.push('$raw = (Get-Content -Path $SelectorFile -Raw -Encoding utf8).Trim()');
+  lines.push('$action = $raw | ConvertFrom-Json');
+  lines.push('$selector = $action.selector');
+  lines.push('$automationId = $action.automationId');
+  lines.push('$boundsHint = $action.boundsHint');
+  lines.push('$filterType = $null');
+  lines.push('$filterName = $selector');
+  lines.push('');
+  lines.push('if ($selector -match "^([^:]+):(.+)$") {');
+  lines.push('    $filterType = $Matches[1]');
+  lines.push('    $filterName = $Matches[2]');
+  lines.push('}');
+  lines.push('');
+  lines.push('$filterNameLower = $filterName.ToLower()');
+  lines.push('$filterWords = @()');
+  lines.push('if ($filterName) {');
+  lines.push('    $filterWords = $filterName -split "[\\\\/\\s\\-_]+" | Where-Object { $_.Length -ge 3 }');
+  lines.push('}');
+  lines.push('');
+  lines.push('function MatchName($name) {');
+  lines.push('    if (-not $filterName) { return $true }');
+  lines.push('    if (-not $name) { return $false }');
+  lines.push('    $nameLower = $name.ToLower()');
+  lines.push('    if ($nameLower -eq $filterNameLower) { return $true }');
+  lines.push('    if ($nameLower.Contains($filterNameLower)) { return $true }');
+  lines.push('    if ($filterNameLower.Contains($nameLower) -and $name.Length -ge 3) { return $true }');
+  lines.push('    $matchedWords = 0');
+  lines.push('    foreach ($word in $filterWords) {');
+  lines.push('        if ($nameLower.Contains($word.ToLower())) { $matchedWords++ }');
+  lines.push('    }');
+  lines.push('    if ($filterWords.Count -gt 0 -and $matchedWords -ge [Math]::Max(1, [Math]::Floor($filterWords.Count * 0.5))) { return $true }');
+  lines.push('    return $false');
+  lines.push('}');
+  lines.push('');
+  lines.push('function MatchType($ctrlType) {');
+  lines.push('    if (-not $filterType) { return $true }');
+  lines.push('    if ($ctrlType -eq $filterType) { return $true }');
+  lines.push('    if ($filterType -eq "Hyperlink" -and $ctrlType -eq "Custom") { return $true }');
+  lines.push('    if ($filterType -eq "Button" -and ($ctrlType -eq "Button" -or $ctrlType -eq "SplitButton")) { return $true }');
+  lines.push('    return $false');
+  lines.push('}');
+  lines.push('');
+  lines.push('function DistanceSquared($r1, $r2) {');
+  lines.push('    $cx1 = $r1.X + $r1.Width / 2');
+  lines.push('    $cy1 = $r1.Y + $r1.Height / 2');
+  lines.push('    $cx2 = $r2.X + $r2.Width / 2');
+  lines.push('    $cy2 = $r2.Y + $r2.Height / 2');
+  lines.push('    return [Math]::Pow($cx1 - $cx2, 2) + [Math]::Pow($cy1 - $cy2, 2)');
+  lines.push('}');
+  lines.push('');
+  lines.push('$script:found = @()');
+  lines.push('');
+  lines.push('function FindElement($root, $depth, $maxDepth) {');
+  lines.push('    if ($depth -gt $maxDepth) { return }');
+  lines.push('    try {');
+  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        foreach ($child in $children) {');
+  lines.push('            try {');
+  lines.push('                $name = $child.Current.Name');
+  lines.push('                $ctrlType = $child.Current.ControlType.ProgrammaticName');
+  lines.push('                $autoId = ""');
+  lines.push('                try { $autoId = $child.Current.AutomationId } catch {}');
+  lines.push('                $value = ""');
+  lines.push('                try {');
+  lines.push('                    $vp = $null');
+  lines.push('                    $ok = $child.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
+  lines.push('                    if ($ok -and $vp) { $value = $vp.Current.Value }');
+  lines.push('                } catch {}');
+  lines.push('');
+  lines.push('                $r = $child.Current.BoundingRectangle');
+  lines.push('                if ($r.Width -le 0 -or $r.Height -le 0) { continue }');
+  lines.push('');
+  lines.push('                $score = 0');
+  lines.push('                $nameLower = if ($name) { $name.ToLower() } else { "" }');
+  lines.push('');
+  lines.push('                if ($automationId -and $autoId -eq $automationId) {');
+  lines.push('                    $score = 200');
+  lines.push('                } elseif ($automationId -and $autoId -and $autoId.ToLower().Contains($automationId.ToLower())) {');
+  lines.push('                    $score = 150');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                if ($score -eq 0) {');
+  lines.push('                    if (MatchName $name -and MatchType $ctrlType) {');
+  lines.push('                        if ($nameLower -eq $filterNameLower) { $score = 100 }');
+  lines.push('                        elseif ($nameLower.Contains($filterNameLower)) { $score = 80 }');
+  lines.push('                        else { $score = 50 }');
+  lines.push('                    } elseif (MatchName $value -and MatchType $ctrlType) {');
+  lines.push('                        $score = 40');
+  lines.push('                    }');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                if ($score -gt 0 -and $boundsHint) {');
+  lines.push('                    $hintRect = @{ X = $boundsHint.x; Y = $boundsHint.y; Width = $boundsHint.width; Height = $boundsHint.height }');
+  lines.push('                    $dist = DistanceSquared $r $hintRect');
+  lines.push('                    if ($dist -lt 10000) { $score += 30 }');
+  lines.push('                    elseif ($dist -lt 100000) { $score += 15 }');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                if ($score -gt 0) {');
+  lines.push('                    $script:found += @{ name=$name; type=$ctrlType; autoId=$autoId; value=$value; score=$score; bounds=@{ x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height } }');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                FindElement $child ($depth+1) $maxDepth');
+  lines.push('            } catch {}');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('}');
+  lines.push('');
+  lines.push('try {');
+  lines.push('    $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('    FindElement $root 0 20');
+  lines.push('');
+  lines.push('    if ($script:found.Count -eq 0) {');
+  lines.push('        @{ error="No element found matching selector: $selector"; selector=$selector } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('    } else {');
+  lines.push('        $sorted = $script:found | Sort-Object -Property score -Descending | Select-Object -First 5');
+  lines.push('        @{ matches=$sorted; totalFound=$script:found.Count } | ConvertTo-Json -Depth 4 -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('    }');
+  lines.push('} catch {');
+  lines.push('    @{ error=$_.Exception.Message } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('}');
+  return lines.join("\n");
+}
+
+let findScriptPath: string | null = null;
+
+function ensureFindScript(): string {
+  if (findScriptPath && fs.existsSync(findScriptPath)) {
+    return findScriptPath;
+  }
+  const tmpDir = path.join(os.tmpdir(), "hoverbuddy");
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  findScriptPath = path.join(tmpDir, FIND_SCRIPT_NAME);
+  fs.writeFileSync(findScriptPath, getFindScriptContent(), "utf-8");
+  log(`Find-element script written to: ${findScriptPath}`);
+  return findScriptPath;
+}
+
+async function findElementBounds(selector: string, automationId?: string, boundsHint?: { x: number; y: number; width: number; height: number }): Promise<{ x: number; y: number; width: number; height: number; name: string; type: string; score: number } | null> {
+  log(`findElementBounds: selector="${selector}" automationId="${automationId || ""}" boundsHint=${boundsHint ? JSON.stringify(boundsHint) : "none"}`);
+  const script = ensureFindScript();
+
+  const selectorData: any = { selector };
+  if (automationId) selectorData.automationId = automationId;
+  if (boundsHint) selectorData.boundsHint = boundsHint;
+
+  const selectorFile = path.join(os.tmpdir(), "hoverbuddy", "selector-" + Date.now() + ".json");
+  fs.writeFileSync(selectorFile, JSON.stringify(selectorData), "utf-8");
+
+  try {
+    const { output, stderr, exitCode } = await runPowerShell(script, [selectorFile], { timeout: 15000 });
+
+    try { fs.unlinkSync(selectorFile); } catch {}
+
+    if (stderr) {
+      log(`findElementBounds stderr (non-fatal): ${stderr.slice(0, 200)}`);
+    }
+
+    if (!output) {
+      log(`findElementBounds: empty output`);
+      return null;
+    }
+    try {
+      log(`findElementBounds output length=${output.length}, preview="${output.slice(0, 300)}"`);
+      const parsed = JSON.parse(output);
+      if (parsed.error) {
+        log(`findElementBounds: ${parsed.error}`);
+        return null;
+      }
+      const matches = parsed.matcheses || parsed.matches;
+      const matchList = Array.isArray(matches) ? matches : matches ? [matches] : [];
+      if (matchList.length === 0) {
+        log(`findElementBounds: no matches found (totalFound=${parsed.totalFound ?? "n/a"})`);
+        return null;
+      }
+      const best = matchList[0];
+      log(`findElementBounds: best match name="${best.name}" type="${best.type}" score=${best.score} totalFound=${parsed.totalFound ?? "n/a"}`);
+      return { ...best.bounds, name: best.name, type: best.type, score: best.score };
+    } catch (parseErr: any) {
+      log(`findElementBounds JSON parse error: ${parseErr.message}`);
+      return null;
+    }
+  } catch (err: any) {
+    try { fs.unlinkSync(selectorFile); } catch {}
+    log(`findElementBounds FAILED: ${err.message}`);
+    return null;
+  }
+}
+
+function getUIAScriptContent(): string {
+  const lines: string[] = [];
+  lines.push('param([string]$ActionFile, [string]$OutputFile)');
+  lines.push('Add-Type -AssemblyName PresentationCore');
+  lines.push('Add-Type -AssemblyName UIAutomationClient');
+  lines.push('$ErrorActionPreference = "Stop"');
+  lines.push('');
+  lines.push('$action = (Get-Content -Path $ActionFile -Raw -Encoding utf8 | ConvertFrom-Json)');
+  lines.push('$op = $action.op');
+  lines.push('$selector = $action.selector');
+  lines.push('$value = $action.value');
+  lines.push('$automationId = $action.automationId');
+  lines.push('$boundsHint = $action.boundsHint');
+  lines.push('');
+  lines.push('$filterName = $selector');
+  lines.push('$filterNameLower = $selector.ToLower()');
+  lines.push('$filterWords = $selector -split "[\\\\/\\s\\-_]+" | Where-Object { $_.Length -ge 2 }');
+  lines.push('');
+  lines.push('function MatchName($name) {');
+  lines.push('    if (-not $name) { return $false }');
+  lines.push('    $nameLower = $name.ToLower()');
+  lines.push('    if ($nameLower -eq $filterNameLower) { return $true }');
+  lines.push('    if ($nameLower.Contains($filterNameLower)) { return $true }');
+  lines.push('    $matchedWords = 0');
+  lines.push('    foreach ($word in $filterWords) {');
+  lines.push('        if ($nameLower.Contains($word.ToLower())) { $matchedWords++ }');
+  lines.push('    }');
+  lines.push('    if ($filterWords.Count -gt 0 -and $matchedWords -ge [Math]::Max(1, [Math]::Floor($filterWords.Count * 0.5))) { return $true }');
+  lines.push('    return $false');
+  lines.push('}');
+  lines.push('');
+  lines.push('function MatchAutoId($id) {');
+  lines.push('    if (-not $automationId) { return $false }');
+  lines.push('    if (-not $id) { return $false }');
+  lines.push('    if ($id -eq $automationId) { return $true }');
+  lines.push('    if ($id.ToLower().Contains($automationId.ToLower())) { return $true }');
+  lines.push('    return $false');
+  lines.push('}');
+  lines.push('');
+  lines.push('function DistanceSquared($r1, $r2) {');
+  lines.push('    $cx1 = $r1.X + $r1.Width / 2');
+  lines.push('    $cy1 = $r1.Y + $r1.Height / 2');
+  lines.push('    $cx2 = $r2.X + $r2.Width / 2');
+  lines.push('    $cy2 = $r2.Y + $r2.Height / 2');
+  lines.push('    return [Math]::Pow($cx1 - $cx2, 2) + [Math]::Pow($cy1 - $cy2, 2)');
+  lines.push('}');
+  lines.push('');
+  lines.push('$script:bestTarget = $null');
+  lines.push('$script:bestScore = 0');
+  lines.push('');
+  lines.push('function FindTarget($root, $depth, $maxDepth) {');
+  lines.push('    if ($depth -gt $maxDepth) { return }');
+  lines.push('    try {');
+  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        foreach ($child in $children) {');
+  lines.push('            try {');
+  lines.push('                $name = $child.Current.Name');
+  lines.push('                $autoId = ""');
+  lines.push('                try { $autoId = $child.Current.AutomationId } catch {}');
+  lines.push('                $type = ""');
+  lines.push('                try { $type = $child.Current.ControlType.ProgrammaticName } catch {}');
+  lines.push('                $score = 0');
+  lines.push('');
+  lines.push('                if ($automationId -and (MatchAutoId $autoId)) {');
+  lines.push('                    $score = 200');
+  lines.push('                } else {');
+  lines.push('                    if (MatchName $name) { $score = 100 }');
+  lines.push('                    else {');
+  lines.push('                        $val = ""');
+  lines.push('                        try {');
+  lines.push('                            $vp = $null');
+  lines.push('                            $ok = $child.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
+  lines.push('                            if ($ok -and $vp) { $val = $vp.Current.Value }');
+  lines.push('                        } catch {}');
+  lines.push('                        if ($val -and (MatchName $val)) { $score = 40 }');
+  lines.push('                    }');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                if ($score -gt 0) {');
+  lines.push('                    if ($op -eq "set_value" -and $type -eq "ControlType.Edit") { $score += 50 }');
+  lines.push('                    if ($op -eq "invoke" -and $type -eq "ControlType.Button") { $score += 30 }');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                if ($score -gt 0 -and $boundsHint) {');
+  lines.push('                    $r = $child.Current.BoundingRectangle');
+  lines.push('                    $hintRect = @{ X = $boundsHint.x; Y = $boundsHint.y; Width = $boundsHint.width; Height = $boundsHint.height }');
+  lines.push('                    $dist = DistanceSquared $r $hintRect');
+  lines.push('                    if ($dist -lt 10000) { $score += 30 }');
+  lines.push('                    elseif ($dist -lt 100000) { $score += 15 }');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                if ($score -gt $script:bestScore) {');
+  lines.push('                    $script:bestTarget = $child');
+  lines.push('                    $script:bestScore = $score');
+  lines.push('                }');
+  lines.push('');
+  lines.push('                FindTarget $child ($depth+1) $maxDepth');
+  lines.push('            } catch {}');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('}');
+  lines.push('');
+  lines.push('try {');
+  lines.push('    $foundByPoint = $false');
+  lines.push('    if ($boundsHint -and $boundsHint.x -gt 0 -and $boundsHint.y -gt 0) {');
+  lines.push('        $cx = [int]($boundsHint.x + $boundsHint.width / 2)');
+  lines.push('        $cy = [int]($boundsHint.y + $boundsHint.height / 2)');
+  lines.push('        Write-Host "Trying FromPoint at ($cx, $cy)"');
+  lines.push('        try {');
+  lines.push('            $pointElement = [System.Windows.Automation.AutomationElement]::FromPoint([System.Windows.Point]::new($cx, $cy))');
+  lines.push('            if ($pointElement) {');
+  lines.push('                $pname = ""');
+  lines.push('                try { $pname = $pointElement.Current.Name } catch {}');
+  lines.push('                $paid = ""');
+  lines.push('                try { $paid = $pointElement.Current.AutomationId } catch {}');
+  lines.push('                $ptype = ""');
+  lines.push('                try { $ptype = $pointElement.Current.ControlType.ProgrammaticName } catch {}');
+  lines.push('                Write-Host "FromPoint found: type=$ptype name=\'$pname\' autoId=\'$paid\'"');
+  lines.push('                if (($automationId -and (MatchAutoId $paid)) -or (MatchName $pname)) {');
+  lines.push('                    $script:bestTarget = $pointElement');
+  lines.push('                    $script:bestScore = 250');
+  lines.push('                    $foundByPoint = $true');
+  lines.push('                    Write-Host "FromPoint matched selector! Using this element."');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('        } catch {');
+  lines.push('            Write-Host "FromPoint failed: $($_.Exception.Message)"');
+  lines.push('        }');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    if (-not $foundByPoint) {');
+  lines.push('        $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('        FindTarget $root 0 20');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    if (-not $script:bestTarget) {');
+  lines.push('        @{ success=$false; error="Element not found: $selector"; selector=$selector } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('        exit 0');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    $target = $script:bestTarget');
+  lines.push('    $targetName = ""');
+  lines.push('    try { $targetName = $target.Current.Name } catch {}');
+  lines.push('');
+  lines.push('    if ($op -eq "set_value") {');
+  lines.push('        try {');
+  lines.push('            $target.SetFocus()');
+  lines.push('            Start-Sleep -Milliseconds 100');
+  lines.push('            $vp = $null');
+  lines.push('            $ok = $target.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
+  lines.push('            if ($ok -and $vp) {');
+  lines.push('                $vp.SetValue($value)');
+  lines.push('                @{ success=$true; action="set_value"; selector=$selector; value=$value; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('            } else {');
+  lines.push('                $target.SetFocus()');
+  lines.push('                Start-Sleep -Milliseconds 100');
+  lines.push('                try {');
+  lines.push('                    Add-Type -AssemblyName System.Windows.Forms');
+  lines.push('                    [System.Windows.Forms.SendKeys]::SendWait($value)');
+  lines.push('                    @{ success=$true; action="set_value_fallback"; selector=$selector; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('                } catch {');
+  lines.push('                    @{ success=$false; error="Element does not support ValuePattern and SendKeys failed: $($_.Exception.Message)"; selector=$selector; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('                }');
+  lines.push('            }');
+  lines.push('        } catch {');
+  lines.push('            @{ success=$false; error=$_.Exception.Message; selector=$selector; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('        }');
+  lines.push('    } elseif ($op -eq "invoke") {');
+  lines.push('        try {');
+  lines.push('            $ip = $null');
+  lines.push('            $ok = $target.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$ip)');
+  lines.push('            if ($ok -and $ip) {');
+  lines.push('                $ip.Invoke()');
+  lines.push('                @{ success=$true; action="invoke"; selector=$selector; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('            } else {');
+  lines.push('                $r = $target.Current.BoundingRectangle');
+  lines.push('                Add-Type -AssemblyName System.Windows.Forms');
+  lines.push('                [System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point([int]($r.X + $r.Width/2), [int]($r.Y + $r.Height/2))');
+  lines.push('                Start-Sleep -Milliseconds 50');
+  lines.push('                [System.Windows.Forms.Mouse]::Click([System.Windows.Forms.MouseButtons]::Left)');
+  lines.push('                @{ success=$true; action="invoke_fallback_click"; selector=$selector; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('            }');
+  lines.push('        } catch {');
+  lines.push('            @{ success=$false; error=$_.Exception.Message; selector=$selector; matchedElement=$targetName } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('        }');
+  lines.push('    } else {');
+  lines.push('        @{ success=$false; error="Unknown op: $op" } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('    }');
+  lines.push('} catch {');
+  lines.push('    @{ error=$_.Exception.Message } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('}');
+  return lines.join("\n");
+}
+
+let uiaScriptPath: string | null = null;
+
+function ensureUIAScript(): string {
+  if (uiaScriptPath && fs.existsSync(uiaScriptPath)) {
+    return uiaScriptPath;
+  }
+  const tmpDir = path.join(os.tmpdir(), "hoverbuddy");
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  uiaScriptPath = path.join(tmpDir, UIA_SCRIPT_NAME);
+  fs.writeFileSync(uiaScriptPath, getUIAScriptContent(), "utf-8");
+  log(`UIA script written to: ${uiaScriptPath}`);
+  return uiaScriptPath;
+}
+
+async function uiaAction(op: string, selector: string, value?: string, automationId?: string, boundsHint?: { x: number; y: number; width: number; height: number }): Promise<ActionResult> {
+  log(`uiaAction: op=${op} selector="${selector}" automationId="${automationId || ""}" value="${value?.slice(0, 50) || ""}"`);
+  const script = ensureUIAScript();
+  const tmpDir = path.join(os.tmpdir(), "hoverbuddy");
+  const actionFile = path.join(tmpDir, `uia-action-${Date.now()}.json`);
+  const actionData: any = { op, selector, value: value || "" };
+  if (automationId) actionData.automationId = automationId;
+  if (boundsHint) actionData.boundsHint = boundsHint;
+  fs.writeFileSync(actionFile, JSON.stringify(actionData), "utf-8");
+
+  try {
+    const { output, stderr } = await runPowerShell(script, [actionFile], { timeout: 15000 });
+    try { fs.unlinkSync(actionFile); } catch {}
+
+    if (stderr) log(`uiaAction stderr (non-fatal): ${stderr.slice(0, 200)}`);
+
+    if (!output) {
+      log(`uiaAction: empty output`);
+      return { success: false, error: "No output from PowerShell" };
+    }
+    try {
+      const parsed = JSON.parse(output);
+      log(`uiaAction result: ${JSON.stringify(parsed)}`);
+      return parsed;
+    } catch (parseErr: any) {
+      log(`uiaAction JSON parse error: ${parseErr.message}`);
+      return { success: false, error: parseErr.message };
+    }
+  } catch (err: any) {
+    try { fs.unlinkSync(actionFile); } catch {}
+    log(`uiaAction FAILED: ${err.message}`);
+    return { success: false, error: err.message };
+  }
+}
+
+async function clickElement(selector: string, automationId?: string, boundsHint?: { x: number; y: number; width: number; height: number }): Promise<ActionResult> {
+  log(`clickElement: selector="${selector}" automationId="${automationId || ""}"`);
+
+  const selectorNorm = selector.normalize("NFC").trim();
+
+  const candidates = [selectorNorm];
+
+  const colonIdx = selectorNorm.indexOf(":");
+  if (colonIdx > 0) {
+    const nameOnly = selectorNorm.substring(colonIdx + 1);
+    candidates.push(nameOnly);
+  }
+
+  const slashIdx = selectorNorm.lastIndexOf("/");
+  if (slashIdx > 0 && slashIdx < selectorNorm.length - 1) {
+    candidates.push(selectorNorm.substring(slashIdx + 1));
+  }
+
+  const uniq = [...new Set(candidates)];
+  log(`clickElement: trying selectors: ${JSON.stringify(uniq)}`);
+
+  for (const sel of uniq) {
+    const match = await findElementBounds(sel, automationId, boundsHint);
+    if (match && match.width > 0 && match.height > 0) {
+      const cx = Math.round(match.x + match.width / 2);
+      const cy = Math.round(match.y + match.height / 2);
+      log(`clickElement: matched "${sel}" -> name="${match.name}" type="${match.type}" score=${match.score}, clicking (${cx}, ${cy})`);
+      robot.moveMouse(cx, cy);
+      await sleep(50);
+      robot.mouseClick();
+      log(`clickElement: clicked at (${cx}, ${cy})`);
+      return { success: true };
+    }
+  }
+
+  log(`clickElement: all selectors failed for "${selector}"`);
+  return { success: false, error: `Could not find UI element: "${selector}". It may not be visible or active. Click on the element and retry.` };
+}
+
 export interface ActionResult {
   success: boolean;
   error?: string;
   output?: string;
+  matchedElement?: string;
+}
+
+let lastContextElement: { automationId?: string; bounds?: { x: number; y: number; width: number; height: number }; name?: string; type?: string } | null = null;
+
+export function setLastContextElement(element: { automationId?: string; bounds?: { x: number; y: number; width: number; height: number }; name?: string; type?: string } | null): void {
+  lastContextElement = element;
+  log(`setLastContextElement: name="${element?.name}" type="${element?.type}" automationId="${element?.automationId || ""}"`);
 }
 
 export async function executeAction(action: Action): Promise<ActionResult> {
-  log(`executeAction: type=${action.type}, command=${action.command?.slice(0, 80) || "(none)"}, text=${action.text?.slice(0, 50) || "(none)"}`);
+  log(`executeAction: type=${action.type}, selector=${action.selector || "(none)"}, text=${action.text?.slice(0, 50) || "(none)"}`);
+
+  const autoId = action.automationId || lastContextElement?.automationId;
+  const boundsHint = action.boundsHint || lastContextElement?.bounds;
+  const storedBounds = lastContextElement?.bounds;
 
   try {
     switch (action.type) {
       case "type_text":
         if (!action.text) return { success: false, error: "No text provided" };
-        await typeText(action.text);
-        return { success: true };
+        if (action.selector) {
+          const result = await uiaAction("set_value", action.selector, action.text, autoId, boundsHint);
+          if (!result.success) {
+            if (storedBounds) await bringWindowToFront(storedBounds);
+            const clickResult = await clickElement(action.selector, autoId, boundsHint);
+            if (!clickResult.success) return clickResult;
+            await sleep(150);
+            await typeText(action.text);
+          }
+          return result;
+        } else if (storedBounds) {
+          await bringWindowToFront(storedBounds);
+          if (!clickAtBounds(storedBounds)) return { success: false, error: "Invalid stored bounds for click" };
+          await sleep(150);
+          await typeText(action.text);
+          return { success: true };
+        }
+        return { success: false, error: "No selector and no stored bounds" };
 
       case "paste_text":
         if (!action.text) return { success: false, error: "No text provided" };
-        const pasted = await pasteText(action.text);
-        return pasted
-          ? { success: true }
-          : { success: false, error: "Paste failed" };
+        if (action.selector) {
+          const result = await uiaAction("set_value", action.selector, action.text, autoId, boundsHint);
+          if (!result.success) {
+            if (storedBounds) await bringWindowToFront(storedBounds);
+            const clickResult = await clickElement(action.selector, autoId, boundsHint);
+            if (!clickResult.success) return clickResult;
+            await sleep(150);
+            const pasted = await pasteText(action.text);
+            return pasted
+              ? { success: true }
+              : { success: false, error: "Paste failed" };
+          }
+          return result;
+        } else if (storedBounds) {
+          await bringWindowToFront(storedBounds);
+          if (!clickAtBounds(storedBounds)) return { success: false, error: "Invalid stored bounds for click" };
+          await sleep(150);
+          const pasted = await pasteText(action.text);
+          return pasted
+            ? { success: true }
+            : { success: false, error: "Paste failed" };
+        }
+        return { success: false, error: "No selector and no stored bounds" };
+
+      case "set_value":
+        if (!action.text && action.type === "set_value") return { success: false, error: "No text provided" };
+        if (!action.selector) return { success: false, error: "No selector" };
+        {
+          const setResult = await uiaAction("set_value", action.selector, action.text, autoId, boundsHint);
+          if (setResult.success) return setResult;
+          log(`set_value UIA failed (${setResult.error}), falling back to click+paste`);
+          if (storedBounds) {
+            await bringWindowToFront(storedBounds);
+            if (!clickAtBounds(storedBounds)) {
+              const clickResult = await clickElement(action.selector, autoId, boundsHint);
+              if (!clickResult.success) return { success: false, error: `UIA failed and click failed: ${setResult.error}` };
+            }
+            await sleep(150);
+            const pasted = await pasteText(action.text || "");
+            return pasted
+              ? { success: true }
+              : { success: false, error: `UIA failed and paste failed: ${setResult.error}` };
+          }
+          const clickResult = await clickElement(action.selector, autoId, boundsHint);
+          if (!clickResult.success) return { success: false, error: `UIA failed and click failed: ${setResult.error}` };
+          await sleep(150);
+          const pasted2 = await pasteText(action.text || "");
+          return pasted2
+            ? { success: true }
+            : { success: false, error: `UIA failed and paste failed: ${setResult.error}` };
+        }
+
+      case "invoke_element":
+        if (action.selector) {
+          return await uiaAction("invoke", action.selector, undefined, autoId, boundsHint);
+        } else if (storedBounds) {
+          if (!clickAtBounds(storedBounds)) return { success: false, error: "Invalid stored bounds" };
+          await sleep(100);
+          return { success: true };
+        }
+        return { success: false, error: "No selector and no stored bounds" };
 
       case "click_element":
-        if (!action.selector) return { success: false, error: "No selector" };
-        log(`click_element: selector="${action.selector}" (not yet implemented)`);
-        return {
-          success: false,
-          error: "Click by selector not yet implemented",
-        };
+        if (action.selector) {
+          return await clickElement(action.selector, autoId, boundsHint);
+        } else if (storedBounds) {
+          if (!clickAtBounds(storedBounds)) return { success: false, error: "Invalid stored bounds" };
+          return { success: true };
+        }
+        return { success: false, error: "No selector and no stored bounds" };
 
       case "copy_to_clipboard":
         if (!action.text) return { success: false, error: "No text provided" };
@@ -173,14 +800,38 @@ export async function executeAction(action: Action): Promise<ActionResult> {
 
 export function parseActionsFromResponse(text: string): Action[] {
   const actions: Action[] = [];
-  const regex = /<!--ACTION:(\{[^}]+\})-->/g;
+  const regex = /<!--ACTION:([\s\S]*?)-->/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
     try {
-      const action = JSON.parse(match[1]);
-      if (action.type) {
+      let jsonStr = match[1].trim();
+      let parsed: any;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        const firstBrace = jsonStr.indexOf("{");
+        const lastBrace = jsonStr.lastIndexOf("}");
+        if (firstBrace >= 0 && lastBrace > firstBrace) {
+          jsonStr = jsonStr.substring(firstBrace, lastBrace + 1);
+          parsed = JSON.parse(jsonStr);
+        } else {
+          log(`Failed to extract JSON from action marker: ${match[1].slice(0, 80)}`);
+          continue;
+        }
+      }
+      if (parsed.type) {
+        const action: Action = {
+          type: parsed.type,
+          text: parsed.text,
+          selector: parsed.selector,
+          combination: parsed.combination,
+          command: parsed.command,
+        };
+        if (parsed.automationId) action.automationId = parsed.automationId;
+        if (parsed.boundsHint) action.boundsHint = parsed.boundsHint;
+        if (parsed.parentChain) action.parentChain = parsed.parentChain;
         actions.push(action);
-        log(`Parsed action: type=${action.type}`);
+        log(`Parsed action: type=${action.type} selector=${action.selector || ""} automationId=${action.automationId || ""}`);
       }
     } catch (err: any) {
       log(`Failed to parse action marker: ${match[1].slice(0, 50)}, error: ${err.message}`);

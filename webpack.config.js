@@ -17,8 +17,6 @@ module.exports = [
     output: { filename: "main.js", path: path.resolve(__dirname, "dist") },
     externals: {
       robotjs: "commonjs robotjs",
-      ollama: "commonjs ollama",
-      dotenv: "commonjs dotenv",
     },
   },
   {
@@ -35,6 +33,22 @@ module.exports = [
     },
     output: {
       filename: "preload.js",
+      path: path.resolve(__dirname, "dist"),
+    },
+  },
+  {
+    mode: "production",
+    target: "electron-preload",
+    devtool: "source-map",
+    entry: "./src/main/area-preload.ts",
+    module: {
+      rules: [{ test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ }],
+    },
+    resolve: {
+      extensions: [".ts", ".js"],
+    },
+    output: {
+      filename: "area-preload.js",
       path: path.resolve(__dirname, "dist"),
     },
   },

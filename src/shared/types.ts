@@ -4,12 +4,25 @@ export interface UIElement {
   value: string;
   bounds: { x: number; y: number; width: number; height: number };
   children: UIElement[];
+  automationId?: string;
+  className?: string;
+  isOffscreen?: boolean;
+  parentChain?: string[];
+  windowTitle?: string;
+  distance?: number;
+  direction?: string;
+  _relation?: string;
+  _drilledFromContainer?: boolean;
+  containerType?: string;
+  containerName?: string;
 }
 
 export type ActionType =
   | "type_text"
   | "paste_text"
   | "click_element"
+  | "set_value"
+  | "invoke_element"
   | "copy_to_clipboard"
   | "press_keys"
   | "run_command";
@@ -20,26 +33,27 @@ export interface Action {
   selector?: string;
   combination?: string;
   command?: string;
+  automationId?: string;
+  boundsHint?: { x: number; y: number; width: number; height: number };
+  parentChain?: string[];
 }
 
 export interface Config {
-  ollamaUrl: string;
   model: string;
-  cloudProxyUrl: string;
-  hotkeyModifier: "ctrl" | "alt" | "shift";
+  workingDir: string;
 }
 
 export const DEFAULT_CONFIG: Config = {
-  ollamaUrl: "http://localhost:11434",
-  model: "glm-5.1:cloud",
-  cloudProxyUrl: "",
-  hotkeyModifier: "ctrl",
+  model: "opencode-go/kimi-k2.5",
+  workingDir: "",
 };
 
 export interface ContextPayload {
   element: UIElement;
   surrounding: UIElement[];
   cursorPos: { x: number; y: number };
+  imagePath?: string;
+  hasScreenshot?: boolean;
 }
 
 export const IPC = {
@@ -49,9 +63,17 @@ export const IPC = {
   STREAM_TOKEN: "stream-token",
   STREAM_DONE: "stream-done",
   STREAM_ERROR: "stream-error",
+  TOOL_USE: "tool-use",
+  SESSION_RESET: "session-reset",
   EXECUTE_ACTION: "execute-action",
   ACTION_RESULT: "action-result",
   GET_CONFIG: "get-config",
   SET_CONFIG: "set-config",
+  NEW_SESSION: "new-session",
   DISMISS: "dismiss",
+  MINIMIZE: "minimize",
+  WINDOW_MOVE: "window-move",
+  RETRY_ACTION: "retry-action",
+  FOCUS_INPUT: "focus-input",
+  ATTACH_SCREENSHOT: "attach-screenshot",
 } as const;

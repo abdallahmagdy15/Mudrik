@@ -13,9 +13,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "dotenv": "^17.4.1",
     "electron": "^33.4.11",
-    "ollama": "^0.6.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "robotjs": "^0.7.0"

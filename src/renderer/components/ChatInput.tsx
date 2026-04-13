@@ -1,12 +1,23 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 
 interface Props {
   onSubmit: (prompt: string) => void;
   disabled: boolean;
 }
 
-export function ChatInput({ onSubmit, disabled }: Props) {
+export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, disabled }, ref) => {
   const [text, setText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => {
+      textareaRef.current?.focus();
+    }
+  }));
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -14,6 +25,7 @@ export function ChatInput({ onSubmit, disabled }: Props) {
       if (text.trim() && !disabled) {
         onSubmit(text.trim());
         setText("");
+        setTimeout(() => textareaRef.current?.focus(), 50);
       }
     }
   };
@@ -21,6 +33,7 @@ export function ChatInput({ onSubmit, disabled }: Props) {
   return (
     <div className="chat-input">
       <textarea
+        ref={textareaRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
@@ -30,4 +43,4 @@ export function ChatInput({ onSubmit, disabled }: Props) {
       />
     </div>
   );
-}
+});

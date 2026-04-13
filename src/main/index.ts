@@ -1,46 +1,74 @@
-import { config as loadDotEnv } from "dotenv";
 import { app, BrowserWindow, screen } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
-import { registerIpcHandlers, setContext } from "./ipc-handlers";
+import { registerIpcHandlers, setContext, setAreaContext } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener } from "./hotkey";
 import { readContextAtPoint } from "./context-reader";
-
-loadDotEnv();
-
-const LOG_FILE = path.join(app.getPath("userData"), "hoverbuddy.log");
-
-function log(msg: string): void {
-  const ts = new Date().toISOString();
-  const line = `[${ts}] ${msg}\n`;
-  console.log(line.trimEnd());
-  try {
-    fs.appendFileSync(LOG_FILE, line);
-  } catch {
-    // can't write to log file, that's fine
-  }
-}
+import { startAreaSelection } from "./area-selector";
+import { scanArea } from "./area-scanner";
+import { showElementHighlight, showAreaHighlight } from "./highlight";
+import { captureAndOptimize, computeFocusRegion, cleanupImage } from "./vision";
+import { log } from "./logger";
 
 let mainWindow: BrowserWindow | null = null;
 let config: Config = { ...DEFAULT_CONFIG };
 
-function createWindow(): BrowserWindow {
-  const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
+const PANEL_WIDTH = 420;
+const PANEL_HEIGHT = 620;
 
-  log(`Creating window at x=${screenWidth - 440}, width=420, height=600`);
+function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; y: number } {
+  // Use Electron's own cursor position (same coordinate space as window positioning)
+  const electronCursor = screen.getCursorScreenPoint();
+  log(`Cursor: robotjs=(${cursorX},${cursorY}) electron=(${electronCursor.x},${electronCursor.y})`);
+
+  const display = screen.getDisplayNearestPoint(electronCursor);
+  const workArea = display.workArea;
+  const lx = electronCursor.x;
+  const ly = electronCursor.y;
+  const rightEdge = workArea.x + workArea.width;
+  const bottomEdge = workArea.y + workArea.height;
+  const screenMiddle = workArea.x + workArea.width / 2;
+
+  const hGap = Math.round(workArea.width * 0.15);
+  const vGap = Math.round(workArea.height * 0.15);
+  let panelX: number;
+  let panelY: number;
+
+  if (lx < screenMiddle) {
+    panelX = lx + hGap;
+  } else {
+    panelX = lx - PANEL_WIDTH - hGap;
+  }
+
+  panelY = ly - vGap;
+
+  panelX = Math.max(workArea.x + 4, Math.min(panelX, rightEdge - PANEL_WIDTH - 4));
+  panelY = Math.max(workArea.y + 4, Math.min(panelY, bottomEdge - PANEL_HEIGHT - 4));
+
+  log(`Panel: x=${panelX} y=${panelY} | cursor=(${lx},${ly}) screenMid=${screenMiddle} ${lx < screenMiddle ? 'RIGHT' : 'LEFT'} of cursor`);
+
+  return { x: Math.round(panelX), y: Math.round(panelY) };
+}
+
+function createWindow(cursorX: number, cursorY: number): BrowserWindow {
+  const pos = calculatePanelPosition(cursorX, cursorY);
+  log(`Creating window at x=${pos.x}, y=${pos.y}, width=${PANEL_WIDTH}, height=${PANEL_HEIGHT}`);
 
   const win = new BrowserWindow({
-    width: 420,
-    height: 600,
-    x: screenWidth - 440,
-    y: 100,
+    width: PANEL_WIDTH,
+    height: PANEL_HEIGHT,
+    x: pos.x,
+    y: pos.y,
     frame: false,
     transparent: false,
     alwaysOnTop: true,
     skipTaskbar: true,
-    resizable: false,
+    resizable: true,
+    minWidth: 320,
+    minHeight: 400,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -77,15 +105,21 @@ function createWindow(): BrowserWindow {
 
 function showPanel(context: ContextPayload): void {
   log(`showPanel called with context: element=${context.element?.type} "${context.element?.name}" (${context.element?.value?.slice(0, 50)}...)`);
-  setContext(context);
+
+  const cursorX = context.cursorPos?.x ?? 400;
+  const cursorY = context.cursorPos?.y ?? 400;
 
   if (!mainWindow) {
     log("No existing window, creating new one");
-    mainWindow = createWindow();
+    mainWindow = createWindow(cursorX, cursorY);
     mainWindow.on("closed", () => {
       log("Window closed");
       mainWindow = null;
     });
+  } else {
+    const pos = calculatePanelPosition(cursorX, cursorY);
+    log(`Repositioning existing window to x=${pos.x}, y=${pos.y}`);
+    mainWindow.setPosition(pos.x, pos.y);
   }
 
   const sendContext = () => {
@@ -106,6 +140,22 @@ function showPanel(context: ContextPayload): void {
 
   mainWindow.show();
   mainWindow.focus();
+  mainWindow.moveTop();
+
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      mainWindow.webContents.send(IPC.FOCUS_INPUT);
+    }
+  }, 150);
+
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      mainWindow.webContents.send(IPC.FOCUS_INPUT);
+    }
+  }, 400);
+
   log("Panel shown and focused");
 }
 
@@ -117,16 +167,67 @@ function hidePanel(): void {
   }
 }
 
+function handlePointerActivate(cursorPos: { x: number; y: number }): void {
+  log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y}`);
+  readContextAtPoint(cursorPos.x, cursorPos.y).then(
+    ({ element, surrounding }) => {
+      log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items`);
+      const context: ContextPayload = { element, surrounding, cursorPos };
+      setContext(context);
+      showElementHighlight(element.bounds);
+      showPanel(context);
+
+      if (element.bounds.width > 0 && element.bounds.height > 0) {
+        const { x1, y1, x2, y2 } = computeFocusRegion(element.bounds, cursorPos);
+        log(`Capturing pointer image: (${x1},${y1})-(${x2},${y2})`);
+
+        captureAndOptimize(x1, y1, x2, y2).then((imagePath) => {
+          if (imagePath) {
+            log(`Pointer image captured: ${imagePath}`);
+            context.imagePath = imagePath;
+            context.hasScreenshot = true;
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) {
+              win.webContents.send(IPC.CONTEXT_READY, context);
+            }
+          }
+        }).catch((err) => {
+          log(`Pointer image capture failed (non-fatal): ${err.message}`);
+        });
+      }
+    }
+  ).catch((err) => {
+    log(`ERROR reading context: ${err.message}`);
+  });
+}
+
+function handleAreaActivate(): void {
+  log(`Area hotkey triggered — starting area selection`);
+  hidePanel();
+  startAreaSelection((rect) => {
+    log(`Area selected: (${rect.x1},${rect.y1}) to (${rect.x2},${rect.y2})`);
+    showAreaHighlight(rect);
+    const cursorPos = { x: Math.round((rect.x1 + rect.x2) / 2), y: Math.round((rect.y1 + rect.y2) / 2) };
+    scanArea(rect.x1, rect.y1, rect.x2, rect.y2).then(({ elements, imagePath }) => {
+      log(`Area scan found ${elements.length} elements, image=${imagePath ? "captured" : "none"}`);
+      const context = setAreaContext(elements, rect, cursorPos, imagePath);
+      showPanel(context);
+    }).catch((err) => {
+      log(`ERROR scanning area: ${err.message}`);
+    });
+  });
+}
+
 app.whenReady().then(() => {
   log("App ready, initializing...");
-  log(`Log file: ${LOG_FILE}`);
 
-  config = { ...DEFAULT_CONFIG };
-  log(`Config: ollamaUrl=${config.ollamaUrl}, model=${config.model}`);
+  config = { ...DEFAULT_CONFIG, workingDir: path.join(__dirname, "..") || process.cwd() };
+  log(`Config: model=${config.model}, workingDir=${config.workingDir}`);
 
   createTrayWithShow(
     () => {
       log("Show Panel from tray — creating test context");
+      const display = screen.getPrimaryDisplay();
       const testContext: ContextPayload = {
         element: {
           name: "Test Element",
@@ -136,8 +237,9 @@ app.whenReady().then(() => {
           children: [],
         },
         surrounding: [],
-        cursorPos: { x: 400, y: 400 },
+        cursorPos: { x: Math.round(display.workAreaSize.width / 2), y: Math.round(display.workAreaSize.height / 2) },
       };
+      setContext(testContext);
       showPanel(testContext);
     },
     () => app.quit()
@@ -147,16 +249,9 @@ app.whenReady().then(() => {
   registerIpcHandlers(config, showPanel, hidePanel);
   log("IPC handlers registered");
 
-  startHotkeyListener((cursorPos) => {
-    log(`Hotkey activated at cursor pos: x=${cursorPos.x}, y=${cursorPos.y}`);
-    readContextAtPoint(cursorPos.x, cursorPos.y).then(
-      ({ element, surrounding }) => {
-        log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items`);
-        showPanel({ element, surrounding, cursorPos });
-      }
-    ).catch((err) => {
-      log(`ERROR reading context: ${err.message}`);
-    });
+  startHotkeyListener({
+    onPointerActivate: handlePointerActivate,
+    onAreaActivate: handleAreaActivate,
   });
   log("Hotkey listener started");
 
