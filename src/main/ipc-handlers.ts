@@ -363,6 +363,20 @@ export function registerIpcHandlers(
   log("All IPC handlers registered");
 }
 
+function filterToolArtifactLines(text: string): string {
+  const lines = text.split("\n");
+  const filtered = lines.filter(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return true;
+    if (/^⚙\s/.test(trimmed)) return false;
+    if (/^(Thinking|Thought|Action|Observation)\s*:/i.test(trimmed)) return false;
+    if (/^playwright_|^browser_|^web_search|^mcp__|^skill\b|^tool_/.test(trimmed)) return false;
+    if (/^\[[\w_]+\]/.test(trimmed) && /playwright|browser|tool|search|skill/i.test(trimmed)) return false;
+    return true;
+  });
+  return filtered.join("\n");
+}
+
 function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {
   switch (event.type) {
     case "step_start":
@@ -371,10 +385,15 @@ function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {
 
     case "text":
       if (event.part?.text) {
-        const text = event.part.text;
-        fullResponseText += text;
-        log(`text: "${text.slice(0, 60)}..."`);
-        win.webContents.send(IPC.STREAM_TOKEN, text);
+        const raw = event.part.text;
+        const filtered = filterToolArtifactLines(raw);
+        if (filtered) {
+          fullResponseText += filtered;
+          log(`text: "${filtered.slice(0, 60)}..."`);
+          win.webContents.send(IPC.STREAM_TOKEN, filtered);
+        } else {
+          log(`text filtered out (tool artifact): "${raw.slice(0, 60)}..."`);
+        }
       }
       break;
 
@@ -382,29 +401,7 @@ function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {
       if (event.part) {
         const toolName = event.part.tool || "unknown";
         const status = event.part.state?.status || "unknown";
-        const input = event.part.state?.input;
-        const output = event.part.state?.output;
-        log(`tool_use: ${toolName} status=${status}`);
-
-        const toolEvent = {
-          tool: toolName,
-          status,
-          input,
-          output: output ? output.slice(0, 500) : undefined,
-        };
-        win.webContents.send(IPC.TOOL_USE, toolEvent);
-
-        if (status === "completed" && input && toolName === "bash") {
-          const cmd = input.command || input.description || "";
-          const outText = output || "(no output)";
-          const formatted = `\n> \`${cmd}\`\n\`\`\`\n${outText.slice(0, 2000)}\n\`\`\`\n`;
-          win.webContents.send(IPC.STREAM_TOKEN, formatted);
-          fullResponseText += formatted;
-        } else if (status === "completed" && output) {
-          const formatted = `\n[${toolName}]\n\`\`\`\n${output.slice(0, 500)}\n\`\`\`\n`;
-          win.webContents.send(IPC.STREAM_TOKEN, formatted);
-          fullResponseText += formatted;
-        }
+        log(`tool_use: ${toolName} status=${status} (suppressed from display)`);
       }
       break;
 
