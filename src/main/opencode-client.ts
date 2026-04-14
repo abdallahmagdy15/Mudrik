@@ -69,6 +69,7 @@ export class OpenCodeClient {
         "run",
         "--format", "json",
         "--model", this.model,
+        "--agent", "plan",
       ];
 
       if (this.sessionId) {
