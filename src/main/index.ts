@@ -63,7 +63,7 @@ function createWindow(cursorX: number, cursorY: number): BrowserWindow {
     x: pos.x,
     y: pos.y,
     frame: false,
-    transparent: false,
+    transparent: true,
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
@@ -170,9 +170,9 @@ function hidePanel(): void {
 function handlePointerActivate(cursorPos: { x: number; y: number }): void {
   log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y}`);
   readContextAtPoint(cursorPos.x, cursorPos.y).then(
-    ({ element, surrounding }) => {
-      log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items`);
-      const context: ContextPayload = { element, surrounding, cursorPos };
+    ({ element, surrounding, windowInfo }) => {
+      log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
+      const context: ContextPayload = { element, surrounding, cursorPos, windowInfo };
       setContext(context);
       showElementHighlight(element.bounds);
       showPanel(context);

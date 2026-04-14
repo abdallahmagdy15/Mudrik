@@ -264,10 +264,27 @@ export function getCursorPos(): { x: number; y: number } {
 export async function readContextAtPoint(
   x: number,
   y: number
-): Promise<{ element: UIElement; surrounding: UIElement[] }> {
+): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string } }> {
   log(`readContextAtPoint called: x=${x}, y=${y}`);
-  const startTime = Date.now();
 
+  try {
+    const [ctxResult, winResult] = await Promise.all([
+      readElementAtPoint(x, y),
+      readForegroundWindow(),
+    ]);
+
+    const { element, surrounding } = ctxResult;
+    log(`Context read: element type="${element.type}" name="${element.name}" process="${winResult?.processName || ""}" title="${winResult?.title || ""}"`);
+    return { element, surrounding, windowInfo: winResult || undefined };
+  } catch (err: any) {
+    log(`readContextAtPoint FAILED: ${err.message}`);
+    const { element, surrounding } = makeError(x, y, err.message || String(err));
+    return { element, surrounding };
+  }
+}
+
+async function readElementAtPoint(x: number, y: number): Promise<{ element: UIElement; surrounding: UIElement[] }> {
+  const startTime = Date.now();
   try {
     const script = ensureScriptFile();
     const { output, stderr, exitCode } = await runPowerShell(script, [String(x), String(y)], { timeout: 8000 });
@@ -284,7 +301,6 @@ export async function readContextAtPoint(
       return makeError(x, y, "Empty response from PowerShell");
     }
 
-    log(`Parsing JSON response (${output.length} bytes)`);
     let parsed: any;
     try {
       parsed = JSON.parse(output);
@@ -315,8 +331,70 @@ export async function readContextAtPoint(
     log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", drilled=${!!parsed.element?._drilledFromContainer}, ${surrounding.length} nearby siblings, automationId="${element.automationId || ""}", windowTitle="${element.windowTitle || ""}"`);
     return { element, surrounding };
   } catch (err: any) {
-    log(`readContextAtPoint FAILED: ${err.message}`);
+    log(`readElementAtPoint FAILED: ${err.message}`);
     return makeError(x, y, err.message || String(err));
+  }
+}
+
+const WINDOW_SCRIPT_NAME = "hoverbuddy-foreground-window-v1.ps1";
+
+function getWindowScriptContent(): string {
+  return `param([string]$OutputFile)
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+public class FGWin {
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+}
+"@
+$hwnd = [FGWin]::GetForegroundWindow()
+$titleBuf = New-Object System.Text.StringBuilder 512
+[FGWin]::GetWindowText($hwnd, $titleBuf, 512) | Out-Null
+$title = $titleBuf.ToString()
+$pid = [uint32]0
+[FGWin]::GetWindowThreadProcessId($hwnd, [ref]$pid) | Out-Null
+$pname = ""
+$ppath = ""
+try { $proc = Get-Process -Id $pid -ErrorAction Stop; $pname = $proc.ProcessName; try { $ppath = $proc.MainModule.FileName } catch {} } catch {}
+@{ title=$title; processName=$pname; processPath=$ppath } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8`;
+}
+
+let windowScriptPath: string | null = null;
+
+function ensureWindowScriptFile(): string {
+  if (windowScriptPath && fs.existsSync(windowScriptPath)) {
+    return windowScriptPath;
+  }
+  const tmpDir = path.join(os.tmpdir(), "hoverbuddy");
+  if (!fs.existsSync(tmpDir)) {
+    fs.mkdirSync(tmpDir, { recursive: true });
+  }
+  windowScriptPath = path.join(tmpDir, WINDOW_SCRIPT_NAME);
+  fs.writeFileSync(windowScriptPath, getWindowScriptContent(), "utf-8");
+  return windowScriptPath;
+}
+
+async function readForegroundWindow(): Promise<{ title: string; processName: string; processPath: string } | null> {
+  try {
+    const script = ensureWindowScriptFile();
+    const { output, stderr } = await runPowerShell(script, [], { timeout: 5000 });
+    if (stderr) log(`Window script stderr (non-fatal): ${stderr.slice(0, 200)}`);
+    if (!output) return null;
+
+    const parsed = JSON.parse(output);
+    const info = {
+      title: parsed.title || "",
+      processName: parsed.processName || "",
+      processPath: parsed.processPath || "",
+    };
+    log(`Foreground window: title="${info.title}" process="${info.processName}" path="${info.processPath}"`);
+    return info;
+  } catch (err: any) {
+    log(`readForegroundWindow failed (non-fatal): ${err.message}`);
+    return null;
   }
 }
 

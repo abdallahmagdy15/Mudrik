@@ -79,6 +79,7 @@ export function setAreaContext(elements: any[], rect: { x1: number; y1: number; 
   isAreaContext = true;
   areaElements = elements;
   areaImagePath = imagePath || "";
+  attachScreenshotNext = false;
 
   const primaryElement = elements.length > 0 ? elements[0] : {
     name: "Area Selection",
@@ -109,11 +110,6 @@ export function setAreaContext(elements: any[], rect: { x1: number; y1: number; 
       name: elements[0].name,
       type: elements[0].type,
     });
-  }
-
-  const win = BrowserWindow.getAllWindows()[0];
-  if (win) {
-    win.webContents.send(IPC.SESSION_RESET);
   }
 
   log(`setAreaContext: ${elements.length} elements in rect (${rect.x1},${rect.y1})-(${rect.x2},${rect.y2}), image=${imagePath ? "yes" : "no"}`);
@@ -199,7 +195,16 @@ export function registerIpcHandlers(
     } else {
       let contextBlock = "";
       if (isAreaContext && areaElements.length > 0) {
-        contextBlock = `\n--- SCREEN CONTEXT (use this data for actions, do not describe it back to the user) ---\nAREA SELECTION with ${areaElements.length} elements:\n`;
+        contextBlock = `\n--- SCREEN CONTEXT (use this data for actions, do not describe it back to the user) ---\n`;
+        if (currentContext?.windowInfo) {
+          const wi = currentContext.windowInfo;
+          contextBlock += `\nACTIVE WINDOW: "${wi.title}" (app: ${wi.processName})`;
+          if (wi.processPath) {
+            const appBasename = wi.processPath.split(/[\\/]/).pop() || wi.processPath;
+            contextBlock += ` [${appBasename}]`;
+          }
+        }
+        contextBlock += `\nAREA SELECTION with ${areaElements.length} elements:`;
         for (const el of areaElements) {
           const contained = (el as any).isContained !== false ? "inside" : "partial";
           contextBlock += `\n[${el.type}] Name: "${el.name}"`;
@@ -213,7 +218,16 @@ export function registerIpcHandlers(
         contextBlock += `\n--- END CONTEXT ---\n`;
       } else if (currentContext) {
         const el = currentContext.element;
-        contextBlock = `\n--- SCREEN CONTEXT (use this data for actions, do not describe it back to the user) ---\nELEMENT YOU POINTED AT:`;
+        contextBlock = `\n--- SCREEN CONTEXT (use this data for actions, do not describe it back to the user) ---\n`;
+        if (currentContext.windowInfo) {
+          const wi = currentContext.windowInfo;
+          contextBlock += `\nACTIVE WINDOW: "${wi.title}" (app: ${wi.processName})`;
+          if (wi.processPath) {
+            const appBasename = wi.processPath.split(/[\\/]/).pop() || wi.processPath;
+            contextBlock += ` [${appBasename}]`;
+          }
+        }
+        contextBlock += `\nELEMENT YOU POINTED AT:`;
         contextBlock += `\n  Type: ${el.type}`;
         if (el.name) contextBlock += `\n  Name: "${el.name}"`;
         if (el.value) {
@@ -266,15 +280,16 @@ export function registerIpcHandlers(
     if (!isFollowUp) {
       if (isAreaContext && areaImagePath) {
         imageFiles.push(areaImagePath);
-      } else if (attachScreenshotNext && currentContext?.imagePath) {
+      }
+    }
+    if (attachScreenshotNext) {
+      if (currentContext?.imagePath) {
         imageFiles.push(currentContext.imagePath);
         log(`Attaching screenshot per user request: ${currentContext.imagePath.slice(-40)}`);
-      } else if (attachScreenshotNext && areaImagePath) {
+      } else if (areaImagePath) {
         imageFiles.push(areaImagePath);
         log(`Attaching area screenshot per user request: ${areaImagePath.slice(-40)}`);
       }
-    } else {
-      log("Follow-up — not re-sending image files (image already in session)");
     }
     attachScreenshotNext = false;
 
@@ -334,8 +349,8 @@ export function registerIpcHandlers(
   });
 
   ipcMain.on(IPC.ATTACH_SCREENSHOT, () => {
-    const hasImage = !!currentContext?.imagePath;
-    log(`ATTACH_SCREENSHOT received — hasImage=${hasImage}, will include with next prompt`);
+    const hasImage = !!(currentContext?.imagePath || areaImagePath);
+    log(`ATTACH_SCREENSHOT received — hasImage=${hasImage} (context=${!!currentContext?.imagePath}, area=${!!areaImagePath}), will include with next prompt`);
     if (hasImage) {
       attachScreenshotNext = true;
     }

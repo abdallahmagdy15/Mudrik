@@ -48,12 +48,19 @@ export const DEFAULT_CONFIG: Config = {
   workingDir: "",
 };
 
+export interface WindowInfo {
+  title: string;
+  processName: string;
+  processPath: string;
+}
+
 export interface ContextPayload {
   element: UIElement;
   surrounding: UIElement[];
   cursorPos: { x: number; y: number };
   imagePath?: string;
   hasScreenshot?: boolean;
+  windowInfo?: WindowInfo;
 }
 
 export const IPC = {

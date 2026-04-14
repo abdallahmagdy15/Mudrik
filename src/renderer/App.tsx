@@ -68,6 +68,7 @@ export function App() {
   const [actionResults, setActionResults] = useState<ActionResultEntry[]>([]);
   const [screenshotAttached, setScreenshotAttached] = useState(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!window.hoverbuddy) {
@@ -83,6 +84,9 @@ export function App() {
       setStreaming(false);
       setError(null);
       setScreenshotAttached(false);
+      if (data.element?.type !== "area") {
+        setMessages([]);
+      }
       setTimeout(() => chatInputRef.current?.focus(), 150);
     });
 
@@ -117,7 +121,6 @@ export function App() {
 
     window.hoverbuddy.onSessionReset(() => {
       console.log("[RENDERER] Session reset");
-      setMessages([]);
       setCurrentResponse("");
       setError(null);
       setActionResults([]);
@@ -139,6 +142,10 @@ export function App() {
     };
     window.addEventListener("focus", handleWindowFocus);
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, currentResponse, actionResults]);
 
   const handleSubmit = useCallback((prompt: string) => {
     console.log(`[RENDERER] Submit prompt: "${prompt}"`);
@@ -216,7 +223,7 @@ export function App() {
         </div>
       </div>
       {context && <ContextPreview context={context} />}
-      {context && context.hasScreenshot && !screenshotAttached && (
+      {context && !screenshotAttached && (
         <button className="btn-attach-screenshot" onClick={handleAttachScreenshot} disabled={streaming}>
           📸 Attach Screenshot
         </button>
@@ -229,6 +236,12 @@ export function App() {
           <div key={i} className={`message message-${msg.role}`}>
             <div className="message-role">{msg.role === "user" ? "You" : "Assistant"}{msg.screenshotAttached ? " 📸" : ""}</div>
             <pre className="message-content">{formatMessageContent(msg.content)}</pre>
+            {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
+              <div className="loading-bar-container">
+                <div className="loading-bar" />
+                <div className="loading-text">Thinking...</div>
+              </div>
+            )}
           </div>
         ))}
         {currentResponse && (
@@ -250,6 +263,7 @@ export function App() {
           </div>
         ))}
         {error && <div className="response-error">{error}</div>}
+        <div ref={messagesEndRef} />
       </div>
       <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} />
     </div>

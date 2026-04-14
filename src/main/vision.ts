@@ -5,13 +5,22 @@ import * as os from "os";
 
 const log = (msg: string) => console.log(`[VISION] ${msg}`);
 
-const CAPTURE_SCRIPT_NAME = "hoverbuddy-capture-v2.ps1";
-const RESIZE_SCRIPT_NAME = "hoverbuddy-resize-v1.ps1";
+const CAPTURE_SCRIPT_NAME = "hoverbuddy-capture-v3.ps1";
+const RESIZE_SCRIPT_NAME = "hoverbuddy-resize-v2.ps1";
 const MAX_IMAGE_BYTES = 200 * 1024;
 
 function getCaptureScriptContent(): string {
   const lines: string[] = [];
   lines.push("param([int]$X1, [int]$Y1, [int]$X2, [int]$Y2, [string]$OutFile)");
+  lines.push("Add-Type @\"");
+  lines.push("using System;");
+  lines.push("using System.Runtime.InteropServices;");
+  lines.push("public class DpiHelper {");
+  lines.push("    [DllImport(\"user32.dll\")]");
+  lines.push("    public static extern bool SetProcessDPIAware();");
+  lines.push("}");
+  lines.push("\"@");
+  lines.push("[DpiHelper]::SetProcessDPIAware() | Out-Null");
   lines.push("Add-Type -AssemblyName System.Drawing");
   lines.push("");
   lines.push("$w = $X2 - $X1");
@@ -44,10 +53,10 @@ function getResizeScriptContent(): string {
   lines.push("");
   lines.push("try {");
   lines.push("    $img = [System.Drawing.Image]::FromFile($InFile)");
-  lines.push("    $quality = 85");
+  lines.push("    $quality = 80");
   lines.push("    $tmpFile = $InFile + '.tmp.jpg'");
   lines.push("");
-  lines.push("    for ($i = 0; $i -lt 8; $i++) {");
+  lines.push("    for ($i = 0; $i -lt 7; $i++) {");
   lines.push("        $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)");
   lines.push("        $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]$quality)");
   lines.push("        $jpgCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1");
@@ -60,21 +69,23 @@ function getResizeScriptContent(): string {
   lines.push("            Write-Output \"OK q=$quality size=$size\"");
   lines.push("            exit 0");
   lines.push("        }");
-  lines.push("        $quality = [Math]::Max(10, $quality - 10)");
+  lines.push("        $quality = [Math]::Max(15, $quality - 10)");
   lines.push("        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue");
   lines.push("    }");
   lines.push("");
-  lines.push("    $scale = 0.75");
-  lines.push("    for ($i = 0; $i -lt 6; $i++) {");
+  lines.push("    $scale = 0.85");
+  lines.push("    for ($i = 0; $i -lt 8; $i++) {");
   lines.push("        $newW = [int]($img.Width * $scale)");
   lines.push("        $newH = [int]($img.Height * $scale)");
+  lines.push("        if ($newW -lt 200 -or $newH -lt 200) { break }");
   lines.push("        $small = New-Object System.Drawing.Bitmap($newW, $newH)");
   lines.push("        $sg = [System.Drawing.Graphics]::FromImage($small)");
   lines.push("        $sg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic");
   lines.push("        $sg.DrawImage($img, 0, 0, $newW, $newH)");
   lines.push("        $sg.Dispose()");
+  lines.push("        $q = [Math]::Max(40, [int](60 + (0.85 - $scale) * 200))");
   lines.push("        $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)");
-  lines.push("        $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]60)");
+  lines.push("        $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]$q)");
   lines.push("        $jpgCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1");
   lines.push("        $small.Save($tmpFile, $jpgCodec, $encParams)");
   lines.push("        $size = (Get-Item $tmpFile).Length");
@@ -83,12 +94,12 @@ function getResizeScriptContent(): string {
   lines.push("            Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue");
   lines.push("            $small.Dispose()");
   lines.push("            $img.Dispose()");
-  lines.push("            Write-Output \"OK scale=$scale q=60 size=$size\"");
+  lines.push("            Write-Output \"OK scale=$scale q=$q size=$size\"");
   lines.push("            exit 0");
   lines.push("        }");
   lines.push("        $small.Dispose()");
   lines.push("        Remove-Item $tmpFile -Force -ErrorAction SilentlyContinue");
-  lines.push("        $scale = [Math]::Max(0.2, $scale - 0.1)");
+  lines.push("        $scale = [Math]::Max(0.25, $scale - 0.08)");
   lines.push("    }");
   lines.push("");
   lines.push("    Copy-Item $InFile $OutFile -Force");
@@ -188,25 +199,18 @@ async function optimizeImage(imagePath: string): Promise<string> {
 const MAX_FOCUS_DIM = 500;
 
 export function computeFocusRegion(
-  bounds: { x: number; y: number; width: number; height: number },
-  cursorPos: { x: number; y: number }
+  _bounds: { x: number; y: number; width: number; height: number },
+  _cursorPos: { x: number; y: number }
 ): { x1: number; y1: number; x2: number; y2: number } {
-  const area = bounds.width * bounds.height;
-  if (area <= MAX_FOCUS_DIM * MAX_FOCUS_DIM * 2) {
-    const pad = 40;
-    return {
-      x1: Math.max(0, bounds.x - pad),
-      y1: Math.max(0, bounds.y - pad),
-      x2: bounds.x + bounds.width + pad,
-      y2: bounds.y + bounds.height + pad,
-    };
-  }
-  const half = MAX_FOCUS_DIM / 2;
+  const electronScreen = require("electron").screen;
+  const primary = electronScreen.getPrimaryDisplay();
+  const sf = primary.scaleFactor;
+  const b = primary.bounds;
   return {
-    x1: Math.max(0, Math.round(cursorPos.x - half)),
-    y1: Math.max(0, Math.round(cursorPos.y - half)),
-    x2: Math.round(cursorPos.x + half),
-    y2: Math.round(cursorPos.y + half),
+    x1: Math.round(b.x * sf),
+    y1: Math.round(b.y * sf),
+    x2: Math.round((b.x + b.width) * sf),
+    y2: Math.round((b.y + b.height) * sf),
   };
 }
 

@@ -36,15 +36,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-function clickAtBounds(bounds: { x: number; y: number; width: number; height: number }): boolean {
+async function moveCursorTo(bounds: { x: number; y: number; width: number; height: number }): Promise<void> {
+  const cx = Math.round(bounds.x + bounds.width / 2);
+  const cy = Math.round(bounds.y + bounds.height / 2);
+  log(`moveCursorTo: moving cursor to (${cx}, ${cy})`);
+  robot.moveMouse(cx, cy);
+  await sleep(80);
+}
+
+async function clickAtBounds(bounds: { x: number; y: number; width: number; height: number }): Promise<boolean> {
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     log(`clickAtBounds: invalid bounds ${JSON.stringify(bounds)}`);
     return false;
   }
-  const cx = Math.round(bounds.x + bounds.width / 2);
-  const cy = Math.round(bounds.y + bounds.height / 2);
-  log(`clickAtBounds: clicking at (${cx}, ${cy}) from bounds (${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`);
-  robot.moveMouse(cx, cy);
+  await moveCursorTo(bounds);
   robot.mouseClick();
   return true;
 }
@@ -56,8 +61,8 @@ async function typeText(text: string): Promise<void> {
 }
 
 async function bringWindowToFront(bounds: { x: number; y: number; width: number; height: number }): Promise<void> {
-  log(`bringWindowToFront: clicking at (${bounds.x}, ${bounds.y}) to focus window`);
-  robot.moveMouse(Math.round(bounds.x + bounds.width / 2), Math.round(bounds.y + 5));
+  log(`bringWindowToFront: moving cursor to window at (${bounds.x},${bounds.y}) size=${bounds.width}x${bounds.height}`);
+  await moveCursorTo(bounds);
   robot.mouseClick();
   await sleep(100);
 }
@@ -68,12 +73,18 @@ async function pasteText(text: string): Promise<boolean> {
     const { clipboard } = require("electron");
     clipboard.writeText(text);
     await sleep(50);
-    await new Promise<void>((resolve, reject) => {
-      exec('powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\\"^v\\")"', { timeout: 5000 }, (err) => {
-        if (err) reject(err);
-        else resolve();
+    const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `paste-${Date.now()}.ps1`);
+    fs.writeFileSync(scriptPath, `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait('^v')`);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
       });
-    });
+    } finally {
+      try { fs.unlinkSync(scriptPath); } catch {}
+    }
     await sleep(100);
     log("pasteText: completed");
     return true;
@@ -87,19 +98,7 @@ async function pressKeys(combination: string): Promise<void> {
   log(`pressKeys: ${combination}`);
   const keys = combination.split("+").map((k) => k.trim().toLowerCase());
 
-  const held: string[] = [];
-  for (const key of keys) {
-    const mapped = VK_MAP[key] || key;
-    if (["control", "alt", "shift"].includes(mapped)) {
-      robot.keyToggle(mapped, "down");
-      held.push(mapped);
-      log(`  key down: ${mapped}`);
-    }
-  }
-
-  await sleep(30);
-
-  const sendKeysMap: Record<string, string> = {
+  const sendKeysCharMap: Record<string, string> = {
     enter: "{ENTER}", tab: "{TAB}", escape: "{ESC}", backspace: "{BS}",
     delete: "{DEL}", space: " ", up: "{UP}", down: "{DOWN}",
     left: "{LEFT}", right: "{RIGHT}", home: "{HOME}", end: "{END}",
@@ -109,27 +108,39 @@ async function pressKeys(combination: string): Promise<void> {
     f9: "{F9}", f10: "{F10}", f11: "{F11}", f12: "{F12}",
   };
 
+  // Build SendKeys notation: Ctrl=^ Alt=% Shift=+
+  let sendStr = "";
+  let finalKey = "";
+
   for (const key of keys) {
     const mapped = VK_MAP[key] || key;
-    if (!["control", "alt", "shift"].includes(mapped)) {
-      const sendKey = sendKeysMap[mapped] || mapped;
-      await new Promise<void>((resolve, reject) => {
-        const cmd = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('${sendKey.replace(/'/g, "''")}')\""`;
-        exec(cmd, { timeout: 5000 }, (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
+    if (mapped === "control") { sendStr += "^"; }
+    else if (mapped === "alt") { sendStr += "%"; }
+    else if (mapped === "shift") { sendStr += "+"; }
+    else { finalKey = mapped; }
+  }
+
+  if (finalKey && sendKeysCharMap[finalKey]) {
+    sendStr += sendKeysCharMap[finalKey];
+  } else if (finalKey) {
+    sendStr += finalKey;
+  }
+
+  log(`  SendKeys string: ${sendStr}`);
+  const scriptContent = `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait('${sendStr.replace(/'/g, "''")}')`;
+  const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `sendkey-${Date.now()}.ps1`);
+  fs.writeFileSync(scriptPath, scriptContent);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (err) => {
+        if (err) reject(err);
+        else resolve();
       });
-      log(`  SendKeys: ${sendKey}`);
-    }
+    });
+  } finally {
+    try { fs.unlinkSync(scriptPath); } catch {}
   }
-
-  await sleep(30);
-
-  for (const key of held.reverse()) {
-    robot.keyToggle(key, "up");
-    log(`  key up: ${key}`);
-  }
+  await sleep(50);
 }
 
 function copyToClipboard(text: string): boolean {
@@ -641,9 +652,9 @@ async function clickElement(selector: string, automationId?: string, boundsHint?
     if (match && match.width > 0 && match.height > 0) {
       const cx = Math.round(match.x + match.width / 2);
       const cy = Math.round(match.y + match.height / 2);
-      log(`clickElement: matched "${sel}" -> name="${match.name}" type="${match.type}" score=${match.score}, clicking (${cx}, ${cy})`);
+      log(`clickElement: matched "${sel}" -> name="${match.name}" type="${match.type}" score=${match.score}, moving cursor to (${cx}, ${cy}) then clicking`);
       robot.moveMouse(cx, cy);
-      await sleep(50);
+      await sleep(80);
       robot.mouseClick();
       log(`clickElement: clicked at (${cx}, ${cy})`);
       return { success: true };
