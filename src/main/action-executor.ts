@@ -44,6 +44,22 @@ async function moveCursorTo(bounds: { x: number; y: number; width: number; heigh
   await sleep(80);
 }
 
+async function smoothMoveCursorTo(targetX: number, targetY: number, durationMs: number = 500): Promise<void> {
+  const startX = robot.getMousePos().x;
+  const startY = robot.getMousePos().y;
+  const steps = 20;
+  const stepDelay = Math.max(10, Math.round(durationMs / steps));
+  log(`smoothMoveCursor: (${startX},${startY}) -> (${targetX},${targetY}) over ${durationMs}ms`);
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const eased = 1 - Math.pow(1 - t, 3);
+    const x = Math.round(startX + (targetX - startX) * eased);
+    const y = Math.round(startY + (targetY - startY) * eased);
+    robot.moveMouse(x, y);
+    await sleep(stepDelay);
+  }
+}
+
 async function clickAtBounds(bounds: { x: number; y: number; width: number; height: number }): Promise<boolean> {
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     log(`clickAtBounds: invalid bounds ${JSON.stringify(bounds)}`);
@@ -626,6 +642,50 @@ async function uiaAction(op: string, selector: string, value?: string, automatio
   }
 }
 
+async function resolveElementBounds(
+  selector?: string,
+  automationId?: string,
+  boundsHint?: { x: number; y: number; width: number; height: number }
+): Promise<{ x: number; y: number; width: number; height: number } | null> {
+  if (!selector) return boundsHint || null;
+  const selectorNorm = selector.normalize("NFC").trim();
+  const candidates = [selectorNorm];
+  const colonIdx = selectorNorm.indexOf(":");
+  if (colonIdx > 0) candidates.push(selectorNorm.substring(colonIdx + 1));
+  const slashIdx = selectorNorm.lastIndexOf("/");
+  if (slashIdx > 0 && slashIdx < selectorNorm.length - 1) candidates.push(selectorNorm.substring(slashIdx + 1));
+  for (const sel of [...new Set(candidates)]) {
+    const match = await findElementBounds(sel, automationId, boundsHint);
+    if (match && match.width > 0 && match.height > 0) {
+      return { x: match.x, y: match.y, width: match.width, height: match.height };
+    }
+  }
+  return null;
+}
+
+async function showPulseHighlight(bounds: { x: number; y: number; width: number; height: number }): Promise<void> {
+  const { screen: electronScreen, BrowserWindow } = require("electron");
+  const sf = electronScreen.getPrimaryDisplay().scaleFactor;
+  const pulseWin = new BrowserWindow({
+    x: bounds.x,
+    y: bounds.y,
+    width: bounds.width,
+    height: bounds.height,
+    transparent: true,
+    frame: false,
+    alwaysOnTop: true,
+    focusable: false,
+    skipTaskbar: true,
+    resizable: false,
+    hasShadow: false,
+  });
+  pulseWin.setIgnoreMouseEvents(true);
+  pulseWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(`<!DOCTYPE html><html><body style="margin:0;padding:0;overflow:hidden;background:transparent"><div style="width:100%;height:100%;border:3px solid rgba(124,140,248,0.8);border-radius:8px;box-shadow:0 0 20px rgba(124,140,248,0.4),inset 0 0 20px rgba(124,140,248,0.1);animation:pulse 0.8s ease-in-out 3;opacity:0;animation-fill-mode:forwards;animation-delay:0.1s"></div><style>@keyframes pulse{0%{opacity:0;transform:scale(0.95)}50%{opacity:1;transform:scale(1.05)}100%{opacity:0;transform:scale(1)}}</style></body></html>`)}`);
+  setTimeout(() => {
+    try { pulseWin.close(); } catch {}
+  }, 3000);
+}
+
 async function clickElement(selector: string, automationId?: string, boundsHint?: { x: number; y: number; width: number; height: number }): Promise<ActionResult> {
   log(`clickElement: selector="${selector}" automationId="${automationId || ""}"`);
 
@@ -735,33 +795,45 @@ export async function executeAction(action: Action): Promise<ActionResult> {
         }
         return { success: false, error: "No selector and no stored bounds" };
 
-      case "set_value":
-        if (!action.text && action.type === "set_value") return { success: false, error: "No text provided" };
+      case "set_value": {
         if (!action.selector) return { success: false, error: "No selector" };
-        {
-          const setResult = await uiaAction("set_value", action.selector, action.text, autoId, boundsHint);
-          if (setResult.success) return setResult;
-          log(`set_value UIA failed (${setResult.error}), falling back to click+paste`);
-          if (storedBounds) {
-            await bringWindowToFront(storedBounds);
-            if (!clickAtBounds(storedBounds)) {
-              const clickResult = await clickElement(action.selector, autoId, boundsHint);
-              if (!clickResult.success) return { success: false, error: `UIA failed and click failed: ${setResult.error}` };
-            }
-            await sleep(150);
-            const pasted = await pasteText(action.text || "");
-            return pasted
-              ? { success: true }
-              : { success: false, error: `UIA failed and paste failed: ${setResult.error}` };
-          }
-          const clickResult = await clickElement(action.selector, autoId, boundsHint);
-          if (!clickResult.success) return { success: false, error: `UIA failed and click failed: ${setResult.error}` };
+        const textToSet = action.text ?? "";
+        const setResult = await uiaAction("set_value", action.selector, textToSet, autoId, boundsHint);
+        if (setResult.success) return setResult;
+        log(`set_value UIA failed (${setResult.error}), falling back to click+paste`);
+        if (textToSet === "") {
+          log("set_value: empty value — using select-all + delete fallback");
+          if (storedBounds) await bringWindowToFront(storedBounds);
+          const clickOk = storedBounds
+            ? clickAtBounds(storedBounds)
+            : (await clickElement(action.selector, autoId, boundsHint)).success;
+          if (!clickOk) return { success: false, error: `Click failed for clear: ${setResult.error}` };
           await sleep(150);
-          const pasted2 = await pasteText(action.text || "");
-          return pasted2
+          await pressKeys("ctrl+a");
+          await sleep(50);
+          await pressKeys("delete");
+          return { success: true };
+        }
+        if (storedBounds) {
+          await bringWindowToFront(storedBounds);
+          if (!clickAtBounds(storedBounds)) {
+            const clickResult = await clickElement(action.selector, autoId, boundsHint);
+            if (!clickResult.success) return { success: false, error: `UIA failed and click failed: ${setResult.error}` };
+          }
+          await sleep(150);
+          const pasted = await pasteText(action.text || "");
+          return pasted
             ? { success: true }
             : { success: false, error: `UIA failed and paste failed: ${setResult.error}` };
         }
+        const clickResult = await clickElement(action.selector, autoId, boundsHint);
+        if (!clickResult.success) return { success: false, error: `UIA failed and click failed: ${setResult.error}` };
+        await sleep(150);
+        const pasted2 = await pasteText(action.text || "");
+        return pasted2
+          ? { success: true }
+          : { success: false, error: `UIA failed and paste failed: ${setResult.error}` };
+      }
 
       case "invoke_element":
         if (action.selector) {
@@ -799,6 +871,33 @@ export async function executeAction(action: Action): Promise<ActionResult> {
         if (!action.command) return { success: false, error: "No command" };
         const cmdResult = await runCommand(action.command);
         return cmdResult;
+
+      case "guide_to": {
+        const guideBounds = await resolveElementBounds(action.selector, autoId, boundsHint);
+        if (!guideBounds) {
+          if (storedBounds) {
+            const cx = Math.round(storedBounds.x + storedBounds.width / 2);
+            const cy = Math.round(storedBounds.y + storedBounds.height / 2);
+            await smoothMoveCursorTo(cx, cy);
+            if (!action.autoClick) {
+              await showPulseHighlight(storedBounds);
+            } else {
+              robot.mouseClick();
+            }
+            return { success: true };
+          }
+          return { success: false, error: "Could not find element to guide to" };
+        }
+        const cx = Math.round(guideBounds.x + guideBounds.width / 2);
+        const cy = Math.round(guideBounds.y + guideBounds.height / 2);
+        await smoothMoveCursorTo(cx, cy);
+        if (action.autoClick) {
+          robot.mouseClick();
+        } else {
+          await showPulseHighlight(guideBounds);
+        }
+        return { success: true };
+      }
 
       default:
         return { success: false, error: `Unknown action: ${action.type}` };
@@ -841,6 +940,7 @@ export function parseActionsFromResponse(text: string): Action[] {
         if (parsed.automationId) action.automationId = parsed.automationId;
         if (parsed.boundsHint) action.boundsHint = parsed.boundsHint;
         if (parsed.parentChain) action.parentChain = parsed.parentChain;
+        if (parsed.autoClick !== undefined) action.autoClick = parsed.autoClick;
         actions.push(action);
         log(`Parsed action: type=${action.type} selector=${action.selector || ""} automationId=${action.automationId || ""}`);
       }

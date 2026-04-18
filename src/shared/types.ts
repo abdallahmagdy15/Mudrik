@@ -13,6 +13,7 @@ export interface UIElement {
   direction?: string;
   _relation?: string;
   _drilledFromContainer?: boolean;
+  _pctDist?: string;
   containerType?: string;
   containerName?: string;
 }
@@ -25,7 +26,8 @@ export type ActionType =
   | "invoke_element"
   | "copy_to_clipboard"
   | "press_keys"
-  | "run_command";
+  | "run_command"
+  | "guide_to";
 
 export interface Action {
   type: ActionType;
@@ -36,16 +38,19 @@ export interface Action {
   automationId?: string;
   boundsHint?: { x: number; y: number; width: number; height: number };
   parentChain?: string[];
+  autoClick?: boolean;
 }
 
 export interface Config {
   model: string;
   workingDir: string;
+  autoClickGuide: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
-  model: "opencode-go/kimi-k2.5",
+  model: "nvidia/moonshotai/kimi-k2.5",
   workingDir: "",
+  autoClickGuide: false,
 };
 
 export interface WindowInfo {
@@ -83,4 +88,7 @@ export const IPC = {
   RETRY_ACTION: "retry-action",
   FOCUS_INPUT: "focus-input",
   ATTACH_SCREENSHOT: "attach-screenshot",
+  RESTORE_SESSION: "restore-session",
+  SESSION_HISTORY: "session-history",
+  STOP_RESPONSE: "stop-response",
 } as const;

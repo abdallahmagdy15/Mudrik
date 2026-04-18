@@ -81,7 +81,6 @@ body {
   -webkit-app-region: drag;
   flex-shrink: 0;
   position: relative;
-  overflow: hidden;
 }
 
 .app-header::before {
@@ -111,7 +110,7 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.btn-dismiss, .btn-minimize, .btn-new-session {
+.btn-dismiss, .btn-minimize, .btn-new-session, .btn-settings {
   background: none;
   border: 1px solid transparent;
   color: var(--text-muted);
@@ -140,6 +139,77 @@ body {
   color: var(--accent-bright);
   border-color: var(--border-bright);
   background: var(--accent-glow);
+}
+
+.btn-settings {
+  font-size: 14px;
+}
+
+.btn-settings:hover {
+  color: var(--accent-bright);
+  border-color: var(--border-bright);
+  background: var(--accent-glow);
+}
+
+.btn-settings.active {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.settings-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 8px;
+  margin-top: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-bright);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  z-index: 100;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  -webkit-app-region: no-drag;
+  animation: msgSlide 0.15s ease;
+}
+
+.settings-toggle {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.toggle-switch {
+  width: 36px;
+  height: 20px;
+  background: var(--bg-inset);
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.2s ease;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.toggle-switch.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.toggle-knob {
+  width: 16px;
+  height: 16px;
+  background: var(--text);
+  border-radius: 50%;
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  transition: left 0.2s ease;
+}
+
+.toggle-switch.on .toggle-knob {
+  left: 17px;
 }
 
 /* ── Context Preview ── */
@@ -274,15 +344,52 @@ body {
 
 .loading-bar-container {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
   padding: 8px 0 2px;
-  gap: 8px;
+  gap: 10px;
+}
+
+.btn-stop {
+  background: rgba(251,113,133,0.1);
+  color: var(--red);
+  border: 1px solid rgba(251,113,133,0.3);
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-stop:hover {
+  background: rgba(251,113,133,0.2);
+  border-color: var(--red);
+}
+
+.btn-stop-inline {
+  background: rgba(251,113,133,0.1);
+  color: var(--red);
+  border: 1px solid rgba(251,113,133,0.3);
+  padding: 2px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 500;
+  margin-top: 4px;
+  transition: all 0.15s ease;
+}
+
+.btn-stop-inline:hover {
+  background: rgba(251,113,133,0.2);
+  border-color: var(--red);
 }
 
 .loading-bar {
-  width: 100%;
+  flex: 1;
+  min-width: 60px;
   height: 2px;
   border-radius: 2px;
   background: linear-gradient(90deg, transparent, #7c8cf8, #a78bfa, #c084fc, #7c8cf8, transparent);
@@ -473,3 +580,41 @@ body {
 
 .chat-input textarea::placeholder { color: var(--text-muted); }
 .chat-input textarea:disabled { opacity: 0.4; }
+
+.copy-chip {
+  display: block;
+  width: 100%;
+  background: linear-gradient(135deg, rgba(124,140,248,0.15), rgba(167,139,250,0.1));
+  color: var(--accent-bright);
+  border: 1px solid rgba(124,140,248,0.3);
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin: 4px 0;
+  text-align: left;
+}
+
+.copy-chip:hover {
+  background: var(--accent-glow-strong);
+  border-color: var(--accent-bright);
+  box-shadow: 0 0 10px rgba(124,140,248,0.2);
+}
+
+.copy-chip.copied {
+  background: var(--green-glow);
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.session-restoring {
+  text-align: center;
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+  animation: pulse 2s ease-in-out infinite;
+}

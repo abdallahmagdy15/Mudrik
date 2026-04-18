@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
-import { registerIpcHandlers, setContext, setAreaContext } from "./ipc-handlers";
+import { registerIpcHandlers, setContext, setAreaContext, getLastContext } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener } from "./hotkey";
 import { readContextAtPoint } from "./context-reader";
 import { startAreaSelection } from "./area-selector";
@@ -167,8 +167,35 @@ function hidePanel(): void {
   }
 }
 
+function showExistingPanel(): void {
+  log("showExistingPanel called — re-showing with last context (no reset)");
+  if (!mainWindow) {
+    log("No existing window, cannot re-show");
+    return;
+  }
+  const pos = calculatePanelPosition(
+    lastCursorX ?? screen.getPrimaryDisplay().workAreaSize.width / 2,
+    lastCursorY ?? screen.getPrimaryDisplay().workAreaSize.height / 2
+  );
+  mainWindow.setPosition(pos.x, pos.y);
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.moveTop();
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.focus();
+      mainWindow.webContents.send(IPC.FOCUS_INPUT);
+    }
+  }, 150);
+}
+
+let lastCursorX: number | null = null;
+let lastCursorY: number | null = null;
+
 function handlePointerActivate(cursorPos: { x: number; y: number }): void {
   log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y}`);
+  lastCursorX = cursorPos.x;
+  lastCursorY = cursorPos.y;
   readContextAtPoint(cursorPos.x, cursorPos.y).then(
     ({ element, surrounding, windowInfo }) => {
       log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
@@ -226,21 +253,27 @@ app.whenReady().then(() => {
 
   createTrayWithShow(
     () => {
-      log("Show Panel from tray — creating test context");
-      const display = screen.getPrimaryDisplay();
-      const testContext: ContextPayload = {
-        element: {
-          name: "Test Element",
-          type: "text",
-          value: "This is a test. If you can see this, the renderer is working!",
-          bounds: { x: 0, y: 0, width: 200, height: 50 },
-          children: [],
-        },
-        surrounding: [],
-        cursorPos: { x: Math.round(display.workAreaSize.width / 2), y: Math.round(display.workAreaSize.height / 2) },
-      };
-      setContext(testContext);
-      showPanel(testContext);
+      const lastCtx = getLastContext();
+      if (lastCtx && mainWindow) {
+        log("Show Panel from tray — re-showing with last context");
+        showExistingPanel();
+      } else {
+        log("Show Panel from tray — no existing context, creating test context");
+        const display = screen.getPrimaryDisplay();
+        const testContext: ContextPayload = {
+          element: {
+            name: "Test Element",
+            type: "text",
+            value: "This is a test. If you can see this, the renderer is working!",
+            bounds: { x: 0, y: 0, width: 200, height: 50 },
+            children: [],
+          },
+          surrounding: [],
+          cursorPos: { x: Math.round(display.workAreaSize.width / 2), y: Math.round(display.workAreaSize.height / 2) },
+        };
+        setContext(testContext);
+        showPanel(testContext);
+      }
     },
     () => app.quit()
   );

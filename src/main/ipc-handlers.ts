@@ -5,6 +5,10 @@ import { SYSTEM_PROMPT } from "../shared/prompts";
 import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement } from "./action-executor";
 import { showNotification } from "./tray";
 import { cleanupImage } from "./vision";
+import { spawn } from "child_process";
+import * as os from "os";
+import * as path from "path";
+import * as fs from "fs";
 
 import { log } from "./logger";
 
@@ -17,6 +21,7 @@ function computeContextHash(context: ContextPayload | null, isArea: boolean, are
 }
 
 let client: OpenCodeClient;
+let appConfig: Config;
 let currentContext: ContextPayload | null = null;
 let hidePanelFn: (() => void) | null = null;
 let showPanelFn: ((context: ContextPayload) => void) | null = null;
@@ -27,7 +32,8 @@ let isAreaContext: boolean = false;
 let areaElements: any[] = [];
 let areaImagePath: string = "";
 let lastContextHash: string = "";
-let promptCountSinceContextChange: number = 0;
+let contextNeedsSending: boolean = false;
+let hasSentFirstMessage: boolean = false;
 let attachScreenshotNext: boolean = false;
 
 export function setContext(context: ContextPayload): void {
@@ -47,13 +53,11 @@ export function setContext(context: ContextPayload): void {
   areaElements = [];
 
   if (isSameContext) {
-    promptCountSinceContextChange = 0;
-    log(`setContext: same element context, keeping session (hash=${newHash})`);
+    log(`setContext: same context — not marking for re-send (hash=${newHash})`);
   } else {
-    promptCountSinceContextChange = 0;
+    contextNeedsSending = true;
     lastContextHash = newHash;
-    client.resetSession();
-    log(`setContext: new context, resetting session (hash=${newHash})`);
+    log(`setContext: NEW context — marked for sending (hash=${newHash})`);
   }
 
   setLastContextElement({
@@ -63,10 +67,10 @@ export function setContext(context: ContextPayload): void {
     type: context.element?.type,
   });
   log(`setContext: element type="${context.element?.type}" name="${context.element?.name}" automationId="${context.element?.automationId || ""}"`);
-  const win = BrowserWindow.getAllWindows()[0];
-  if (win && !isSameContext) {
-    win.webContents.send(IPC.SESSION_RESET);
-  }
+}
+
+export function getLastContext(): ContextPayload | null {
+  return lastContext;
 }
 
 export function setAreaContext(elements: any[], rect: { x1: number; y1: number; x2: number; y2: number }, cursorPos: { x: number; y: number }, imagePath?: string): ContextPayload {
@@ -99,7 +103,8 @@ export function setAreaContext(elements: any[], rect: { x1: number; y1: number; 
 
   currentContext = context;
   lastContext = context;
-  promptCountSinceContextChange = 0;
+  contextNeedsSending = true;
+  hasSentFirstMessage = false;
   lastContextHash = computeContextHash(context, true, elements);
   client.resetSession();
 
@@ -123,6 +128,7 @@ export function registerIpcHandlers(
 ): void {
   hidePanelFn = hidePanel;
   showPanelFn = showPanel;
+  appConfig = config;
   const workingDir = config.workingDir || process.cwd();
   client = new OpenCodeClient(config.model || "opencode-go/kimi-k2.5", workingDir);
   log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}`);
@@ -166,16 +172,22 @@ export function registerIpcHandlers(
   ipcMain.on(IPC.NEW_SESSION, () => {
     log("NEW_SESSION: resetting OpenCode session");
     client.resetSession();
-    promptCountSinceContextChange = 0;
+    contextNeedsSending = true;
+    hasSentFirstMessage = false;
     const win = BrowserWindow.getAllWindows()[0];
     if (win) {
       win.webContents.send(IPC.SESSION_RESET);
     }
   });
 
+  ipcMain.on(IPC.STOP_RESPONSE, () => {
+    log("STOP_RESPONSE received — killing active process");
+    client.kill();
+  });
+
   ipcMain.on(IPC.SEND_PROMPT, async (_e, prompt: string) => {
     log(`SEND_PROMPT: "${prompt.slice(0, 80)}..."`);
-    log(`hasSession=${client.hasSession()}, promptCount=${promptCountSinceContextChange}, isAreaContext=${isAreaContext}`);
+    log(`hasSession=${client.hasSession()}, contextNeedsSending=${contextNeedsSending}, hasSentFirstMessage=${hasSentFirstMessage}, isAreaContext=${isAreaContext}`);
     log(`currentContext is ${currentContext ? `set: element="${currentContext.element?.name}" type="${currentContext.element?.type}" area=${isAreaContext} image=${currentContext.imagePath ? currentContext.imagePath.slice(-40) : "none"}` : "NULL"}`);
     const win = BrowserWindow.getAllWindows()[0];
     if (!win) {
@@ -185,8 +197,8 @@ export function registerIpcHandlers(
 
     fullResponseText = "";
 
-    const isFollowUp = client.hasSession() && promptCountSinceContextChange > 0;
-    log(`isFollowUp=${isFollowUp} (hasSession=${client.hasSession()}, promptCount=${promptCountSinceContextChange})`);
+    const isFollowUp = hasSentFirstMessage && !contextNeedsSending;
+    log(`isFollowUp=${isFollowUp} (hasSent=${hasSentFirstMessage}, needsSend=${contextNeedsSending})`);
     let fullPrompt: string;
 
     if (isFollowUp) {
@@ -248,8 +260,8 @@ export function registerIpcHandlers(
         }
 
         if (currentContext.surrounding && currentContext.surrounding.length > 0) {
-          contextBlock += `\n\nNEARBY ELEMENTS:`;
-          for (const sib of currentContext.surrounding.slice(0, 15)) {
+          contextBlock += `\n\nNEARBY & SCREEN ELEMENTS:`;
+          for (const sib of currentContext.surrounding.slice(0, 25)) {
             contextBlock += `\n  - ${sib.type}`;
             if (sib.name) contextBlock += ` "${sib.name}"`;
             if (sib.value) {
@@ -257,9 +269,13 @@ export function registerIpcHandlers(
               contextBlock += ` value="${sv}"`;
             }
             if (sib.automationId) contextBlock += ` autoId=${sib.automationId}`;
-            if (sib.distance !== undefined && sib.direction) {
+            if (sib.bounds) contextBlock += ` @(${sib.bounds.x},${sib.bounds.y} ${sib.bounds.width}x${sib.bounds.height})`;
+            if (sib._pctDist) {
+              contextBlock += ` [${sib._pctDist} ${sib.direction || ""}]`;
+            } else if (sib.distance !== undefined && sib.direction) {
               contextBlock += ` (${sib.distance}px ${sib.direction})`;
             }
+            if (sib._relation === "screen") contextBlock += ` (screen)`;
           }
         }
 
@@ -271,10 +287,11 @@ export function registerIpcHandlers(
       }
 
       const systemPrefix = `${SYSTEM_PROMPT}\n\n`;
-      fullPrompt = systemPrefix + contextBlock + `\n--- USER MESSAGE ---\n${prompt}\n--- END MESSAGE ---\n`;
+      fullPrompt = systemPrefix + contextBlock + `\n--- USER SETTING ---\nautoClickGuide: ${config.autoClickGuide ? "true" : "false"}\n--- END SETTING ---\n\n--- USER MESSAGE ---\n${prompt}\n--- END MESSAGE ---\n`;
     }
 
-    promptCountSinceContextChange++;
+    contextNeedsSending = false;
+    hasSentFirstMessage = true;
 
     const imageFiles: string[] = [];
     if (!isFollowUp) {
@@ -293,10 +310,34 @@ export function registerIpcHandlers(
     }
     attachScreenshotNext = false;
 
+    let receivedAnyText = false;
+    let timeoutFired = false;
+
     try {
-      await client.sendMessage(fullPrompt, (event: OpenCodeEvent) => {
+      const sendPromise = client.sendMessage(fullPrompt, (event: OpenCodeEvent) => {
+        if (timeoutFired) return;
+        if (event.type === "text" && event.part?.text) {
+          receivedAnyText = true;
+        }
         handleOpenCodeEvent(event, win);
       }, imageFiles.length > 0 ? imageFiles : undefined);
+
+      const timeoutPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          if (!receivedAnyText) {
+            log("TIMEOUT: No response after 2 minutes — killing process");
+            timeoutFired = true;
+            client.kill();
+            win.webContents.send(IPC.STREAM_ERROR, "AI took too long to respond. Please try again.");
+            resolve();
+          } else {
+            resolve();
+          }
+        }, 120000);
+      });
+
+      await Promise.race([sendPromise, timeoutPromise]);
+      if (timeoutFired) return;
       log("OpenCode session completed");
 
       const actions = parseActionsFromResponse(fullResponseText);
@@ -360,11 +401,106 @@ export function registerIpcHandlers(
     }
   });
 
+  ipcMain.handle(IPC.RESTORE_SESSION, async () => {
+    try {
+      const opencodeBin = findOpenCodeBinPath();
+      if (!opencodeBin) { log("restoreSession: bin not found"); return null; }
+      const { execFile } = require("child_process");
+      const cwd = config.workingDir || os.homedir();
+      const listRaw = await new Promise<string>((res, rej) => {
+        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+      });
+      const sessions = JSON.parse(listRaw);
+      if (!Array.isArray(sessions) || sessions.length === 0) { log("restoreSession: no sessions"); return null; }
+      const sessionId = sessions[0].id;
+      log(`restoreSession: latest=${sessionId.slice(0, 30)}`);
+      const exportRaw = await new Promise<string>((res, rej) => {
+        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+      });
+      const jsonStart = exportRaw.indexOf("{");
+      if (jsonStart < 0) { log("restoreSession: no json"); return null; }
+      const data = JSON.parse(exportRaw.slice(jsonStart));
+      if (!data.messages?.length) { log("restoreSession: empty"); return null; }
+      const history: { role: string; content: string }[] = [];
+      for (const msg of data.messages) {
+        if (!msg.parts) continue;
+        const texts: string[] = [];
+        for (const p of msg.parts) { if (p.type === "text" && p.text) texts.push(p.text); }
+        if (texts.length === 0) continue;
+        const role = msg.info?.role || "user";
+        let content = texts.join("\n");
+        if (role === "user") {
+          const msgMatch = content.match(/--- USER MESSAGE ---\n([\s\S]*?)\n--- END MESSAGE ---/);
+          if (msgMatch) content = msgMatch[1].trim();
+        } else {
+          content = cleanAssistantContent(content);
+        }
+        if (content.trim()) history.push({ role, content });
+      }
+      const trimmed = history.slice(-10);
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && trimmed.length > 0) win.webContents.send(IPC.SESSION_HISTORY, trimmed);
+      client.setRestoredSession(sessionId);
+      log(`restoreSession: restored ${sessionId.slice(0, 30)}, ${trimmed.length}/${history.length} messages`);
+      return sessionId;
+    } catch (err: any) { log(`restoreSession error: ${err.message}`); return null; }
+  });
+
   log("All IPC handlers registered");
+
+  cleanupOldSessions();
+}
+
+const MAX_SESSIONS = 5;
+
+function cleanupOldSessions(): void {
+  const opencodeBin = findOpenCodeBinPath();
+  if (!opencodeBin) return;
+  const { execFile } = require("child_process");
+  const cwd = appConfig.workingDir || os.homedir();
+
+  execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "100"], { encoding: "utf-8", timeout: 15000, cwd, maxBuffer: 2*1024*1024 }, async (err: any, stdout: string) => {
+    if (err) { log(`cleanupSessions list error: ${err.message}`); return; }
+    try {
+      const sessions = JSON.parse(stdout);
+      if (!Array.isArray(sessions)) return;
+
+      const ourSessions = sessions
+        .filter((s: any) => s.directory === cwd)
+        .sort((a: any, b: any) => b.created - a.created);
+
+      if (ourSessions.length <= MAX_SESSIONS) {
+        log(`cleanupSessions: ${ourSessions.length} sessions in ${cwd}, nothing to delete`);
+        return;
+      }
+
+      const toDelete = ourSessions.slice(MAX_SESSIONS);
+      log(`cleanupSessions: deleting ${toDelete.length} old sessions (keeping ${MAX_SESSIONS})`);
+
+      for (const session of toDelete) {
+        const delProc = spawn("node", [opencodeBin, "session", "delete", session.id], { cwd, stdio: "pipe" });
+        let delStderr = "";
+        delProc.stderr!.on("data", (d: Buffer) => { delStderr += d.toString(); });
+        delProc.on("close", (code) => {
+          if (code === 0) {
+            log(`cleanupSessions: deleted ${session.id.slice(0, 30)}`);
+          } else {
+            log(`cleanupSessions: failed to delete ${session.id.slice(0, 30)}: exit=${code} ${delStderr.slice(0, 100)}`);
+          }
+        });
+      }
+    } catch (parseErr: any) {
+      log(`cleanupSessions parse error: ${parseErr.message}`);
+    }
+  });
 }
 
 function filterToolArtifactLines(text: string): string {
-  const lines = text.split("\n");
+  let clean = text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
+    .replace(/<skill_content[\s\S]*?<\/skill_content>/gi, "")
+    .replace(/<skill[\s\S]*?<\/skill>/gi, "");
+  const lines = clean.split("\n");
   const filtered = lines.filter(line => {
     const trimmed = line.trim();
     if (!trimmed) return true;
@@ -372,9 +508,36 @@ function filterToolArtifactLines(text: string): string {
     if (/^(Thinking|Thought|Action|Observation)\s*:/i.test(trimmed)) return false;
     if (/^playwright_|^browser_|^web_search|^mcp__|^skill\b|^tool_/.test(trimmed)) return false;
     if (/^\[[\w_]+\]/.test(trimmed) && /playwright|browser|tool|search|skill/i.test(trimmed)) return false;
+    if (/operational mode has changed/i.test(trimmed)) return false;
+    if (/no longer in read-only mode/i.test(trimmed)) return false;
+    if (/permitted to make file changes/i.test(trimmed)) return false;
+    if (/permitted to.*run shell commands/i.test(trimmed)) return false;
+    if (/permitted to.*utilize.*tools/i.test(trimmed)) return false;
     return true;
   });
   return filtered.join("\n");
+}
+
+function cleanAssistantContent(text: string): string {
+  return text
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
+    .replace(/<skill_content[\s\S]*?<\/skill_content>/gi, "")
+    .replace(/<skill[\s\S]*?<\/skill>/gi, "")
+    .replace(/\[skill\][\s\S]*?\[\/skill\]/gi, "")
+    .replace(/<!--ACTION:[\s\S]*?-->/g, "")
+    .trim();
+}
+
+function findOpenCodeBinPath(): string | null {
+  const p = path.join(os.homedir(), "AppData", "Roaming", "npm", "node_modules", "opencode-ai", "bin", "opencode");
+  if (fs.existsSync(p)) return p;
+  try {
+    const { execSync } = require("child_process");
+    const prefix = execSync("npm config get prefix", { encoding: "utf-8" }).trim();
+    const gp = path.join(prefix, "node_modules", "opencode-ai", "bin", "opencode");
+    if (fs.existsSync(gp)) return gp;
+  } catch {}
+  return null;
 }
 
 function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {

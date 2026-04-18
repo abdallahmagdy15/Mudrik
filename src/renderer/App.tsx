@@ -26,6 +26,9 @@ declare global {
       onScreenshotAttached: (cb: (data: { attached: boolean; hasImage: boolean }) => void) => void;
       getConfig: () => Promise<any>;
       setConfig: (config: any) => Promise<any>;
+      restoreSession: () => Promise<any>;
+      onSessionHistory: (cb: (messages: any[]) => void) => void;
+      stopResponse: () => void;
     };
   }
 }
@@ -49,14 +52,34 @@ interface ActionResultEntry {
   result: { success: boolean; error?: string; output?: string };
 }
 
-function formatMessageContent(content: string): string {
-  return content
+interface MessageSegment {
+  type: "text" | "copy-chip";
+  content: string;
+}
+
+function parseMessageContent(content: string): MessageSegment[] {
+  const segments: MessageSegment[] = [];
+  const copyRe = /<!--COPY:([\s\S]*?)-->/g;
+  const clean = content
     .replace(/<!--ACTION:[\s\S]*?-->/g, "")
     .replace(/<skill_content[\s\S]*?<\/skill_content>/gi, "")
     .replace(/<skill[\s\S]*?<\/skill>/gi, "")
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
     .replace(/\[skill\][\s\S]*?\[\/skill\]/gi, "")
     .trim();
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = copyRe.exec(clean)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", content: clean.slice(lastIndex, match.index) });
+    }
+    segments.push({ type: "copy-chip", content: match[1] });
+    lastIndex = copyRe.lastIndex;
+  }
+  if (lastIndex < clean.length) {
+    segments.push({ type: "text", content: clean.slice(lastIndex) });
+  }
+  return segments;
 }
 
 export function App() {
@@ -67,6 +90,10 @@ export function App() {
   const [currentResponse, setCurrentResponse] = useState("");
   const [actionResults, setActionResults] = useState<ActionResultEntry[]>([]);
   const [screenshotAttached, setScreenshotAttached] = useState(false);
+  const [copiedChip, setCopiedChip] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [autoClickGuide, setAutoClickGuide] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -84,9 +111,17 @@ export function App() {
       setStreaming(false);
       setError(null);
       setScreenshotAttached(false);
-      if (data.element?.type !== "area") {
-        setMessages([]);
-      }
+      setSettingsOpen(false);
+      setMessages((prev) => {
+        if (prev.length > 0) {
+          console.log("[RENDERER] Context changed within active session — keeping messages");
+          return prev;
+        }
+        console.log("[RENDERER] Fresh activation — clearing messages, restoring session");
+        setRestoringSession(true);
+        window.hoverbuddy.restoreSession().finally(() => setRestoringSession(false));
+        return [];
+      });
       setTimeout(() => chatInputRef.current?.focus(), 150);
     });
 
@@ -132,6 +167,23 @@ export function App() {
       setScreenshotAttached(data.attached && data.hasImage);
     });
 
+    window.hoverbuddy.onSessionHistory((historyMessages: { role: string; content: string }[]) => {
+      console.log(`[RENDERER] Session history: ${historyMessages.length} messages`);
+      setRestoringSession(false);
+      if (historyMessages.length > 0) {
+        const mapped = historyMessages.map(m => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          toolUses: [],
+        }));
+        setMessages((prev) => {
+          if (prev.length === 0) return mapped;
+          console.log(`[RENDERER] Merging ${mapped.length} history with ${prev.length} existing messages`);
+          return [...mapped, ...prev];
+        });
+      }
+    });
+
     window.hoverbuddy.onFocusInput(() => {
       console.log("[RENDERER] Focus input requested");
       setTimeout(() => chatInputRef.current?.focus(), 50);
@@ -141,6 +193,10 @@ export function App() {
       setTimeout(() => chatInputRef.current?.focus(), 50);
     };
     window.addEventListener("focus", handleWindowFocus);
+
+    window.hoverbuddy.getConfig().then((cfg: any) => {
+      if (cfg?.autoClickGuide !== undefined) setAutoClickGuide(cfg.autoClickGuide);
+    });
   }, []);
 
   useEffect(() => {
@@ -173,6 +229,22 @@ export function App() {
     console.log("[RENDERER] Attach screenshot clicked");
     window.hoverbuddy.attachScreenshot();
   }, []);
+
+  const handleStopResponse = useCallback(() => {
+    console.log("[RENDERER] Stop response clicked");
+    window.hoverbuddy.stopResponse();
+    setStreaming(false);
+    if (currentResponse.trim()) {
+      setMessages((msgs) => [
+        ...msgs,
+        { role: "assistant", content: currentResponse + "\n\n*[Response stopped]*", toolUses: [] },
+      ]);
+      setCurrentResponse("");
+    } else {
+      setCurrentResponse("");
+      setError("Response stopped by user");
+    }
+  }, [currentResponse]);
 
   const handleDismiss = useCallback(() => {
     console.log("[RENDERER] Dismiss clicked");
@@ -212,15 +284,53 @@ export function App() {
     window.hoverbuddy.retryAction(action);
   }, []);
 
+  const handleCopyChip = useCallback((text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedChip(text);
+    setTimeout(() => setCopiedChip(null), 1500);
+  }, []);
+
+  const handleToggleAutoClick = useCallback(() => {
+    const newVal = !autoClickGuide;
+    setAutoClickGuide(newVal);
+    window.hoverbuddy.setConfig({ autoClickGuide: newVal });
+  }, [autoClickGuide]);
+
+  const renderSegments = useCallback((content: string) => {
+    const segments = parseMessageContent(content);
+    return segments.map((seg, i) => {
+      if (seg.type === "copy-chip") {
+        const isCopied = copiedChip === seg.content;
+        return (
+          <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content)}>
+            {isCopied ? "✓ Copied!" : seg.content}
+          </span>
+        );
+      }
+      return <span key={i}>{seg.content}</span>;
+    });
+  }, [copiedChip, handleCopyChip]);
+
   return (
     <div className="app">
       <div className="app-header" onMouseDown={handleMouseDown}>
         <span className="app-title">HoverBuddy</span>
         <div className="header-actions">
+          <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title="Settings">&#9881;</button>
           <button className="btn-new-session" onClick={handleNewSession} title="New Session">+</button>
           <button className="btn-minimize" onClick={handleMinimize} title="Minimize (auto-show on response)">&#8211;</button>
           <button className="btn-dismiss" onClick={handleDismiss} title="Close">&times;</button>
         </div>
+        {settingsOpen && (
+          <div className="settings-dropdown">
+            <label className="settings-toggle">
+              <span>Auto-click guide</span>
+              <div className={`toggle-switch ${autoClickGuide ? "on" : ""}`} onClick={handleToggleAutoClick}>
+                <div className="toggle-knob" />
+              </div>
+            </label>
+          </div>
+        )}
       </div>
       {context && <ContextPreview context={context} />}
       {context && !screenshotAttached && (
@@ -232,14 +342,18 @@ export function App() {
         <div className="screenshot-badge">📸 Screenshot attached</div>
       )}
       <div className="messages">
+        {restoringSession && (
+          <div className="session-restoring">Loading chat history...</div>
+        )}
         {messages.map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
             <div className="message-role">{msg.role === "user" ? "You" : "Assistant"}{msg.screenshotAttached ? " 📸" : ""}</div>
-            <pre className="message-content">{formatMessageContent(msg.content)}</pre>
+            <pre className="message-content">{renderSegments(msg.content)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
                 <div className="loading-bar" />
                 <div className="loading-text">Thinking...</div>
+                <button className="btn-stop" onClick={handleStopResponse}>Stop</button>
               </div>
             )}
           </div>
@@ -247,8 +361,9 @@ export function App() {
         {currentResponse && (
           <div className="message message-assistant">
             <div className="message-role">Assistant</div>
-            <pre className="message-content">{formatMessageContent(currentResponse)}</pre>
+            <pre className="message-content">{renderSegments(currentResponse)}</pre>
             {streaming && <span className="cursor-blink">|</span>}
+            {streaming && <button className="btn-stop-inline" onClick={handleStopResponse}>Stop</button>}
           </div>
         )}
         {actionResults.map((ar, i) => (

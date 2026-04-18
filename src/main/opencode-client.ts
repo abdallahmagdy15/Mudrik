@@ -29,6 +29,7 @@ export type EventHandler = (event: OpenCodeEvent) => void;
 
 export class OpenCodeClient {
   private sessionId: string | null = null;
+  private freshSession: boolean = true;
   private model: string;
   private workingDir: string;
   private activeProcess: ChildProcess | null = null;
@@ -46,11 +47,18 @@ export class OpenCodeClient {
 
   resetSession(): void {
     this.sessionId = null;
-    log("Session reset — next message will start a new conversation");
+    this.freshSession = true;
+    log("Session reset — next message will start a NEW conversation (no --continue)");
   }
 
   hasSession(): boolean {
     return this.sessionId !== null;
+  }
+
+  setRestoredSession(sessionId: string): void {
+    this.sessionId = sessionId;
+    this.freshSession = false;
+    log(`Restored session: ${sessionId.slice(0, 30)}`);
   }
 
   sendMessage(prompt: string, onEvent: EventHandler, imageFiles?: string[]): Promise<void> {
@@ -69,14 +77,17 @@ export class OpenCodeClient {
         "run",
         "--format", "json",
         "--model", this.model,
-        "--agent", "plan",
       ];
 
       if (this.sessionId) {
         args.push("--session", this.sessionId);
         log(`Reusing session: ${this.sessionId.slice(0, 30)}`);
+      } else if (this.freshSession) {
+        this.freshSession = false;
+        log("Starting new session (no --continue)");
       } else {
-        log("Starting new session (no session ID yet)");
+        args.push("--continue");
+        log("Continuing last session (--continue)");
       }
 
       if (imageFiles && imageFiles.length > 0) {
@@ -98,7 +109,6 @@ export class OpenCodeClient {
       let buffer = "";
       let errorOccurred = false;
       let resolved = false;
-      let stdinClosed = false;
 
       proc.stdout!.on("data", (data: Buffer) => {
         buffer += data.toString("utf-8");
@@ -112,9 +122,11 @@ export class OpenCodeClient {
             const event: OpenCodeEvent = JSON.parse(trimmed);
             if (event.sessionID && !this.sessionId) {
               this.sessionId = event.sessionID;
+              this.freshSession = false;
               log(`Captured sessionID: ${this.sessionId.slice(0, 30)}`);
             } else if (event.sessionID && this.sessionId && event.sessionID !== this.sessionId) {
               this.sessionId = event.sessionID;
+              this.freshSession = false;
               log(`SessionID updated: ${this.sessionId.slice(0, 30)}`);
             }
             onEvent(event);
@@ -160,7 +172,6 @@ export class OpenCodeClient {
       log(`Writing prompt to stdin (${prompt.length} bytes)`);
       proc.stdin!.write(prompt);
       proc.stdin!.end();
-      stdinClosed = true;
     });
   }
 

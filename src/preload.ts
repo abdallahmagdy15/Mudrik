@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
     ipcRenderer.on("attach-screenshot", (_e, data) => cb(data)),
   getConfig: () => ipcRenderer.invoke("get-config"),
   setConfig: (config: any) => ipcRenderer.invoke("set-config", config),
+  restoreSession: () => ipcRenderer.invoke("restore-session"),
+  onSessionHistory: (cb: (messages: any[]) => void) =>
+    ipcRenderer.on("session-history", (_e, messages) => cb(messages)),
+  stopResponse: () => ipcRenderer.send("stop-response"),
 });

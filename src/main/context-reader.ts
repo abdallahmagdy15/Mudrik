@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v5.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v6.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -165,7 +165,10 @@ function getScriptContent(): string {
   lines.push('            $tr = $target.Current.BoundingRectangle');
   lines.push('            $tcx = $tr.X + $tr.Width / 2');
   lines.push('            $tcy = $tr.Y + $tr.Height / 2');
-  lines.push('            $maxDist = 500');
+  lines.push('            $screenW = [System.Windows.SystemParameters]::PrimaryScreenWidth');
+  lines.push('            $screenH = [System.Windows.SystemParameters]::PrimaryScreenHeight');
+  lines.push('            $maxDist = [Math]::Sqrt([Math]::Pow($screenW, 2) + [Math]::Pow($screenH, 2)) * 0.8');
+  lines.push('            $diagScreen = [Math]::Sqrt([Math]::Pow($screenW, 2) + [Math]::Pow($screenH, 2))');
   lines.push('            foreach ($sib in $siblings) {');
   lines.push('                try {');
   lines.push('                    if ($sib -eq $target) { continue }');
@@ -175,8 +178,10 @@ function getScriptContent(): string {
   lines.push('                    $scy = $sr.Y + $sr.Height / 2');
   lines.push('                    $dist = [Math]::Sqrt(([Math]::Pow($scx - $tcx, 2) + [Math]::Pow($scy - $tcy, 2)))');
   lines.push('                    if ($dist -le $maxDist) {');
+  lines.push('                        $pctDist = [int](($dist / $diagScreen) * 100)');
   lines.push('                        $d = ElementToDict $sib');
   lines.push('                        $d["distance"] = [int]$dist');
+  lines.push('                        $d["_pctDist"] = "$pctDist%"');
   lines.push('                        $d["direction"] = ""');
   lines.push('                        if ($scy -lt $tcy -and [Math]::Abs($scx - $tcx) -lt [Math]::Abs($scy - $tcy)) { $d["direction"] = "above" }');
   lines.push('                        elseif ($scy -gt $tcy -and [Math]::Abs($scx - $tcx) -lt [Math]::Abs($scy - $tcy)) { $d["direction"] = "below" }');
@@ -188,7 +193,7 @@ function getScriptContent(): string {
   lines.push('                } catch {}');
   lines.push('            }');
   lines.push('            $result = $result | Sort-Object { $_["distance"] }');
-  lines.push('            if ($result.Count -gt 30) { $result = $result[0..29] }');
+  lines.push('            if ($result.Count -gt 50) { $result = $result[0..49] }');
   lines.push('        }');
   lines.push('    } catch {}');
   lines.push('    return $result');
@@ -227,6 +232,16 @@ function getScriptContent(): string {
   lines.push('            $parentDict["windowTitle"] = $windowTitle');
   lines.push('            if ($parentDict["name"] -or $parentDict["value"]) { $surrounding += $parentDict }');
   lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('');
+  lines.push('    try {');
+  lines.push('        $rootEl = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($element)');
+  lines.push('        for ($i = 0; $i -lt 10 -and $rootEl; $i++) {');
+  lines.push('            $p = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($rootEl)');
+  lines.push('            if (-not $p -or $p -eq $rootEl) { break }');
+  lines.push('            $rootEl = $p');
+  lines.push('        }');
+  lines.push('        if ($rootEl) { $surrounding += CollectScreenElements $rootEl $element $X $Y }');
   lines.push('    } catch {}');
   lines.push('');
   lines.push('    $result["surrounding"] = $surrounding');
