@@ -166,10 +166,61 @@ body {
   border-radius: var(--radius);
   padding: 8px 12px;
   z-index: 100;
-  min-width: 180px;
+  min-width: 220px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   -webkit-app-region: no-drag;
   animation: msgSlide 0.15s ease;
+}
+
+.settings-section {
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.model-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-subtle);
+  transition: background 0.15s ease;
+}
+
+.model-option:hover {
+  background: rgba(124, 140, 248, 0.1);
+}
+
+.model-active {
+  color: var(--text);
+  background: rgba(124, 140, 248, 0.08);
+}
+
+.model-name {
+  font-weight: 500;
+}
+
+.model-provider {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex: 1;
+}
+
+.model-check {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .settings-toggle {

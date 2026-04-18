@@ -93,6 +93,8 @@ export function App() {
   const [copiedChip, setCopiedChip] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [autoClickGuide, setAutoClickGuide] = useState(false);
+  const [currentModel, setCurrentModel] = useState("zai-coding-plan/glm-4.6v");
+  const [recentModels, setRecentModels] = useState<string[]>(["zai-coding-plan/glm-4.6v"]);
   const [restoringSession, setRestoringSession] = useState(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -196,6 +198,8 @@ export function App() {
 
     window.hoverbuddy.getConfig().then((cfg: any) => {
       if (cfg?.autoClickGuide !== undefined) setAutoClickGuide(cfg.autoClickGuide);
+      if (cfg?.model) setCurrentModel(cfg.model);
+      if (cfg?.recentModels) setRecentModels(cfg.recentModels);
     });
   }, []);
 
@@ -296,6 +300,14 @@ export function App() {
     window.hoverbuddy.setConfig({ autoClickGuide: newVal });
   }, [autoClickGuide]);
 
+  const handleSwitchModel = useCallback((model: string) => {
+    console.log(`[RENDERER] Switching model to: ${model}`);
+    setCurrentModel(model);
+    window.hoverbuddy.setConfig({ model }).then((cfg: any) => {
+      if (cfg?.recentModels) setRecentModels(cfg.recentModels);
+    });
+  }, []);
+
   const renderSegments = useCallback((content: string) => {
     const segments = parseMessageContent(content);
     return segments.map((seg, i) => {
@@ -323,6 +335,20 @@ export function App() {
         </div>
         {settingsOpen && (
           <div className="settings-dropdown">
+            <div className="settings-section">
+              <div className="settings-label">Model</div>
+              {recentModels.map((m) => (
+                <div
+                  key={m}
+                  className={`model-option ${m === currentModel ? "model-active" : ""}`}
+                  onClick={() => handleSwitchModel(m)}
+                >
+                  <span className="model-name">{m.split("/").pop()}</span>
+                  <span className="model-provider">{m.split("/")[0]}</span>
+                  {m === currentModel && <span className="model-check">&#10003;</span>}
+                </div>
+              ))}
+            </div>
             <label className="settings-toggle">
               <span>Auto-click guide</span>
               <div className={`toggle-switch ${autoClickGuide ? "on" : ""}`} onClick={handleToggleAutoClick}>

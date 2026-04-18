@@ -45,12 +45,14 @@ export interface Config {
   model: string;
   workingDir: string;
   autoClickGuide: boolean;
+  recentModels: string[];
 }
 
 export const DEFAULT_CONFIG: Config = {
-  model: "nvidia/moonshotai/kimi-k2.5",
+  model: "zai-coding-plan/glm-4.6v",
   workingDir: "",
   autoClickGuide: false,
+  recentModels: ["zai-coding-plan/glm-4.6v"],
 };
 
 export interface WindowInfo {

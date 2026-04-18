@@ -158,14 +158,16 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC.SET_CONFIG, (_e, newConfig: Partial<Config>) => {
     log(`SET_CONFIG received: ${JSON.stringify(newConfig)}`);
-    Object.assign(config, newConfig);
     if (newConfig.model) {
+      const updated = [newConfig.model, ...config.recentModels.filter(m => m !== newConfig.model)].slice(0, 3);
+      config.recentModels = updated;
       client.updateModel(newConfig.model);
     }
+    Object.assign(config, newConfig, { recentModels: config.recentModels });
     if (newConfig.workingDir) {
       client = new OpenCodeClient(config.model, config.workingDir);
     }
-    log(`Config updated: ${JSON.stringify(config)}`);
+    log(`Config updated: model=${config.model}, recentModels=${JSON.stringify(config.recentModels)}`);
     return config;
   });
 
