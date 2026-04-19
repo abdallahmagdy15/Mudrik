@@ -15,11 +15,12 @@
  *   assets/tray@2x.png      64x64   — HiDPI tray (Electron picks when available)
  *   assets/icon.ico         ICO with 16,24,32,48,64,128,256 PNG-compressed frames
  *
- * Colour reference:
- *   body          #18BFE1  (cyan 500)
- *   back wing     #0FA8C9  (cyan 700)
- *   belly         #FFFFFF
- *   eye white     #FFFFFF
+ * Colour reference (matches OwlMascot.tsx):
+ *   body          #5B90BF   (warm cartoon blue)
+ *   wing shadow   #4A7CA8
+ *   outline       #2D4A63   (navy — drawn as a slightly-larger shape beneath each fill)
+ *   belly         #EAF2F8
+ *   iris          #D4A574   (tan)
  *   pupil         #1C1C1C
  *   beak / feet   #F2A93A
  */
@@ -170,65 +171,106 @@ function triangle(c, ax, ay, bx, by, cx, cy, color) {
   }, color);
 }
 
-// ── Owl composition (viewBox 0..256, matches icon.svg layout) ────────────
+// ── Owl composition (viewBox 0..256, matches OwlMascot.tsx layout) ───────
+// Strokes are faked by drawing each shape TWICE: first a slightly-larger
+// copy in LINE colour, then the fill on top. Drawing order matters —
+// shapes later in the list cover shapes earlier in the list, so an
+// outline only shows where no later shape covers it (i.e., along the
+// silhouette edge — exactly what we want).
 function drawOwl(size) {
   const c = makeCanvas(size);
-  const s = size / 256;   // scale factor from 256-space to target pixels
+  const s = size / 256;
 
-  // Convenience: all coords given in 256-space, scaled at draw time.
   const C = (cx, cy, r, col) => circle(c, cx * s, cy * s, r * s, col);
   const E = (cx, cy, rx, ry, col) => ellipse(c, cx * s, cy * s, rx * s, ry * s, col);
   const T = (ax, ay, bx, by, cx_, cy_, col) =>
     triangle(c, ax * s, ay * s, bx * s, by * s, cx_ * s, cy_ * s, col);
 
-  const BODY       = [24, 191, 225, 255];
-  const BODY_DARK  = [15, 168, 201, 255];
-  const BELLY      = [255, 255, 255, 240];
-  const EYE_WHITE  = [255, 255, 255, 255];
-  const PUPIL      = [28, 28, 28, 255];
-  const PUPIL_HILIGHT = [255, 255, 255, 255];
-  const WARM       = [242, 169, 58, 255];
+  const BODY  = [91, 144, 191, 255];    // #5B90BF
+  const WING  = [74, 124, 168, 220];    // #4A7CA8
+  const LINE  = [45, 74, 99, 255];      // #2D4A63
+  const BELLY = [234, 242, 248, 255];   // #EAF2F8
+  const IRIS  = [212, 165, 116, 255];   // #D4A574
+  const PUPIL = [28, 28, 28, 255];
+  const HI    = [255, 255, 255, 255];
+  const WARM  = [242, 169, 58, 255];    // #F2A93A
 
-  // Back wing accent (only noticeable at 128+ px)
-  if (size >= 48) {
-    E(180, 160, 26, 44, BODY_DARK);
+  // Stroke weight in 256-space. Outlines skipped for tray-sized icons
+  // where a 3-5px-equivalent stroke would eat the shape.
+  const strokes = size >= 48;
+  const sw = size >= 128 ? 5 : 4;
+
+  // ── Feet ─────────────────────────────────────────────────────────────
+  if (size >= 64) {
+    // Six toe bumps, three per foot.
+    const toes = [94, 107, 120, 136, 149, 162];
+    if (strokes) for (const fx of toes) C(fx, 236, 7 + sw * 0.5, LINE);
+    for (const fx of toes) C(fx, 236, 7, WARM);
+  } else if (size >= 24) {
+    // Simplified: two chunky foot blobs.
+    E(108, 232, 16, 8, WARM);
+    E(148, 232, 16, 8, WARM);
   }
 
-  // Body (rounded teardrop — we fake it with overlapping ellipses)
-  E(128, 170, 82, 70, BODY);
-  // Belly patch
-  E(128, 188, 42, 42, BELLY);
+  // ── Body (unified pear silhouette, head+body merged for clean small-size reads) ──
+  if (strokes) E(128, 150, 90 + sw, 90 + sw, LINE);
+  E(128, 150, 90, 90, BODY);
 
-  // Feet
-  T(92, 218, 78, 238, 96, 226, WARM);
-  T(108, 220, 98, 238, 114, 228, WARM);
-  T(148, 220, 146, 238, 162, 228, WARM);
-  T(164, 218, 166, 238, 180, 226, WARM);
-
-  // Head (slightly flattened disc + two tuft triangles)
-  E(128, 74, 72, 54, BODY);
-  // Ear tufts
-  T(68, 56, 96, 78, 76, 88, BODY);
-  T(188, 56, 160, 78, 180, 88, BODY);
-
-  // Eye whites
-  const eyeR = 22;
-  C(102, 88, eyeR, EYE_WHITE);
-  C(154, 88, eyeR, EYE_WHITE);
-
-  // Pupils — at small sizes shift slightly to create "alert" look.
-  const pupilR = size >= 64 ? 9 : 11;
-  C(102, 88, pupilR, PUPIL);
-  C(154, 88, pupilR, PUPIL);
-
-  // Pupil highlights (only at larger sizes — noise at tray sizes)
+  // Ear tufts — small triangles poking out of the head dome.
   if (size >= 48) {
-    C(106, 84, 3, PUPIL_HILIGHT);
-    C(158, 84, 3, PUPIL_HILIGHT);
+    // Stroked tufts: draw a fractionally-enlarged outline triangle first.
+    if (strokes) {
+      T(64,  40, 86,  76, 100, 58, LINE);
+      T(192, 40, 170, 76, 156, 58, LINE);
+    }
+    T(68,  44, 88,  74, 98, 58, BODY);
+    T(188, 44, 168, 74, 158, 58, BODY);
   }
 
-  // Beak
-  T(128, 104, 120, 118, 136, 118, WARM);
+  // Wing shadow on each side — only shows as a subtle darkening.
+  if (size >= 64) {
+    E(52,  182, 14, 38, WING);
+    E(204, 182, 14, 38, WING);
+  }
+
+  // ── Belly patch ──────────────────────────────────────────────────────
+  if (strokes) E(128, 186, 46 + sw * 0.5, 52 + sw * 0.5, LINE);
+  E(128, 186, 46, 52, BELLY);
+
+  // ── Eyes ─────────────────────────────────────────────────────────────
+  // Eye centres: slightly wider spacing than before to match the SVG.
+  const eyeR = 28;
+  if (strokes) {
+    C(100, 92, eyeR + sw * 0.6, LINE);
+    C(156, 92, eyeR + sw * 0.6, LINE);
+  }
+  C(100, 92, eyeR, HI);
+  C(156, 92, eyeR, HI);
+
+  // Tan iris — skipped at tiny sizes where it'd just muddy the pupil.
+  if (size >= 32) {
+    C(100, 92, 22, IRIS);
+    C(156, 92, 22, IRIS);
+  }
+
+  // Pupils. Bigger at tiny sizes so they still register.
+  const pupilR = size >= 64 ? 11 : 13;
+  C(100, 92, pupilR, PUPIL);
+  C(156, 92, pupilR, PUPIL);
+
+  // Primary + secondary eye highlights (only at larger sizes).
+  if (size >= 48) {
+    C(104, 87, 4, HI);
+    C(160, 87, 4, HI);
+  }
+  if (size >= 128) {
+    C(95,  98, 1.5, HI);
+    C(151, 98, 1.5, HI);
+  }
+
+  // ── Beak ─────────────────────────────────────────────────────────────
+  if (strokes) T(128, 113, 115, 133, 141, 133, LINE);
+  T(128, 118, 118, 132, 138, 132, WARM);
 
   return c.buf;
 }

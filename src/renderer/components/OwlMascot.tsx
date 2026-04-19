@@ -1,17 +1,17 @@
 import React, { useEffect, useRef, useState } from "react";
 
 /**
- * Animated owl mascot matching assets/icon.svg.
+ * Animated owl mascot.
  *
- *   - Eyes (pupils) track the cursor within the window, clamped so they
- *     stay inside the eye circle.
+ *   - Eyes (pupils+iris+highlights) track the cursor within the window,
+ *     clamped so they stay inside the eye white.
  *   - Blinks every ~2 seconds (both eyes shut for ~120ms).
  *   - Head does a slow "restless" tilt a few degrees left or right at
  *     unpredictable intervals (2–7s), always eases back to vertical.
  *   - `state` prop drives extra effects:
  *       idle      → default behaviour (blink + tilt + eye tracking)
- *       thinking  → pupils gently pulse, head is still
- *       replying  → one-shot brow-raise + wing-wiggle (600ms)
+ *       thinking  → quick human-like eye darts, head is still
+ *       replying  → one-shot scale-pop (600ms)
  */
 
 export type OwlState = "idle" | "thinking" | "replying";
@@ -21,12 +21,24 @@ interface Props {
   size?: number;
 }
 
-// Pupil centres in the SVG viewBox, used as the "rest" position. The eye
-// whites are radius-24 circles; the pupil's centre is clamped to stay
-// inside a radius-12 travel zone so the pupil (r=10) never leaves the eye.
-const EYE_L = { cx: 102, cy: 88 };
-const EYE_R = { cx: 154, cy: 88 };
-const PUPIL_TRAVEL = 12;
+// Eye centres in the SVG viewBox. White radius 28, iris 22, pupil 10 —
+// travel cap 14 keeps the pupil (r=10) + iris (r=22) inside the white.
+const EYE_L = { cx: 100, cy: 92 };
+const EYE_R = { cx: 156, cy: 92 };
+const PUPIL_TRAVEL = 14;
+
+// Colour palette — matches the reference cartoon owl (chubby blue body,
+// tan irises, warm orange beak/feet, navy outline).
+const C = {
+  body:   "#5B90BF",
+  wing:   "#4A7CA8",
+  line:   "#2D4A63",
+  belly:  "#EAF2F8",
+  iris:   "#D4A574",
+  pupil:  "#1C1C1C",
+  beak:   "#F2A93A",
+  hi:     "#FFFFFF",
+};
 
 export function OwlMascot({ state = "idle", size = 40 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -36,18 +48,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
   const [replyPop, setReplyPop] = useState(false);
 
   // ─── Eye tracking ────────────────────────────────────────────────────
-  // Two input sources, in preference order:
-  //
-  //   1. Desktop-wide cursor pushed from the main process via IPC
-  //      (`window.hoverbuddy.onCursorPos`). Values are SCREEN coordinates,
-  //      so we convert to this window's client coords using `window.screenX/Y`.
-  //      Used whenever the panel is visible — lets the eyes track the cursor
-  //      even when it's over another window.
-  //
-  //   2. Fallback: plain `mousemove` events inside the panel, used if the
-  //      IPC stream isn't running yet (first few frames after mount).
-  //
-  // Whichever lands last wins; we don't need to de-duplicate.
   useEffect(() => {
     const applyClientCoords = (clientX: number, clientY: number) => {
       if (!svgRef.current) return;
@@ -57,8 +57,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
       const dx = clientX - cx;
       const dy = clientY - cy;
       const dist = Math.hypot(dx, dy);
-      // Saturate travel at ~240px — beyond that the pupil is already
-      // fully shifted toward that corner.
       const scale = Math.min(1, dist / 240) * PUPIL_TRAVEL;
       const nx = (dx / (dist || 1)) * scale;
       const ny = (dy / (dist || 1)) * scale;
@@ -71,7 +69,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
     const hb: any = (window as any).hoverbuddy;
     if (hb?.onCursorPos) {
       hb.onCursorPos((pos: { x: number; y: number }) => {
-        // Screen coords → window-local client coords.
         applyClientCoords(pos.x - window.screenX, pos.y - window.screenY);
       });
     }
@@ -86,7 +83,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
       if (cancelled) return;
       setBlink(true);
       setTimeout(() => setBlink(false), 120);
-      // Jitter the next blink by ±400ms so it doesn't look mechanical.
       const next = 2000 + (Math.random() - 0.5) * 800;
       setTimeout(loop, next);
     };
@@ -98,9 +94,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
   }, []);
 
   // ─── Restless head tilts ─────────────────────────────────────────────
-  // Every 2–7s, pick a small angle (-12°..+12°), hold 600–1100ms, then
-  // return to 0°. Skip tilts while the owl is "thinking" to avoid
-  // distracting the user.
   useEffect(() => {
     if (state === "thinking") {
       setHeadTilt(0);
@@ -126,7 +119,7 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
     return () => { cancelled = true; };
   }, [state]);
 
-  // ─── Reply pop: one-shot when state transitions to replying ──────────
+  // ─── Reply pop ───────────────────────────────────────────────────────
   useEffect(() => {
     if (state === "replying") {
       setReplyPop(true);
@@ -138,11 +131,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
   const thinking = state === "thinking";
 
   // ─── "Thinking" eye darts ────────────────────────────────────────────
-  // When the model is working we replace the cursor-tracking pupils with
-  // a quick human-like glance cycle: up-right → pause → up-left → pause
-  // → center → pause → repeat. The cycle is driven by a ticking state
-  // counter so the transition between positions is animated by the same
-  // 80ms CSS transition used for cursor tracking, giving a natural snap.
   const [darkTick, setDarkTick] = useState(0);
   useEffect(() => {
     if (!thinking) return;
@@ -150,7 +138,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
     const step = () => {
       if (cancelled) return;
       setDarkTick((t) => t + 1);
-      // Vary the hold a little so it doesn't feel metronomic.
       const hold = 420 + Math.random() * 260;
       setTimeout(step, hold);
     };
@@ -161,9 +148,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
     };
   }, [thinking]);
 
-  // 4-phase loop: 0 = up-right, 1 = up-left, 2 = center-low, 3 = center.
-  // PUPIL_TRAVEL caps horizontal excursion; vertical goes 60–80% of that
-  // so the pupils don't clip the eyelid when blinking.
   const THINK_POSES: Array<{ dx: number; dy: number }> = [
     { dx:  PUPIL_TRAVEL * 0.85, dy: -PUPIL_TRAVEL * 0.7 },
     { dx: -PUPIL_TRAVEL * 0.85, dy: -PUPIL_TRAVEL * 0.7 },
@@ -188,86 +172,172 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
       }}
       aria-hidden="true"
     >
-      {/* Feet */}
-      <g fill="#F2A93A">
-        <path d="M92 218 L78 238 L90 238 L96 226 Z"/>
-        <path d="M108 220 L98 238 L110 238 L114 228 Z"/>
-        <path d="M148 220 L146 238 L158 238 L162 228 Z"/>
-        <path d="M164 218 L166 238 L178 238 L180 226 Z"/>
+      {/* Soft cast shadow */}
+      <ellipse cx="128" cy="244" rx="72" ry="5" fill={C.line} opacity="0.15" />
+
+      {/* Feet — three little toe-bumps per side */}
+      <g fill={C.beak} stroke={C.line} strokeWidth="2.5" strokeLinejoin="round">
+        <ellipse cx="94"  cy="236" rx="7" ry="7" />
+        <ellipse cx="107" cy="237" rx="7" ry="7" />
+        <ellipse cx="120" cy="236" rx="7" ry="7" />
+        <ellipse cx="136" cy="236" rx="7" ry="7" />
+        <ellipse cx="149" cy="237" rx="7" ry="7" />
+        <ellipse cx="162" cy="236" rx="7" ry="7" />
       </g>
 
-      {/* Back wing */}
-      <path fill="#0FA8C9" d="M198 130 C 210 168 198 208 166 220 L 166 160 Z"/>
-
-      {/* Body */}
+      {/* Body — unified pear silhouette */}
       <path
-        fill="#18BFE1"
-        d="M128 88 C 74 88 48 136 48 172 C 48 210 80 232 128 232 C 176 232 208 210 208 172 C 208 136 182 88 128 88 Z"
+        fill={C.body}
+        stroke={C.line}
+        strokeWidth="4"
+        strokeLinejoin="round"
+        d="M 128 86
+           C 74 86, 42 126, 42 170
+           C 42 216, 80 236, 128 236
+           C 176 236, 214 216, 214 170
+           C 214 126, 182 86, 128 86 Z"
       />
-      <ellipse cx="128" cy="186" rx="40" ry="40" fill="#FFFFFF" opacity="0.95" />
 
-      {/* Head group — rotates around the neck for the tilt animation */}
+      {/* Wing shading — darker blue wrapping the sides */}
+      <path
+        fill={C.wing}
+        opacity="0.55"
+        d="M 58 150 C 44 180, 52 214, 80 228 L 80 170 Z"
+      />
+      <path
+        fill={C.wing}
+        opacity="0.55"
+        d="M 198 150 C 212 180, 204 214, 176 228 L 176 170 Z"
+      />
+
+      {/* Belly patch */}
+      <ellipse
+        cx="128"
+        cy="188"
+        rx="44"
+        ry="48"
+        fill={C.belly}
+        stroke={C.line}
+        strokeWidth="2"
+      />
+      {/* Little chest ruffle (V at top of belly) */}
+      <path
+        d="M 118 162 Q 128 172 138 162"
+        fill="none"
+        stroke={C.body}
+        strokeWidth="2.5"
+        strokeLinecap="round"
+      />
+
+      {/* ─── Head group (tiltable) ─── */}
       <g
         style={{
-          transformOrigin: "128px 92px",
+          transformOrigin: "128px 100px",
           transformBox: "fill-box",
           transition: "transform 600ms cubic-bezier(0.34, 1.56, 0.64, 1)",
           transform: `rotate(${headTilt}deg)`,
         }}
       >
+        {/* Head dome with two ear tufts — wider at the bottom so it
+            sits flush against the body silhouette even when tilted. */}
         <path
-          fill="#18BFE1"
-          d="M128 22
-             C 94 22 66 46 60 82
-             L 72 64
-             L 92 82
-             C 104 72 120 68 128 68
-             C 136 68 152 72 164 82
-             L 184 64
-             L 196 82
-             C 190 46 162 22 128 22 Z"
+          fill={C.body}
+          stroke={C.line}
+          strokeWidth="4"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          d="M 52 108
+             C 52 80, 66 58, 84 50
+             L 70 28
+             L 96 46
+             C 106 36, 118 32, 128 32
+             C 138 32, 150 36, 160 46
+             L 186 28
+             L 172 50
+             C 190 58, 204 80, 204 108
+             L 52 108 Z"
+        />
+
+        {/* Cream face mask — softens the area behind the eyes */}
+        <ellipse
+          cx="128"
+          cy="94"
+          rx="64"
+          ry="36"
+          fill={C.belly}
+          opacity="0.75"
         />
 
         {/* Eye whites */}
-        <circle cx={EYE_L.cx} cy={EYE_L.cy} r="24" fill="#FFFFFF" />
-        <circle cx={EYE_R.cx} cy={EYE_R.cy} r="24" fill="#FFFFFF" />
+        <circle
+          cx={EYE_L.cx}
+          cy={EYE_L.cy}
+          r="28"
+          fill={C.hi}
+          stroke={C.line}
+          strokeWidth="3"
+        />
+        <circle
+          cx={EYE_R.cx}
+          cy={EYE_R.cy}
+          r="28"
+          fill={C.hi}
+          stroke={C.line}
+          strokeWidth="3"
+        />
 
-        {/* Pupils (translate to follow cursor) */}
+        {/* Iris + pupil + highlights — translate together to track the cursor */}
         <g
           style={{
             transform: `translate(${effectiveDx}px, ${effectiveDy}px)`,
             transition: "transform 80ms linear",
           }}
         >
-          <circle cx={EYE_L.cx} cy={EYE_L.cy} r="10" fill="#1C1C1C" />
-          <circle cx={EYE_R.cx} cy={EYE_R.cy} r="10" fill="#1C1C1C" />
-          <circle cx={EYE_L.cx + 4} cy={EYE_L.cy - 4} r="3" fill="#FFFFFF" />
-          <circle cx={EYE_R.cx + 4} cy={EYE_R.cy - 4} r="3" fill="#FFFFFF" />
+          {/* Tan iris */}
+          <circle cx={EYE_L.cx} cy={EYE_L.cy} r="22" fill={C.iris} />
+          <circle cx={EYE_R.cx} cy={EYE_R.cy} r="22" fill={C.iris} />
+          {/* Dark pupil */}
+          <circle cx={EYE_L.cx} cy={EYE_L.cy} r="11" fill={C.pupil} />
+          <circle cx={EYE_R.cx} cy={EYE_R.cy} r="11" fill={C.pupil} />
+          {/* Primary highlight */}
+          <circle cx={EYE_L.cx + 4} cy={EYE_L.cy - 5} r="4" fill={C.hi} />
+          <circle cx={EYE_R.cx + 4} cy={EYE_R.cy - 5} r="4" fill={C.hi} />
+          {/* Tiny secondary highlight */}
+          <circle cx={EYE_L.cx - 5} cy={EYE_L.cy + 6} r="1.5" fill={C.hi} />
+          <circle cx={EYE_R.cx - 5} cy={EYE_R.cy + 6} r="1.5" fill={C.hi} />
         </g>
 
-        {/* Eyelids — drawn as filled rects over each eye that collapse to
-            zero height when not blinking. Using SVG transforms so the
-            animation is GPU-accelerated. */}
-        <g fill="#18BFE1">
+        {/* Eyelashes — three short strokes above each eye */}
+        <g stroke={C.line} strokeWidth="3" strokeLinecap="round" fill="none">
+          <path d="M 74 68 L 70 58" />
+          <path d="M 82 63 L 80 52" />
+          <path d="M 90 61 L 90 50" />
+          <path d="M 166 61 L 166 50" />
+          <path d="M 174 63 L 176 52" />
+          <path d="M 182 68 L 186 58" />
+        </g>
+
+        {/* Eyelids — collapse-to-zero rects that drop for blinks */}
+        <g fill={C.body}>
           <rect
-            x={EYE_L.cx - 24}
-            y={EYE_L.cy - 24}
-            width="48"
-            height="48"
+            x={EYE_L.cx - 30}
+            y={EYE_L.cy - 30}
+            width="60"
+            height="60"
             style={{
-              transformOrigin: `${EYE_L.cx}px ${EYE_L.cy - 24}px`,
+              transformOrigin: `${EYE_L.cx}px ${EYE_L.cy - 30}px`,
               transformBox: "fill-box",
               transform: blink ? "scaleY(1)" : "scaleY(0)",
               transition: "transform 60ms ease-in-out",
             }}
           />
           <rect
-            x={EYE_R.cx - 24}
-            y={EYE_R.cy - 24}
-            width="48"
-            height="48"
+            x={EYE_R.cx - 30}
+            y={EYE_R.cy - 30}
+            width="60"
+            height="60"
             style={{
-              transformOrigin: `${EYE_R.cx}px ${EYE_R.cy - 24}px`,
+              transformOrigin: `${EYE_R.cx}px ${EYE_R.cy - 30}px`,
               transformBox: "fill-box",
               transform: blink ? "scaleY(1)" : "scaleY(0)",
               transition: "transform 60ms ease-in-out",
@@ -275,8 +345,14 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
           />
         </g>
 
-        {/* Beak */}
-        <path fill="#F2A93A" d="M128 104 L 120 118 L 136 118 Z" />
+        {/* Beak — small orange triangle, slightly rounded */}
+        <path
+          fill={C.beak}
+          stroke={C.line}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          d="M 128 118 L 118 132 Q 128 137 138 132 Z"
+        />
       </g>
     </svg>
   );
