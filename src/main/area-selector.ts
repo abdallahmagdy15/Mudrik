@@ -37,7 +37,12 @@ export function startAreaSelection(onComplete: (rect: { x1: number; y1: number; 
 
   pendingCallback = onComplete;
 
-  const display = screen.getPrimaryDisplay();
+  // Use the display the cursor is currently on, not always primary — on
+  // multi-monitor setups the user expects the selector to appear where
+  // they're working. Use `bounds` (full screen) not `workArea`, so the
+  // overlay covers the taskbar region too.
+  const cursor = screen.getCursorScreenPoint();
+  const display = screen.getDisplayNearestPoint(cursor);
   const { width, height } = display.bounds;
 
   overlayWindow = new BrowserWindow({
@@ -52,6 +57,7 @@ export function startAreaSelection(onComplete: (rect: { x1: number; y1: number; 
     resizable: false,
     movable: false,
     hasShadow: false,
+    fullscreenable: true,
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -60,6 +66,11 @@ export function startAreaSelection(onComplete: (rect: { x1: number; y1: number; 
     },
   });
 
+  // `"screen-saver"` is the highest always-on-top level and, crucially,
+  // renders above the Windows taskbar and start menu — `alwaysOnTop: true`
+  // with no level argument does NOT. Without this the taskbar was a dead
+  // strip the user couldn't capture.
+  overlayWindow.setAlwaysOnTop(true, "screen-saver");
   overlayWindow.setVisibleOnAllWorkspaces(true);
 
   overlayWindow.webContents.on("console-message", (_e, _level, msg) => {

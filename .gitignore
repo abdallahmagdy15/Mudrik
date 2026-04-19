@@ -1,5 +1,9 @@
 node_modules/
 dist/
-*.js.map
-.env
 release/
+scripts/out/
+*.js.map
+*.log
+.env
+.env.*
+!.env.example

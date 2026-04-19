@@ -21,11 +21,45 @@ export interface OpenCodeEvent {
     reason?: string;
     tokens?: { total: number; input: number; output: number; reasoning: number };
   };
+  properties?: {
+    permission?: string;
+    [key: string]: unknown;
+  };
   error?: { message: string; data?: any };
   timestamp?: number;
 }
 
 export type EventHandler = (event: OpenCodeEvent) => void;
+
+/**
+ * Tools that must NEVER execute from a HoverBuddy-initiated OpenCode session.
+ * The model is limited to text + `<!--ACTION:...-->` markers; anything else is
+ * treated as a sandbox breach and terminates the session.
+ *
+ * Frontmatter permission rules in `.opencode/agent/readonly.md` are not
+ * enforced by OpenCode 1.4.x, so this in-process kill-switch is the
+ * authoritative enforcement point.
+ */
+const DISALLOWED_TOOLS: ReadonlySet<string> = new Set([
+  "bash",
+  "edit",
+  "write",
+  "webfetch",
+  "websearch",
+  "task",
+  "todowrite",
+  "skill",
+]);
+
+function detectDisallowedTool(event: OpenCodeEvent): string | null {
+  if (event.type === "permission.asked") {
+    const asked = event.properties?.permission;
+    if (typeof asked === "string" && DISALLOWED_TOOLS.has(asked)) return asked;
+  }
+  const tool = event.part?.tool;
+  if (typeof tool === "string" && DISALLOWED_TOOLS.has(tool)) return tool;
+  return null;
+}
 
 export class OpenCodeClient {
   private sessionId: string | null = null;
@@ -77,6 +111,7 @@ export class OpenCodeClient {
         "run",
         "--format", "json",
         "--model", this.model,
+        "--agent", "readonly",
       ];
 
       if (this.sessionId) {
@@ -129,6 +164,22 @@ export class OpenCodeClient {
               this.freshSession = false;
               log(`SessionID updated: ${this.sessionId.slice(0, 30)}`);
             }
+
+            const blockedTool = detectDisallowedTool(event);
+            if (blockedTool) {
+              const msg = `Blocked: model attempted to use the "${blockedTool}" tool. HoverBuddy only allows UI action markers. Session terminated for safety.`;
+              log(msg);
+              onEvent({ type: "error", error: { message: msg, data: { blockedTool } } });
+              try { proc.kill("SIGKILL"); } catch (e: any) { log(`kill failed: ${e.message}`); }
+              this.activeProcess = null;
+              errorOccurred = true;
+              if (!resolved) {
+                resolved = true;
+                reject(new Error(msg));
+              }
+              return;
+            }
+
             onEvent(event);
           } catch {
             log(`Non-JSON line: ${trimmed.slice(0, 100)}`);

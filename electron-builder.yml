@@ -1,15 +1,39 @@
 appId: com.hoverbuddy.app
 productName: HoverBuddy
+copyright: Copyright © 2026 HoverBuddy contributors
 directories:
   output: release
+  buildResources: assets
+asarUnpack:
+  # robotjs ships a native .node that must be loaded from a real path on disk,
+  # not from inside the asar archive.
+  - "**/node_modules/robotjs/**"
 files:
   - dist/**/*
-  - node_modules/**/*
   - package.json
+  - .opencode/agent/**
+extraResources:
+  # Ship the sandboxed agent definition alongside the app so the OpenCode CLI
+  # picks it up from the installed resources dir.
+  - from: .opencode
+    to: .opencode
+    filter:
+      - "agent/**"
 win:
   target: nsis
   icon: assets/icon.ico
+  artifactName: HoverBuddy-Setup-${version}.${ext}
 nsis:
   oneClick: false
+  perMachine: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
+  createStartMenuShortcut: true
+  deleteAppDataOnUninstall: false
+  uninstallDisplayName: HoverBuddy
+  shortcutName: HoverBuddy
+publish:
+  provider: github
+  owner: abdallahmagdy15
+  repo: hoverbuddy
+  releaseType: release

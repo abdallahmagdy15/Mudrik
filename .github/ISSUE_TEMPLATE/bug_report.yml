@@ -1,0 +1,47 @@
+name: Bug report
+description: Something didn't work as expected.
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: HoverBuddy version
+      description: Tray menu → the first disabled entry, e.g. "HoverBuddy v1.0.1".
+      placeholder: v1.0.0
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: Run `winver` and paste the version line (e.g. "Windows 11 Pro 23H2, build 22631.3593").
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do and what did you expect? What did you see instead?
+      placeholder: |
+        1. Pressed Alt+Space over ...
+        2. Typed ...
+        3. Expected ...; got ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log snippet
+      description: Open tray menu → "Show Log", open `hoverbuddy.log`, and paste the last ~50 lines around the failure. Redact anything sensitive.
+      render: text
+  - type: dropdown
+    id: model
+    attributes:
+      label: Model / provider
+      description: Which OpenCode model were you using?
+      options:
+        - OpenAI
+        - Anthropic
+        - Ollama (local)
+        - Z.AI / GLM
+        - Other (describe in "What happened")

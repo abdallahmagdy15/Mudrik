@@ -4,30 +4,152 @@
   box-sizing: border-box;
 }
 
+/* ──────────────────────────────────────────────────────────────
+   Owl-derived palette. All UI accents are tied to these tokens.
+     Cyan 300/500/700   — owl body, primary accent family
+     Teal Ink           — desaturated cyan for panel chrome
+     Orange 300/500     — beak + feet, warm CTA family
+   ────────────────────────────────────────────────────────────── */
 :root {
-  --bg-base: transparent;
-  --bg-surface: rgba(20, 20, 46, 0.65);
-  --bg-overlay: rgba(17, 17, 27, 0.7);
-  --bg-inset: rgba(8, 8, 20, 0.5);
-  --bg-elevated: rgba(28, 28, 58, 0.55);
-  --text: #e8ecf8;
-  --text-subtle: #a6adc8;
-  --text-muted: #6c7098;
-  --accent: #7c8cf8;
-  --accent-bright: #a5b4fc;
-  --accent-glow: rgba(124, 140, 248, 0.12);
-  --accent-glow-strong: rgba(124, 140, 248, 0.25);
-  --green: #6ee7b7;
-  --green-glow: rgba(110, 231, 183, 0.1);
-  --red: #fb7185;
-  --red-glow: rgba(251, 113, 133, 0.08);
-  --yellow: #fbbf24;
-  --border: rgba(100, 100, 170, 0.2);
-  --border-bright: rgba(124, 140, 248, 0.35);
-  --gradient-accent: linear-gradient(135deg, #7c8cf8, #a78bfa, #c084fc);
-  --gradient-green: linear-gradient(135deg, #6ee7b7, #7dd3fc);
-  --radius: 10px;
-  --radius-sm: 6px;
+  /* Owl primitives */
+  --owl-cyan-300: #5FD8F0;
+  --owl-cyan-500: #18BFE1;
+  --owl-cyan-700: #0FA8C9;
+  --owl-teal-ink: #0C2530;
+  --owl-orange-500: #F2A93A;
+  --owl-orange-300: #FFC06A;
+  --owl-ink: #1C1C1C;
+  --owl-white: #FFFFFF;
+  --owl-sky-100: #E6F4F7;
+  --owl-sky-300: #8FBFCD;
+  --owl-sky-500: #556A77;
+
+  /* Semantic surfaces — solid teal-ink tints. We are not using
+     Windows acrylic (it dims on blur) nor CSS backdrop-filter
+     (doesn't sample the desktop through Electron's transparent
+     window). These values trade the glass fantasy for readability. */
+  --bg-surface:  rgba(14, 34, 44, 0.92);
+  --bg-overlay:  rgba(14, 34, 44, 0.96);
+  --bg-inset:    rgba(8, 22, 30, 0.85);
+  --bg-elevated: rgba(22, 54, 68, 0.90);
+
+  /* Text */
+  --text:        var(--owl-sky-100);
+  --text-subtle: var(--owl-sky-300);
+  --text-muted:  var(--owl-sky-500);
+  /* Header icon tone — darker than --text-muted so gear/+/-/× read
+     clearly on the tinted panel (dark theme). */
+  --icon-fg:     rgba(143, 191, 205, 0.78);
+
+  /* Accent family — cyan */
+  --accent:        var(--owl-cyan-500);
+  --accent-bright: var(--owl-cyan-300);
+  --accent-deep:   var(--owl-cyan-700);
+  --accent-glow:        rgba(24, 191, 225, 0.14);
+  --accent-glow-strong: rgba(24, 191, 225, 0.28);
+
+  /* Warm family — orange (beak / feet) */
+  --warm:       var(--owl-orange-500);
+  --warm-bright: var(--owl-orange-300);
+  --warm-glow:  rgba(242, 169, 58, 0.16);
+
+  /* Status */
+  --green: #6EE7B7;
+  --green-glow: rgba(110, 231, 183, 0.12);
+  --red:   #FB7185;
+  --red-glow: rgba(251, 113, 133, 0.12);
+  --yellow: var(--owl-orange-500);
+
+  /* Borders */
+  --border:        rgba(95, 216, 240, 0.14);
+  --border-bright: rgba(24, 191, 225, 0.38);
+
+  /* Brand gradient — owl body → beak */
+  --gradient-accent: linear-gradient(135deg, var(--owl-cyan-500), var(--owl-cyan-300) 55%, var(--owl-orange-500));
+  --gradient-green:  linear-gradient(135deg, var(--green), var(--owl-cyan-300));
+
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-panel: 22px;
+
+  /* Font size is read from Config.fontSize and written by the renderer
+     as an inline style on :root. 14 is the fallback before config
+     loads — matches DEFAULT_CONFIG.fontSize. */
+  --font-size-base: 14px;
+
+  /* Panel chrome tint — solid enough to read comfortably over any
+     wallpaper. No backdrop-filter here: Electron's transparent window
+     on Windows does not blur the desktop behind it, so we commit to a
+     readable teal-ink surface instead of fake transparency. */
+  --panel-paint:  rgba(14, 34, 44, 0.94);
+  --panel-border: rgba(95, 216, 240, 0.28);
+
+  /* Soft top-down cyan sheen over the paint. Painted first, so the
+     tint sits above the solid base and fades to transparent. */
+  --app-gradient: linear-gradient(180deg,
+    rgba(24, 191, 225, 0.08) 0%,
+    transparent 40%,
+    rgba(12, 37, 48, 0) 100%);
+
+  /* Copy chips — neutral dark grey, intentionally not accented so
+     they read as "copyable snippet" rather than a link/CTA. */
+  --chip-bg:     rgba(40, 48, 54, 0.55);
+  --chip-fg:     rgba(210, 218, 224, 0.92);
+  --chip-border: rgba(120, 132, 140, 0.35);
+  --chip-bg-hover:     rgba(50, 60, 68, 0.72);
+  --chip-border-hover: rgba(150, 162, 170, 0.55);
+}
+
+/* ── Light palette (system theme switch) ── */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-surface:  rgba(255, 255, 255, 0.92);
+    --bg-overlay:  rgba(250, 252, 253, 0.96);
+    --bg-inset:    rgba(240, 248, 251, 0.90);
+    --bg-elevated: rgba(255, 255, 255, 0.94);
+
+    --text:        #0C2530;
+    --text-subtle: #3B6070;
+    --text-muted:  #6F8A97;
+    /* Darker icon tone in light mode so gear/+/-/× don't wash out
+     against near-white chrome. */
+    --icon-fg:     #1F4655;
+
+    --accent:        var(--owl-cyan-700);
+    --accent-bright: var(--owl-cyan-500);
+    --accent-deep:   var(--owl-cyan-700);
+    --accent-glow:        rgba(15, 168, 201, 0.16);
+    --accent-glow-strong: rgba(15, 168, 201, 0.30);
+
+    --warm:        var(--owl-orange-500);
+    --warm-bright: var(--owl-orange-300);
+
+    --border:        rgba(15, 168, 201, 0.20);
+    --border-bright: rgba(15, 168, 201, 0.45);
+
+    --panel-paint:  rgba(252, 254, 255, 0.96);
+    --panel-border: rgba(15, 168, 201, 0.32);
+
+    /* Glassy light panel: a soft diagonal sheen from cool-white through
+       pale owl-cyan into near-transparent, then a subtle highlight bloom
+       at the top-left. Keeps the surface clearly white while giving the
+       chrome that frosted-glass look. */
+    --app-gradient:
+      radial-gradient(circle at 20% 0%,
+        rgba(255, 255, 255, 0.85) 0%,
+        rgba(255, 255, 255, 0) 55%),
+      linear-gradient(155deg,
+        rgba(235, 248, 252, 0.65) 0%,
+        rgba(214, 238, 245, 0.45) 45%,
+        rgba(248, 253, 254, 0.30) 100%);
+
+    /* Light-mode chips: soft pebble grey on the pale chrome. */
+    --chip-bg:     rgba(230, 234, 238, 0.85);
+    --chip-fg:     #3A4750;
+    --chip-border: rgba(130, 145, 155, 0.35);
+    --chip-bg-hover:     rgba(218, 224, 230, 0.95);
+    --chip-border-hover: rgba(95, 110, 120, 0.55);
+  }
 }
 
 html, body, #root {
@@ -40,7 +162,7 @@ html, body, #root {
 
 body {
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   background: transparent;
   color: var(--text);
   overflow: hidden;
@@ -49,33 +171,45 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(124,140,248,0.2); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(124,140,248,0.4); }
+::-webkit-scrollbar-thumb { background: rgba(24,191,225,0.25); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(24,191,225,0.45); }
 
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  /* Small inner padding so content sits off the rounded corners
+     without creating an "inner card" look (the header itself has
+     no background of its own — see .app-header). */
   padding: 8px;
   gap: 6px;
-  background: rgba(14, 14, 30, 0.85);
-  backdrop-filter: blur(40px) saturate(180%);
-  -webkit-backdrop-filter: blur(40px) saturate(180%);
-  border-radius: 16px;
-  border: 1px solid rgba(124, 140, 248, 0.15);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+  background: var(--app-gradient), var(--panel-paint);
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--panel-border);
+  /* macOS-style stacked shadow:
+       1. Ambient contact shadow (short, high blur)
+       2. Mid-distance soft shadow
+       3. Far-throw low-alpha shadow for depth off the desktop
+       4. Inner highlight along the top edge (1px) for the glass bevel */
+  box-shadow:
+    0 1px 2px rgba(6, 20, 28, 0.25),
+    0 6px 18px rgba(6, 20, 28, 0.28),
+    0 28px 60px rgba(6, 20, 28, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
   overflow: hidden;
 }
 
 /* ── Header ── */
+/* The header blends into the panel chrome — no separate background,
+   no border, no top gradient stripe. Rounded top corners match the
+   panel so the header fills the top of the card cleanly. */
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  padding: 4px 6px 6px 6px;
+  background: transparent;
+  border: 0;
   cursor: grab;
   user-select: none;
   -webkit-app-region: drag;
@@ -83,16 +217,19 @@ body {
   position: relative;
 }
 
-.app-header::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 1px;
-  background: var(--gradient-accent);
-  opacity: 0.6;
+.app-header:active { cursor: grabbing; }
+
+.app-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Inherit drag region from .app-header — the owl svg + title are all
+     part of the drag handle. */
 }
 
-.app-header:active { cursor: grabbing; }
+.app-brand svg {
+  pointer-events: none;  /* don't swallow clicks / drag starts */
+}
 
 .app-title {
   font-weight: 700;
@@ -110,18 +247,22 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* Header control buttons — default tone is the higher-contrast
+   `--icon-fg` token so the gear/+/-/× read clearly on both light
+   wallpapers and dark ones. Hover adds accent colour + soft glow. */
 .btn-dismiss, .btn-minimize, .btn-new-session, .btn-settings {
   background: none;
   border: 1px solid transparent;
-  color: var(--text-muted);
+  color: var(--icon-fg);
   cursor: pointer;
-  padding: 2px 7px;
-  border-radius: 5px;
-  font-size: 13px;
-  transition: all 0.2s ease;
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  line-height: 1;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
-.btn-new-session { font-size: 16px; font-weight: 600; }
+.btn-new-session { font-size: 18px; font-weight: 600; }
 
 .btn-dismiss:hover {
   color: var(--red);
@@ -160,14 +301,16 @@ body {
   position: absolute;
   top: 100%;
   right: 8px;
-  margin-top: 4px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-bright);
+  margin-top: 6px;
+  /* Matches panel chrome. Solid tint — no backdrop-filter
+     (see rationale in .app). */
+  background: var(--bg-overlay);
+  border: 1px solid var(--panel-border);
   border-radius: var(--radius);
-  padding: 8px 12px;
+  padding: 10px 12px;
   z-index: 100;
-  min-width: 220px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  min-width: 240px;
+  box-shadow: 0 12px 32px rgba(12, 37, 48, 0.45);
   -webkit-app-region: no-drag;
   animation: msgSlide 0.15s ease;
 }
@@ -199,12 +342,12 @@ body {
 }
 
 .model-option:hover {
-  background: rgba(124, 140, 248, 0.1);
+  background: var(--accent-glow);
 }
 
 .model-active {
   color: var(--text);
-  background: rgba(124, 140, 248, 0.08);
+  background: var(--accent-glow-strong);
 }
 
 .model-name {
@@ -223,6 +366,61 @@ body {
   font-weight: 700;
 }
 
+.model-input-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.model-input {
+  flex: 1;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 11px;
+  padding: 3px 6px;
+  outline: none;
+  font-family: inherit;
+}
+
+.model-input:focus {
+  border-color: var(--accent);
+}
+
+.model-input::placeholder {
+  color: var(--text-muted);
+}
+
+.model-input-btn {
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  color: var(--text-subtle);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: inherit;
+}
+
+.model-input-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.model-input-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.model-error {
+  font-size: 10px;
+  color: var(--red);
+  margin-top: 4px;
+  line-height: 1.3;
+}
+
 .settings-toggle {
   display: flex;
   justify-content: space-between;
@@ -230,6 +428,101 @@ body {
   cursor: pointer;
   font-size: 12px;
   color: var(--text-subtle);
+  padding: 4px 0;
+}
+
+.hotkey-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.hotkey-row > span {
+  min-width: 60px;
+}
+
+.hotkey-input {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 11px;
+  font-family: inherit;
+  background: var(--bg-inset);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+
+.hotkey-input:focus {
+  border-color: var(--accent);
+}
+
+.theme-picker {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.theme-option {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  color: var(--text-subtle);
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.theme-option:hover {
+  color: var(--text);
+  border-color: var(--border-bright);
+}
+
+.theme-option.theme-active {
+  color: var(--accent-bright);
+  background: var(--accent-glow);
+  border-color: var(--border-bright);
+}
+
+.settings-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+  margin-left: 6px;
+}
+
+.font-size-slider {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 4px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  margin-top: 6px;
+  outline: none;
+  cursor: pointer;
+}
+.font-size-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-surface);
+  box-shadow: 0 0 0 1px var(--border-bright);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.font-size-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
 }
 
 .toggle-switch {
@@ -295,7 +588,7 @@ body {
   font-size: 10px;
   font-weight: 600;
   margin-right: 6px;
-  border: 1px solid rgba(124,140,248,0.15);
+  border: 1px solid rgba(24,191,225,0.18);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -337,7 +630,7 @@ body {
 .btn-attach-screenshot {
   display: block;
   width: 100%;
-  background: linear-gradient(135deg, rgba(124,140,248,0.1), rgba(167,139,250,0.06));
+  background: linear-gradient(135deg, rgba(24,191,225,0.12), rgba(242,169,58,0.08));
   color: var(--accent-bright);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius);
@@ -353,7 +646,7 @@ body {
 .btn-attach-screenshot:hover {
   background: var(--accent-glow);
   border-color: var(--accent-bright);
-  box-shadow: 0 0 16px rgba(124,140,248,0.2);
+  box-shadow: 0 0 16px rgba(24,191,225,0.25);
 }
 
 .btn-attach-screenshot:disabled {
@@ -443,7 +736,7 @@ body {
   min-width: 60px;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, transparent, #7c8cf8, #a78bfa, #c084fc, #7c8cf8, transparent);
+  background: linear-gradient(90deg, transparent, var(--owl-cyan-500), var(--owl-cyan-300), var(--owl-orange-500), var(--owl-cyan-500), transparent);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
   position: relative;
@@ -486,10 +779,25 @@ body {
 
 .message {
   margin-bottom: 10px;
-  padding: 8px 10px;
+  padding: 8px 10px 8px 13px;
   border-radius: var(--radius);
   animation: msgSlide 0.3s ease;
   position: relative;
+  overflow: hidden;     /* clip the ::before accent bar to the rounded corners */
+}
+
+/* Accent side-stripe drawn as a pseudo-element so it's clipped by the
+   message's border-radius (native `border-left` with `border-image`
+   disables corner rounding — that's why the stripe was visually taller
+   than the bubble). */
+.message::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--accent);
 }
 
 @keyframes msgSlide {
@@ -497,17 +805,19 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 
+/* Flat tinted surfaces — no dark-navy gradient that turns into a muddy
+   blob over light-mode text. Both user and assistant bubbles use the
+   same theme-aware `--bg-elevated`; they are distinguished only by the
+   left accent stripe colour. */
 .message-user {
-  background: linear-gradient(135deg, rgba(124,140,248,0.1), rgba(30,42,58,0.5));
-  border-left: 3px solid;
-  border-image: var(--gradient-accent) 1;
+  background: var(--bg-elevated);
 }
+.message-user::before { background: var(--accent); }
 
 .message-assistant {
-  background: linear-gradient(135deg, rgba(110,231,183,0.06), rgba(26,26,46,0.7));
-  border-left: 3px solid;
-  border-image: var(--gradient-green) 1;
+  background: var(--bg-elevated);
 }
+.message-assistant::before { background: var(--green); }
 
 .message-role {
   font-size: 10px;
@@ -522,7 +832,7 @@ body {
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   line-height: 1.55;
   margin: 0;
 }
@@ -617,7 +927,7 @@ body {
   border-radius: var(--radius);
   padding: 10px 12px;
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-base);
   resize: none;
   outline: none;
   transition: border-color 0.2s ease, box-shadow 0.2s ease;
@@ -626,7 +936,7 @@ body {
 
 .chat-input textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow), 0 0 20px rgba(124,140,248,0.1);
+  box-shadow: 0 0 0 2px var(--accent-glow), 0 0 20px rgba(24,191,225,0.12);
 }
 
 .chat-input textarea::placeholder { color: var(--text-muted); }
@@ -635,15 +945,15 @@ body {
 .copy-chip {
   display: block;
   width: 100%;
-  background: linear-gradient(135deg, rgba(124,140,248,0.15), rgba(167,139,250,0.1));
-  color: var(--accent-bright);
-  border: 1px solid rgba(124,140,248,0.3);
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  border: 1px solid var(--chip-border);
   border-radius: 5px;
   padding: 4px 10px;
   font-size: 12px;
   font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   white-space: pre-wrap;
   word-break: break-all;
   margin: 4px 0;
@@ -651,9 +961,8 @@ body {
 }
 
 .copy-chip:hover {
-  background: var(--accent-glow-strong);
-  border-color: var(--accent-bright);
-  box-shadow: 0 0 10px rgba(124,140,248,0.2);
+  background: var(--chip-bg-hover);
+  border-color: var(--chip-border-hover);
 }
 
 .copy-chip.copied {

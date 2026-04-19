@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest a new capability or improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution. What are you trying to do that HoverBuddy doesn't help with today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Rough shape of the feature
+      description: If you have an idea for the feature, describe it here. It's fine to say "no idea, please figure it out."
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: This does not propose re-adding shell command execution (`run_command`), which was removed for safety in v1.0.
+          required: true
+        - label: This does not require bundling a code-signing certificate or similar secret into the repo.
+          required: true

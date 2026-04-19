@@ -2,9 +2,10 @@ import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
-import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement } from "./action-executor";
+import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction } from "./action-executor";
 import { showNotification } from "./tray";
-import { cleanupImage } from "./vision";
+import { cleanupImage, captureAndOptimize } from "./vision";
+import { saveConfig } from "./config-store";
 import { spawn } from "child_process";
 import * as os from "os";
 import * as path from "path";
@@ -121,14 +122,31 @@ export function setAreaContext(elements: any[], rect: { x1: number; y1: number; 
   return context;
 }
 
+export type ConfigChangeListener = (next: Config, prev: Config) => void;
+
+let configChangeListener: ConfigChangeListener | null = null;
+
+/**
+ * Mutate the in-memory config and persist without firing the change listener.
+ * Used for high-frequency updates (panel resize/move) that don't require
+ * re-registering hotkeys or other side effects.
+ */
+export function patchConfigPersistOnly(patch: Partial<Config>): void {
+  if (!appConfig) return;
+  Object.assign(appConfig, patch);
+  saveConfig(appConfig);
+}
+
 export function registerIpcHandlers(
   config: Config,
   showPanel: (context: ContextPayload) => void,
-  hidePanel: () => void
+  hidePanel: () => void,
+  onConfigChange?: ConfigChangeListener
 ): void {
   hidePanelFn = hidePanel;
   showPanelFn = showPanel;
   appConfig = config;
+  configChangeListener = onConfigChange || null;
   const workingDir = config.workingDir || process.cwd();
   client = new OpenCodeClient(config.model || "opencode-go/kimi-k2.5", workingDir);
   log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}`);
@@ -143,13 +161,10 @@ export function registerIpcHandlers(
     hidePanel();
   });
 
-  ipcMain.on(IPC.WINDOW_MOVE, (_e, deltaX: number, deltaY: number) => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      const [x, y] = win.getPosition();
-      win.setPosition(x + deltaX, y + deltaY);
-    }
-  });
+  // WINDOW_MOVE IPC removed: dragging is handled natively via
+  // `-webkit-app-region: drag` on the panel header. See App.tsx. Keeping the
+  // IPC constant for backwards compatibility but the handler is intentionally
+  // absent — renderer calls will be silently ignored.
 
   ipcMain.handle(IPC.GET_CONFIG, () => {
     log(`GET_CONFIG -> ${JSON.stringify(config)}`);
@@ -158,6 +173,7 @@ export function registerIpcHandlers(
 
   ipcMain.handle(IPC.SET_CONFIG, (_e, newConfig: Partial<Config>) => {
     log(`SET_CONFIG received: ${JSON.stringify(newConfig)}`);
+    const prev: Config = { ...config };
     if (newConfig.model) {
       const updated = [newConfig.model, ...config.recentModels.filter(m => m !== newConfig.model)].slice(0, 3);
       config.recentModels = updated;
@@ -168,7 +184,33 @@ export function registerIpcHandlers(
       client = new OpenCodeClient(config.model, config.workingDir);
     }
     log(`Config updated: model=${config.model}, recentModels=${JSON.stringify(config.recentModels)}`);
+    saveConfig(config);
+    if (configChangeListener) {
+      try { configChangeListener(config, prev); }
+      catch (e: any) { log(`Config change listener threw: ${e.message}`); }
+    }
     return config;
+  });
+
+  ipcMain.handle(IPC.VALIDATE_MODEL, async (_e, modelId: string) => {
+    try {
+      const opencodeBin = findOpenCodeBinPath();
+      if (!opencodeBin) return { valid: false, error: "opencode not found" };
+      const { execFile } = require("child_process");
+      const cwd = appConfig.workingDir || os.homedir();
+      const raw = await new Promise<string>((res, rej) => {
+        execFile("node", [opencodeBin, "models"], { encoding: "utf-8", timeout: 30000, cwd, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+      });
+      const allModels = raw.trim().split("\n").map((l: string) => l.trim()).filter(Boolean);
+      const match = allModels.find((m: string) => m.toLowerCase() === modelId.toLowerCase());
+      if (match) {
+        return { valid: true, modelId: match };
+      }
+      const suggestions = allModels.filter((m: string) => m.toLowerCase().includes(modelId.split("/").pop()!.toLowerCase())).slice(0, 5);
+      return { valid: false, error: `Model "${modelId}" not found`, suggestions };
+    } catch (err: any) {
+      return { valid: false, error: err.message };
+    }
   });
 
   ipcMain.on(IPC.NEW_SESSION, () => {
@@ -342,7 +384,16 @@ export function registerIpcHandlers(
       if (timeoutFired) return;
       log("OpenCode session completed");
 
-      const actions = parseActionsFromResponse(fullResponseText);
+      const { actions, blocked } = parseActionsFromResponse(fullResponseText);
+      if (blocked.length > 0) {
+        log(`Blocked ${blocked.length} disallowed action marker(s): ${blocked.map((b) => b.type).join(", ")}`);
+        for (const b of blocked) {
+          win.webContents.send(IPC.ACTION_RESULT, {
+            action: { type: b.type },
+            result: { success: false, error: `Blocked: ${b.reason}` },
+          });
+        }
+      }
       if (actions.length > 0) {
         log(`Found ${actions.length} actions in response: ${actions.map((a) => a.type).join(", ")}`);
         for (const action of actions) {
@@ -355,13 +406,6 @@ export function registerIpcHandlers(
           if (!result.success) {
             lastFailedAction = action;
           }
-
-          if (action.type === "run_command") {
-            const outputMsg = result.success
-              ? `\n\n**Command:** \`${action.command}\`\n**Output:**\n\`\`\`\n${result.output || "(no output)"}\n\`\`\``
-              : `\n\n**Command:** \`${action.command}\`\n**Error:**\n\`\`\`\n${result.error || "unknown error"}\n\`\`\``;
-            win.webContents.send(IPC.STREAM_TOKEN, outputMsg);
-          }
         }
       }
       win.webContents.send(IPC.STREAM_DONE);
@@ -371,9 +415,22 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.on(IPC.EXECUTE_ACTION, async (_e, action: Action) => {
-    log(`EXECUTE_ACTION: type=${action.type}`);
+  ipcMain.on(IPC.EXECUTE_ACTION, async (_e, payload: unknown) => {
     const win = BrowserWindow.getAllWindows()[0];
+    const v = validateAction(payload);
+    if ("error" in v) {
+      log(`EXECUTE_ACTION REJECTED: ${v.error}`);
+      if (win) {
+        const rejectedType = typeof (payload as any)?.type === "string" ? (payload as any).type : "(unknown)";
+        win.webContents.send(IPC.ACTION_RESULT, {
+          action: { type: rejectedType },
+          result: { success: false, error: `Blocked: ${v.error}` },
+        });
+      }
+      return;
+    }
+    const action = v.action;
+    log(`EXECUTE_ACTION: type=${action.type}`);
     const result = await executeAction(action);
     log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
     if (win) {
@@ -381,9 +438,22 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.on(IPC.RETRY_ACTION, async (_e, action: Action) => {
-    log(`RETRY_ACTION: type=${action.type} selector=${action.selector || ""}`);
+  ipcMain.on(IPC.RETRY_ACTION, async (_e, payload: unknown) => {
     const win = BrowserWindow.getAllWindows()[0];
+    const v = validateAction(payload);
+    if ("error" in v) {
+      log(`RETRY_ACTION REJECTED: ${v.error}`);
+      if (win) {
+        const rejectedType = typeof (payload as any)?.type === "string" ? (payload as any).type : "(unknown)";
+        win.webContents.send(IPC.ACTION_RESULT, {
+          action: { type: rejectedType },
+          result: { success: false, error: `Blocked: ${v.error}` },
+        });
+      }
+      return;
+    }
+    const action = v.action;
+    log(`RETRY_ACTION: type=${action.type} selector=${action.selector || ""}`);
     const result = await executeAction(action);
     log(`Retry result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
     if (win) {
@@ -391,15 +461,89 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.on(IPC.ATTACH_SCREENSHOT, () => {
-    const hasImage = !!(currentContext?.imagePath || areaImagePath);
-    log(`ATTACH_SCREENSHOT received — hasImage=${hasImage} (context=${!!currentContext?.imagePath}, area=${!!areaImagePath}), will include with next prompt`);
-    if (hasImage) {
-      attachScreenshotNext = true;
-    }
+  ipcMain.on(IPC.ATTACH_SCREENSHOT, async () => {
     const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      win.webContents.send(IPC.ATTACH_SCREENSHOT, { attached: hasImage, hasImage });
+    const sendStatus = (attached: boolean, hasImage: boolean) => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC.ATTACH_SCREENSHOT, { attached, hasImage });
+      }
+    };
+
+    // Fast path: pointer/area hotkey already captured a screenshot in the
+    // current context. Just flag it for inclusion on the next prompt.
+    if (currentContext?.imagePath || areaImagePath) {
+      log(`ATTACH_SCREENSHOT — reusing existing image (context=${!!currentContext?.imagePath}, area=${!!areaImagePath})`);
+      attachScreenshotNext = true;
+      sendStatus(true, true);
+      return;
+    }
+
+    // Cold attach: no existing screenshot (user opened the panel from the
+    // tray, or the original context had no image). Capture the display
+    // the cursor is on right now. Hide the panel first so HoverBuddy
+    // itself isn't in the screenshot.
+    log("ATTACH_SCREENSHOT — no existing image, capturing full screen now");
+    try {
+      const { screen: electronScreen } = require("electron");
+      const cursor = electronScreen.getCursorScreenPoint();
+      const display = electronScreen.getDisplayNearestPoint(cursor);
+      const sf = display.scaleFactor || 1;
+      const b = display.bounds;
+      const x1 = Math.round(b.x * sf);
+      const y1 = Math.round(b.y * sf);
+      const x2 = Math.round((b.x + b.width) * sf);
+      const y2 = Math.round((b.y + b.height) * sf);
+
+      const panelWasVisible = !!(win && !win.isDestroyed() && win.isVisible());
+      if (panelWasVisible && win) {
+        win.hide();
+        // Give the Windows compositor a moment to actually remove the
+        // frame before we call GDI+ CopyFromScreen. 80ms is empirically
+        // enough on Win10/11; shorter occasionally leaves ghost pixels.
+        await new Promise((r) => setTimeout(r, 80));
+      }
+
+      const imagePath = await captureAndOptimize(x1, y1, x2, y2);
+
+      if (panelWasVisible && win && !win.isDestroyed()) {
+        win.show();
+      }
+
+      if (!imagePath) {
+        log("ATTACH_SCREENSHOT — capture returned null");
+        sendStatus(false, false);
+        return;
+      }
+
+      // Wire the captured image into the current context so the normal
+      // send path picks it up via `currentContext.imagePath`. If there's
+      // no context yet, create a minimal placeholder.
+      if (currentContext) {
+        if (currentContext.imagePath) cleanupImage(currentContext.imagePath);
+        currentContext.imagePath = imagePath;
+        currentContext.hasScreenshot = true;
+      } else {
+        currentContext = {
+          element: {
+            name: "User-attached screenshot",
+            type: "screenshot",
+            value: "",
+            bounds: { x: b.x, y: b.y, width: b.width, height: b.height },
+            children: [],
+          },
+          surrounding: [],
+          cursorPos: cursor,
+          imagePath,
+          hasScreenshot: true,
+        };
+        lastContext = currentContext;
+      }
+      attachScreenshotNext = true;
+      log(`ATTACH_SCREENSHOT — captured ${imagePath.slice(-40)}`);
+      sendStatus(true, true);
+    } catch (err: any) {
+      log(`ATTACH_SCREENSHOT FAILED: ${err.message}`);
+      sendStatus(false, false);
     }
   });
 

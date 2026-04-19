@@ -36,4 +36,7 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
   onSessionHistory: (cb: (messages: any[]) => void) =>
     ipcRenderer.on("session-history", (_e, messages) => cb(messages)),
   stopResponse: () => ipcRenderer.send("stop-response"),
+  validateModel: (model: string) => ipcRenderer.invoke("validate-model", model),
+  onCursorPos: (cb: (pos: { x: number; y: number }) => void) =>
+    ipcRenderer.on("cursor-pos", (_e, pos) => cb(pos)),
 });

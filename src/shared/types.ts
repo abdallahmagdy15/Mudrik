@@ -26,7 +26,6 @@ export type ActionType =
   | "invoke_element"
   | "copy_to_clipboard"
   | "press_keys"
-  | "run_command"
   | "guide_to";
 
 export interface Action {
@@ -34,7 +33,6 @@ export interface Action {
   text?: string;
   selector?: string;
   combination?: string;
-  command?: string;
   automationId?: string;
   boundsHint?: { x: number; y: number; width: number; height: number };
   parentChain?: string[];
@@ -46,6 +44,16 @@ export interface Config {
   workingDir: string;
   autoClickGuide: boolean;
   recentModels: string[];
+  hotkeyPointer: string;
+  hotkeyArea: string;
+  panelWidth: number;
+  panelHeight: number;
+  launchOnStartup: boolean;
+  hasCompletedWelcome: boolean;
+  telemetryEnabled: boolean;
+  theme: "system" | "light" | "dark";
+  /** Base font size in px. Applied as `--font-size-base` on :root. */
+  fontSize: number;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -53,6 +61,15 @@ export const DEFAULT_CONFIG: Config = {
   workingDir: "",
   autoClickGuide: false,
   recentModels: ["zai-coding-plan/glm-4.6v"],
+  hotkeyPointer: "Alt+Space",
+  hotkeyArea: "CommandOrControl+Space",
+  panelWidth: 380,
+  panelHeight: 480,
+  launchOnStartup: false,
+  hasCompletedWelcome: false,
+  telemetryEnabled: false,
+  theme: "system",
+  fontSize: 14,
 };
 
 export interface WindowInfo {
@@ -93,4 +110,6 @@ export const IPC = {
   RESTORE_SESSION: "restore-session",
   SESSION_HISTORY: "session-history",
   STOP_RESPONSE: "stop-response",
+  VALIDATE_MODEL: "validate-model",
+  CURSOR_POS: "cursor-pos",
 } as const;

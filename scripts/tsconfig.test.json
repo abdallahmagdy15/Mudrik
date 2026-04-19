@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "outDir": "out",
+    "rootDir": ".."
+  },
+  "include": ["safety-cut-test.ts", "../src/main/action-executor.ts", "../src/shared/**/*.ts", "../src/main/logger.ts", "../src/main/powershell-runner.ts"]
+}

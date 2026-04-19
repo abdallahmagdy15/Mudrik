@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HoverBuddy tray / installer icon. Static version of the blue owl mascot.
+  Colors match src/renderer/components/OwlMascot.tsx so the tray icon and
+  the in-panel animated mascot read as the same character.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <!-- Feet -->
+  <g fill="#F2A93A">
+    <path d="M92 218 L78 238 L90 238 L96 226 Z"/>
+    <path d="M108 220 L98 238 L110 238 L114 228 Z"/>
+    <path d="M148 220 L146 238 L158 238 L162 228 Z"/>
+    <path d="M164 218 L166 238 L178 238 L180 226 Z"/>
+  </g>
+
+  <!-- Back wing hint -->
+  <path fill="#0FA8C9" d="M198 130 C 210 168 198 208 166 220 L 166 160 Z"/>
+
+  <!-- Body -->
+  <path fill="#18BFE1" d="M128 88 C 74 88 48 136 48 172 C 48 210 80 232 128 232 C 176 232 208 210 208 172 C 208 136 182 88 128 88 Z"/>
+
+  <!-- Chest -->
+  <ellipse cx="128" cy="186" rx="40" ry="40" fill="#FFFFFF"/>
+
+  <!-- Head group -->
+  <g>
+    <!-- Head silhouette with two ear tufts -->
+    <path fill="#18BFE1" d="M128 22
+      C 94 22 66 46 60 82
+      L 72 64
+      L 92 82
+      C 104 72 120 68 128 68
+      C 136 68 152 72 164 82
+      L 184 64
+      L 196 82
+      C 190 46 162 22 128 22 Z"/>
+
+    <!-- Eye whites -->
+    <circle cx="102" cy="88" r="24" fill="#FFFFFF"/>
+    <circle cx="154" cy="88" r="24" fill="#FFFFFF"/>
+
+    <!-- Pupils -->
+    <circle cx="102" cy="90" r="10" fill="#1C1C1C"/>
+    <circle cx="154" cy="90" r="10" fill="#1C1C1C"/>
+    <!-- Catch-lights -->
+    <circle cx="106" cy="86" r="3" fill="#FFFFFF"/>
+    <circle cx="158" cy="86" r="3" fill="#FFFFFF"/>
+
+    <!-- Beak -->
+    <path fill="#F2A93A" d="M128 104 L 120 118 L 136 118 Z"/>
+  </g>
+</svg>

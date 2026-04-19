@@ -3,7 +3,7 @@ import { exec } from "child_process";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { Action } from "../shared/types";
+import { Action, ActionType } from "../shared/types";
 import { runPowerShell } from "./powershell-runner";
 import { log } from "./logger";
 const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v3.ps1";
@@ -170,33 +170,6 @@ function copyToClipboard(text: string): boolean {
     log(`copyToClipboard FAILED: ${err.message}`);
     return false;
   }
-}
-
-async function runCommand(command: string): Promise<{ success: boolean; output: string; error?: string }> {
-  log(`runCommand: "${command}"`);
-  return new Promise((resolve) => {
-    exec(
-      command,
-      { maxBuffer: 1024 * 1024, timeout: 30000, shell: "powershell.exe" },
-      (err, stdout, stderr) => {
-        if (err) {
-          log(`runCommand FAILED: ${err.message}`);
-          log(`  stderr: ${stderr.slice(0, 200)}`);
-          resolve({
-            success: false,
-            output: stdout || "",
-            error: stderr || err.message,
-          });
-          return;
-        }
-        log(`runCommand success, output length=${stdout.length}`);
-        if (stderr) {
-          log(`  stderr (non-fatal): ${stderr.slice(0, 200)}`);
-        }
-        resolve({ success: true, output: stdout, error: stderr || undefined });
-      }
-    );
-  });
 }
 
 function getFindScriptContent(): string {
@@ -867,11 +840,6 @@ export async function executeAction(action: Action): Promise<ActionResult> {
         await pressKeys(action.combination);
         return { success: true };
 
-      case "run_command":
-        if (!action.command) return { success: false, error: "No command" };
-        const cmdResult = await runCommand(action.command);
-        return cmdResult;
-
       case "guide_to": {
         const guideBounds = await resolveElementBounds(action.selector, autoId, boundsHint);
         if (!guideBounds) {
@@ -908,8 +876,58 @@ export async function executeAction(action: Action): Promise<ActionResult> {
   }
 }
 
-export function parseActionsFromResponse(text: string): Action[] {
+export const ALLOWED_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
+  "type_text",
+  "paste_text",
+  "click_element",
+  "set_value",
+  "invoke_element",
+  "copy_to_clipboard",
+  "press_keys",
+  "guide_to",
+]);
+
+/**
+ * Coerce an untrusted IPC payload to a clean `Action`. Returns the sanitized
+ * action, or `{ error }` if the payload is not a safe allowed-type action.
+ * Called at every IPC boundary that reaches `executeAction`.
+ */
+export function validateAction(payload: unknown): { action: Action } | { error: string } {
+  if (!payload || typeof payload !== "object") return { error: "Action payload is not an object" };
+  const p = payload as Record<string, unknown>;
+  if (typeof p.type !== "string") return { error: "Action.type must be a string" };
+  if (!ALLOWED_ACTION_TYPES.has(p.type as ActionType)) {
+    return { error: `Action.type "${p.type}" is not allowed` };
+  }
+  const action: Action = { type: p.type as ActionType };
+  if (typeof p.text === "string") action.text = p.text;
+  if (typeof p.selector === "string") action.selector = p.selector;
+  if (typeof p.combination === "string") action.combination = p.combination;
+  if (typeof p.automationId === "string") action.automationId = p.automationId;
+  if (typeof p.autoClick === "boolean") action.autoClick = p.autoClick;
+  if (p.boundsHint && typeof p.boundsHint === "object") {
+    const b = p.boundsHint as any;
+    if (
+      typeof b.x === "number" && typeof b.y === "number" &&
+      typeof b.width === "number" && typeof b.height === "number"
+    ) {
+      action.boundsHint = { x: b.x, y: b.y, width: b.width, height: b.height };
+    }
+  }
+  if (Array.isArray(p.parentChain) && p.parentChain.every((s) => typeof s === "string")) {
+    action.parentChain = p.parentChain as string[];
+  }
+  return { action };
+}
+
+export interface ParsedActions {
+  actions: Action[];
+  blocked: Array<{ type: string; reason: string }>;
+}
+
+export function parseActionsFromResponse(text: string): ParsedActions {
   const actions: Action[] = [];
+  const blocked: Array<{ type: string; reason: string }> = [];
   const regex = /<!--ACTION:([\s\S]*?)-->/g;
   let match;
   while ((match = regex.exec(text)) !== null) {
@@ -929,27 +947,36 @@ export function parseActionsFromResponse(text: string): Action[] {
           continue;
         }
       }
-      if (parsed.type) {
-        const action: Action = {
-          type: parsed.type,
-          text: parsed.text,
-          selector: parsed.selector,
-          combination: parsed.combination,
-          command: parsed.command,
-        };
-        if (parsed.automationId) action.automationId = parsed.automationId;
-        if (parsed.boundsHint) action.boundsHint = parsed.boundsHint;
-        if (parsed.parentChain) action.parentChain = parsed.parentChain;
-        if (parsed.autoClick !== undefined) action.autoClick = parsed.autoClick;
-        actions.push(action);
-        log(`Parsed action: type=${action.type} selector=${action.selector || ""} automationId=${action.automationId || ""}`);
+      if (typeof parsed.type !== "string") continue;
+
+      if (!ALLOWED_ACTION_TYPES.has(parsed.type as ActionType)) {
+        const reason =
+          parsed.type === "run_command"
+            ? "shell commands are disabled in HoverBuddy"
+            : `unknown action type "${parsed.type}"`;
+        log(`BLOCKED action marker: type=${parsed.type} (${reason})`);
+        blocked.push({ type: parsed.type, reason });
+        continue;
       }
+
+      const action: Action = {
+        type: parsed.type as ActionType,
+        text: parsed.text,
+        selector: parsed.selector,
+        combination: parsed.combination,
+      };
+      if (parsed.automationId) action.automationId = parsed.automationId;
+      if (parsed.boundsHint) action.boundsHint = parsed.boundsHint;
+      if (parsed.parentChain) action.parentChain = parsed.parentChain;
+      if (parsed.autoClick !== undefined) action.autoClick = parsed.autoClick;
+      actions.push(action);
+      log(`Parsed action: type=${action.type} selector=${action.selector || ""} automationId=${action.automationId || ""}`);
     } catch (err: any) {
       log(`Failed to parse action marker: ${match[1].slice(0, 50)}, error: ${err.message}`);
     }
   }
-  if (actions.length === 0) {
+  if (actions.length === 0 && blocked.length === 0) {
     log("No actions found in response");
   }
-  return actions;
+  return { actions, blocked };
 }

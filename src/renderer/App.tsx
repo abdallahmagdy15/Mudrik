@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { ContextPreview } from "./components/ContextPreview";
+import { OwlMascot, OwlState } from "./components/OwlMascot";
 import { ChatInput } from "./components/ChatInput";
 import { ResponseView } from "./components/ResponseView";
 import { ContextPayload, Action } from "@shared/types";
@@ -29,6 +30,7 @@ declare global {
       restoreSession: () => Promise<any>;
       onSessionHistory: (cb: (messages: any[]) => void) => void;
       stopResponse: () => void;
+      validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[] }>;
     };
   }
 }
@@ -95,7 +97,16 @@ export function App() {
   const [autoClickGuide, setAutoClickGuide] = useState(false);
   const [currentModel, setCurrentModel] = useState("zai-coding-plan/glm-4.6v");
   const [recentModels, setRecentModels] = useState<string[]>(["zai-coding-plan/glm-4.6v"]);
+  const [customModelInput, setCustomModelInput] = useState("");
+  const [modelValidationError, setModelValidationError] = useState<string | null>(null);
+  const [modelValidating, setModelValidating] = useState(false);
   const [restoringSession, setRestoringSession] = useState(false);
+  const [hotkeyPointer, setHotkeyPointer] = useState("Alt+Space");
+  const [hotkeyArea, setHotkeyArea] = useState("CommandOrControl+Space");
+  const [hotkeyError, setHotkeyError] = useState<string | null>(null);
+  const [launchOnStartup, setLaunchOnStartup] = useState(false);
+  const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
+  const [fontSize, setFontSize] = useState(14);
   const chatInputRef = useRef<{ focus: () => void }>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -186,13 +197,26 @@ export function App() {
       }
     });
 
+    // Focus the chat input only when the user doesn't already have focus
+    // in another field (settings inputs, hotkey capture, model picker).
+    // Without this guard, any window-focus event steals focus away from
+    // whatever input the user just clicked into.
+    const focusChatIfIdle = () => {
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae && (ae.tagName === "INPUT" || ae.tagName === "TEXTAREA" || ae.tagName === "SELECT" || ae.isContentEditable)) {
+        // User has something else focused. Respect it.
+        return;
+      }
+      chatInputRef.current?.focus();
+    };
+
     window.hoverbuddy.onFocusInput(() => {
       console.log("[RENDERER] Focus input requested");
-      setTimeout(() => chatInputRef.current?.focus(), 50);
+      setTimeout(focusChatIfIdle, 50);
     });
 
     const handleWindowFocus = () => {
-      setTimeout(() => chatInputRef.current?.focus(), 50);
+      setTimeout(focusChatIfIdle, 50);
     };
     window.addEventListener("focus", handleWindowFocus);
 
@@ -200,12 +224,48 @@ export function App() {
       if (cfg?.autoClickGuide !== undefined) setAutoClickGuide(cfg.autoClickGuide);
       if (cfg?.model) setCurrentModel(cfg.model);
       if (cfg?.recentModels) setRecentModels(cfg.recentModels);
+      if (cfg?.hotkeyPointer) setHotkeyPointer(cfg.hotkeyPointer);
+      if (cfg?.hotkeyArea) setHotkeyArea(cfg.hotkeyArea);
+      if (cfg?.launchOnStartup !== undefined) setLaunchOnStartup(cfg.launchOnStartup);
+      if (cfg?.theme) setTheme(cfg.theme);
+      if (typeof cfg?.fontSize === "number") setFontSize(cfg.fontSize);
     });
+  }, []);
+
+  // Push fontSize into the CSS custom property so every size-driven rule
+  // in global.css (body, .message-content, .chat-input textarea) reacts
+  // live without a refresh.
+  useEffect(() => {
+    const clamped = Math.max(11, Math.min(20, Math.round(fontSize)));
+    document.documentElement.style.setProperty("--font-size-base", `${clamped}px`);
+  }, [fontSize]);
+
+  const handleSetFontSize = useCallback((size: number) => {
+    const clamped = Math.max(11, Math.min(20, Math.round(size)));
+    setFontSize(clamped);
+    window.hoverbuddy.setConfig({ fontSize: clamped });
   }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, currentResponse, actionResults]);
+
+  // Escape dismisses the panel. Captured at the window so it works regardless
+  // of which element has focus. If the model is still streaming, the first
+  // Escape stops the response; a second Escape hides the panel.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (streaming) {
+        window.hoverbuddy.stopResponse();
+        e.preventDefault();
+        return;
+      }
+      window.hoverbuddy.dismiss();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [streaming]);
 
   const handleSubmit = useCallback((prompt: string) => {
     console.log(`[RENDERER] Submit prompt: "${prompt}"`);
@@ -260,28 +320,9 @@ export function App() {
     window.hoverbuddy.minimize();
   }, []);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest("button")) return;
-    let lastX = e.screenX;
-    let lastY = e.screenY;
-
-    const handleMouseMove = (moveE: MouseEvent) => {
-      const deltaX = moveE.screenX - lastX;
-      const deltaY = moveE.screenY - lastY;
-      lastX = moveE.screenX;
-      lastY = moveE.screenY;
-      window.hoverbuddy.windowMove(deltaX, deltaY);
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-      setTimeout(() => chatInputRef.current?.focus(), 50);
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-  }, []);
+  // Dragging is handled natively by Chromium via the CSS `-webkit-app-region:
+  // drag` declaration on `.app-header`. No JS / IPC involved — it's smooth
+  // at any framerate, which the previous per-mousemove IPC approach was not.
 
   const handleRetryAction = useCallback((action: Action) => {
     console.log(`[RENDERER] Retrying action: type=${action.type}`);
@@ -300,13 +341,57 @@ export function App() {
     window.hoverbuddy.setConfig({ autoClickGuide: newVal });
   }, [autoClickGuide]);
 
+  const handleToggleLaunchOnStartup = useCallback(() => {
+    const newVal = !launchOnStartup;
+    setLaunchOnStartup(newVal);
+    window.hoverbuddy.setConfig({ launchOnStartup: newVal });
+  }, [launchOnStartup]);
+
+  const handleSetTheme = useCallback((newTheme: "system" | "light" | "dark") => {
+    setTheme(newTheme);
+    window.hoverbuddy.setConfig({ theme: newTheme });
+  }, []);
+
+  const commitHotkeys = useCallback(async (pointer: string, area: string) => {
+    setHotkeyError(null);
+    const cfg: any = await window.hoverbuddy.setConfig({ hotkeyPointer: pointer, hotkeyArea: area });
+    if (cfg?.hotkeyPointer !== pointer || cfg?.hotkeyArea !== area) {
+      setHotkeyError("One or both hotkeys are already in use; reverted to the previous binding.");
+      if (cfg?.hotkeyPointer) setHotkeyPointer(cfg.hotkeyPointer);
+      if (cfg?.hotkeyArea) setHotkeyArea(cfg.hotkeyArea);
+    }
+  }, []);
+
   const handleSwitchModel = useCallback((model: string) => {
     console.log(`[RENDERER] Switching model to: ${model}`);
     setCurrentModel(model);
+    setCustomModelInput("");
+    setModelValidationError(null);
     window.hoverbuddy.setConfig({ model }).then((cfg: any) => {
       if (cfg?.recentModels) setRecentModels(cfg.recentModels);
+      if (cfg?.model) setCurrentModel(cfg.model);
     });
   }, []);
+
+  const handleCustomModelSubmit = useCallback(async () => {
+    const modelId = customModelInput.trim();
+    if (!modelId) return;
+    setModelValidating(true);
+    setModelValidationError(null);
+    try {
+      const result = await window.hoverbuddy.validateModel(modelId);
+      if (result.valid && result.modelId) {
+        handleSwitchModel(result.modelId);
+      } else {
+        setModelValidationError(result.suggestions?.length
+          ? `${result.error}. Did you mean: ${result.suggestions.join(", ")}?`
+          : (result.error || "Model not found"));
+      }
+    } catch (err: any) {
+      setModelValidationError(err.message);
+    }
+    setModelValidating(false);
+  }, [customModelInput, handleSwitchModel]);
 
   const renderSegments = useCallback((content: string) => {
     const segments = parseMessageContent(content);
@@ -325,8 +410,14 @@ export function App() {
 
   return (
     <div className="app">
-      <div className="app-header" onMouseDown={handleMouseDown}>
-        <span className="app-title">HoverBuddy</span>
+      <div className="app-header">
+        <div className="app-brand">
+          <OwlMascot
+            state={streaming ? "thinking" : (currentResponse ? "replying" : "idle") as OwlState}
+            size={44}
+          />
+          <span className="app-title">HoverBuddy</span>
+        </div>
         <div className="header-actions">
           <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title="Settings">&#9881;</button>
           <button className="btn-new-session" onClick={handleNewSession} title="New Session">+</button>
@@ -349,17 +440,104 @@ export function App() {
                 </div>
               ))}
             </div>
+            <div className="settings-section">
+              <div className="settings-label">Custom Model</div>
+              <div className="model-input-row">
+                <input
+                  className="model-input"
+                  type="text"
+                  placeholder="provider/model-name"
+                  value={customModelInput}
+                  onChange={(e) => { setCustomModelInput(e.target.value); setModelValidationError(null); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleCustomModelSubmit(); }}
+                  disabled={modelValidating}
+                />
+                <button className="model-input-btn" onClick={handleCustomModelSubmit} disabled={modelValidating || !customModelInput.trim()}>
+                  {modelValidating ? "..." : "Set"}
+                </button>
+              </div>
+              {modelValidationError && <div className="model-error">{modelValidationError}</div>}
+            </div>
+            <div className="settings-section">
+              <div className="settings-label">Hotkeys</div>
+              <label className="hotkey-row">
+                <span>Pointer</span>
+                <input
+                  className="hotkey-input"
+                  type="text"
+                  value={hotkeyPointer}
+                  onChange={(e) => setHotkeyPointer(e.target.value)}
+                  onBlur={() => { if (hotkeyPointer) commitHotkeys(hotkeyPointer, hotkeyArea); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  placeholder="Alt+Space"
+                />
+              </label>
+              <label className="hotkey-row">
+                <span>Area</span>
+                <input
+                  className="hotkey-input"
+                  type="text"
+                  value={hotkeyArea}
+                  onChange={(e) => setHotkeyArea(e.target.value)}
+                  onBlur={() => { if (hotkeyArea) commitHotkeys(hotkeyPointer, hotkeyArea); }}
+                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                  placeholder="CommandOrControl+Space"
+                />
+              </label>
+              {hotkeyError && <div className="model-error">{hotkeyError}</div>}
+            </div>
+            <div className="settings-section">
+              <div className="settings-label">Theme</div>
+              <div className="theme-picker">
+                {(["system", "light", "dark"] as const).map((t) => (
+                  <button
+                    key={t}
+                    className={`theme-option ${theme === t ? "theme-active" : ""}`}
+                    onClick={() => handleSetTheme(t)}
+                  >
+                    {t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="settings-section">
+              <div className="settings-label">
+                Font size <span className="settings-hint">{fontSize}px</span>
+              </div>
+              <input
+                className="font-size-slider"
+                type="range"
+                min={11}
+                max={20}
+                step={1}
+                value={fontSize}
+                onChange={(e) => handleSetFontSize(Number(e.target.value))}
+              />
+            </div>
             <label className="settings-toggle">
               <span>Auto-click guide</span>
               <div className={`toggle-switch ${autoClickGuide ? "on" : ""}`} onClick={handleToggleAutoClick}>
                 <div className="toggle-knob" />
               </div>
             </label>
+            <label className="settings-toggle">
+              <span>Launch on startup</span>
+              <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
+                <div className="toggle-knob" />
+              </div>
+            </label>
           </div>
         )}
       </div>
-      {context && <ContextPreview context={context} />}
-      {context && !screenshotAttached && (
+      {/* Context preview only renders if there's an actual element. The cold
+          "Show Panel" fallback uses a placeholder context with empty fields,
+          which would otherwise render an empty grey bar. */}
+      {context && (context.element?.name || context.element?.value || (context.surrounding && context.surrounding.length > 0)) && (
+        <ContextPreview context={context} />
+      )}
+      {/* Screenshot attachment is always available — even from a cold panel
+          opened via the tray, the user can attach a screenshot and chat. */}
+      {!screenshotAttached && (
         <button className="btn-attach-screenshot" onClick={handleAttachScreenshot} disabled={streaming}>
           📸 Attach Screenshot
         </button>

@@ -1,0 +1,35 @@
+name: build
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit -p .
+
+      - name: Webpack build
+        run: npm run build
+
+      - name: Leak guard
+        run: npm run check:no-env
+
+      - name: Package (unsigned, no publish)
+        run: npx electron-builder --win --dir

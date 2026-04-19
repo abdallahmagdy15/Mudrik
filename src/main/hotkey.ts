@@ -8,63 +8,99 @@ export interface HotkeyCallbacks {
   onAreaActivate: () => void;
 }
 
+export interface HotkeyBindings {
+  pointer: string;
+  area: string;
+}
+
 let lastPointerTime = 0;
 let lastAreaTime = 0;
 const DEBOUNCE_MS = 800;
 
-export function startHotkeyListener(callbacks: HotkeyCallbacks): void {
+let activeCallbacks: HotkeyCallbacks | null = null;
+let activeBindings: HotkeyBindings = { pointer: "Alt+Space", area: "CommandOrControl+Space" };
+
+export function startHotkeyListener(callbacks: HotkeyCallbacks, initial?: HotkeyBindings): void {
   log("Starting hotkey listener...");
-  registerHotkeys(callbacks);
+  activeCallbacks = callbacks;
+  if (initial) activeBindings = { ...initial };
+  app.whenReady().then(() => applyBindings(activeBindings));
 }
 
 export function stopHotkeyListener(): void {
   globalShortcut.unregisterAll();
+  activeCallbacks = null;
   log("Hotkey listener stopped");
 }
 
-function registerHotkeys(callbacks: HotkeyCallbacks): void {
-  app.whenReady().then(() => {
-    const pointerKey = "Alt+Space";
-    log(`Registering pointer shortcut: ${pointerKey}`);
+/**
+ * Re-bind the global hotkeys to new accelerator strings. If registration of
+ * any new binding fails (key already in use, invalid accelerator), the
+ * previous working bindings are restored and `{ ok: false, failed }` is
+ * returned so the caller can surface a notification and roll back config.
+ */
+export function applyHotkeys(next: HotkeyBindings): { ok: boolean; failed?: Array<"pointer" | "area"> } {
+  if (!activeCallbacks) {
+    log("applyHotkeys called before startHotkeyListener — nothing to do");
+    return { ok: false };
+  }
+  const prev = { ...activeBindings };
+  globalShortcut.unregisterAll();
+  const failed: Array<"pointer" | "area"> = [];
+  const pointerOk = registerPointer(next.pointer);
+  const areaOk = registerArea(next.area);
+  if (!pointerOk) failed.push("pointer");
+  if (!areaOk) failed.push("area");
+  if (failed.length > 0) {
+    log(`applyHotkeys FAILED for: ${failed.join(", ")} — rolling back to ${prev.pointer} / ${prev.area}`);
+    globalShortcut.unregisterAll();
+    registerPointer(prev.pointer);
+    registerArea(prev.area);
+    return { ok: false, failed };
+  }
+  activeBindings = { ...next };
+  log(`Hotkeys applied: pointer=${next.pointer} area=${next.area}`);
+  return { ok: true };
+}
 
-    const pointerRegistered = globalShortcut.register(pointerKey, () => {
+function applyBindings(b: HotkeyBindings): void {
+  registerPointer(b.pointer);
+  registerArea(b.area);
+}
+
+function registerPointer(accelerator: string): boolean {
+  log(`Registering pointer shortcut: ${accelerator}`);
+  try {
+    const ok = globalShortcut.register(accelerator, () => {
       const now = Date.now();
-      if (now - lastPointerTime < DEBOUNCE_MS) {
-        log(`Pointer hotkey debounced (${now - lastPointerTime}ms)`);
-        return;
-      }
+      if (now - lastPointerTime < DEBOUNCE_MS) return;
       lastPointerTime = now;
       const pos = robot.getMousePos();
-      log(`Pointer hotkey triggered! Cursor at: x=${pos.x}, y=${pos.y}`);
-      callbacks.onPointerActivate({ x: pos.x, y: pos.y });
+      log(`Pointer hotkey at: x=${pos.x}, y=${pos.y}`);
+      activeCallbacks?.onPointerActivate({ x: pos.x, y: pos.y });
     });
+    if (!ok) log(`ERROR: Failed to register ${accelerator} — may already be in use`);
+    return ok;
+  } catch (e: any) {
+    log(`ERROR: Failed to register ${accelerator}: ${e.message}`);
+    return false;
+  }
+}
 
-    if (!pointerRegistered) {
-      log(`ERROR: Failed to register ${pointerKey} — may already be in use`);
-    } else {
-      log(`Pointer shortcut ${pointerKey} registered`);
-    }
-
-    const areaKey = "CommandOrControl+Space";
-    log(`Registering area shortcut: ${areaKey}`);
-
-    const areaRegistered = globalShortcut.register(areaKey, () => {
+function registerArea(accelerator: string): boolean {
+  log(`Registering area shortcut: ${accelerator}`);
+  try {
+    const ok = globalShortcut.register(accelerator, () => {
       const now = Date.now();
-      if (now - lastAreaTime < DEBOUNCE_MS) {
-        log(`Area hotkey debounced (${now - lastAreaTime}ms)`);
-        return;
-      }
+      if (now - lastAreaTime < DEBOUNCE_MS) return;
       lastAreaTime = now;
       log(`Area hotkey triggered!`);
-      callbacks.onAreaActivate();
+      activeCallbacks?.onAreaActivate();
     });
-
-    if (!areaRegistered) {
-      log(`ERROR: Failed to register ${areaKey} — may already be in use`);
-    } else {
-      log(`Area shortcut ${areaKey} registered`);
-    }
-
-    log("Hotkey listener started");
-  });
+    if (!ok) log(`ERROR: Failed to register ${accelerator} — may already be in use`);
+    return ok;
+  } catch (e: any) {
+    log(`ERROR: Failed to register ${accelerator}: ${e.message}`);
+    return false;
+  }
 }

@@ -1,6 +1,7 @@
 import { Tray, Menu, nativeImage, app } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import { checkForUpdatesInteractive } from "./updater";
 
 const log = (msg: string) => console.log(`[TRAY] ${msg}`);
 
@@ -15,21 +16,36 @@ export function createTrayWithShow(onShow: (() => void) | undefined, onQuit: () 
 
   let icon = nativeImage.createEmpty();
 
-  const iconPaths = [
-    path.join(__dirname, "..", "assets", "icon.png"),
-    path.join(__dirname, "..", "..", "assets", "icon.png"),
-    path.join(app.getAppPath(), "assets", "icon.png"),
+  // Preferred filenames in priority order. `tray.png` (32x32) is hand-tuned
+  // for the Windows system tray; `icon.png` (256x256) is the fallback.
+  // Each name is looked up across several locations so the icon resolves in
+  // dev (`dist/` sibling), packaged (`resources/app/assets`), and ASAR
+  // builds (`app.getAppPath()`).
+  const candidateNames = ["tray.png", "icon.png"];
+  const searchRoots = [
+    path.join(__dirname, "..", "assets"),        // dev: dist/ → ../assets
+    path.join(__dirname, "..", "..", "assets"),  // dist/main/ → ../../assets
+    path.join(app.getAppPath(), "assets"),       // packaged
+    path.join(process.resourcesPath || "", "assets"),
   ];
 
-  for (const iconPath of iconPaths) {
-    log(`Trying icon path: ${iconPath}`);
-    if (fs.existsSync(iconPath)) {
-      log(`Found icon at: ${iconPath}`);
-      icon = nativeImage.createFromPath(iconPath);
-      if (!icon.isEmpty()) {
-        log("Icon loaded successfully");
-        break;
+  outer: for (const name of candidateNames) {
+    for (const root of searchRoots) {
+      const p = path.join(root, name);
+      log(`Trying icon path: ${p}`);
+      if (!fs.existsSync(p)) continue;
+      const img = nativeImage.createFromPath(p);
+      if (img.isEmpty()) continue;
+      icon = img;
+      // Attach the @2x variant for HiDPI displays if present. Electron's
+      // nativeImage picks the right one based on device scale factor.
+      const hiDpi = path.join(root, "tray@2x.png");
+      if (name === "tray.png" && fs.existsSync(hiDpi)) {
+        icon.addRepresentation({ scaleFactor: 2.0, buffer: fs.readFileSync(hiDpi) });
+        log(`Added HiDPI representation from ${hiDpi}`);
       }
+      log(`Icon loaded from ${p}`);
+      break outer;
     }
   }
 
@@ -66,10 +82,17 @@ export function createTrayWithShow(onShow: (() => void) | undefined, onQuit: () 
   tray = new Tray(icon);
 
   const contextMenu = Menu.buildFromTemplate([
-    { label: "HoverBuddy v1.0", enabled: false },
+    { label: `HoverBuddy v${app.getVersion()}`, enabled: false },
     { type: "separator" },
     ...(onShow ? [{ label: "Show Panel", click: () => { log("Show Panel clicked from tray"); onShow(); } }] : []),
     { type: "separator" },
+    {
+      label: "Check for updates…",
+      click: () => {
+        log("Check for updates clicked");
+        checkForUpdatesInteractive().catch((e) => log(`checkForUpdatesInteractive failed: ${e.message}`));
+      },
+    },
     {
       label: "Show Log",
       click: () => {

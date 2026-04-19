@@ -1,11 +1,13 @@
-import { app, BrowserWindow, screen } from "electron";
+import { app, BrowserWindow, screen, dialog, nativeTheme } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
-import { registerIpcHandlers, setContext, setAreaContext, getLastContext } from "./ipc-handlers";
-import { startHotkeyListener, stopHotkeyListener } from "./hotkey";
+import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly } from "./ipc-handlers";
+import { startHotkeyListener, stopHotkeyListener, applyHotkeys } from "./hotkey";
+import { loadConfig, saveConfig, isFirstRun, ensureAgentInWorkingDir } from "./config-store";
+import { initUpdater, stopUpdater } from "./updater";
 import { readContextAtPoint } from "./context-reader";
 import { startAreaSelection } from "./area-selector";
 import { scanArea } from "./area-scanner";
@@ -16,10 +18,10 @@ import { log } from "./logger";
 let mainWindow: BrowserWindow | null = null;
 let config: Config = { ...DEFAULT_CONFIG };
 
-const PANEL_WIDTH = 420;
-const PANEL_HEIGHT = 620;
-
 function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; y: number } {
+  // Panel always anchors to the cursor on activation. We used to support a
+  // "remember panel position" toggle, but it was removed — the panel is a
+  // cursor-first tool, not a fixed floating window.
   // Use Electron's own cursor position (same coordinate space as window positioning)
   const electronCursor = screen.getCursorScreenPoint();
   log(`Cursor: robotjs=(${cursorX},${cursorY}) electron=(${electronCursor.x},${electronCursor.y})`);
@@ -40,13 +42,13 @@ function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; 
   if (lx < screenMiddle) {
     panelX = lx + hGap;
   } else {
-    panelX = lx - PANEL_WIDTH - hGap;
+    panelX = lx - config.panelWidth - hGap;
   }
 
   panelY = ly - vGap;
 
-  panelX = Math.max(workArea.x + 4, Math.min(panelX, rightEdge - PANEL_WIDTH - 4));
-  panelY = Math.max(workArea.y + 4, Math.min(panelY, bottomEdge - PANEL_HEIGHT - 4));
+  panelX = Math.max(workArea.x + 4, Math.min(panelX, rightEdge - config.panelWidth - 4));
+  panelY = Math.max(workArea.y + 4, Math.min(panelY, bottomEdge - config.panelHeight - 4));
 
   log(`Panel: x=${panelX} y=${panelY} | cursor=(${lx},${ly}) screenMid=${screenMiddle} ${lx < screenMiddle ? 'RIGHT' : 'LEFT'} of cursor`);
 
@@ -55,20 +57,57 @@ function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; 
 
 function createWindow(cursorX: number, cursorY: number): BrowserWindow {
   const pos = calculatePanelPosition(cursorX, cursorY);
-  log(`Creating window at x=${pos.x}, y=${pos.y}, width=${PANEL_WIDTH}, height=${PANEL_HEIGHT}`);
+  log(`Creating window at x=${pos.x}, y=${pos.y}, width=${config.panelWidth}, height=${config.panelHeight}`);
+
+  // Resolve the owl icon for the BrowserWindow (Alt+Tab, taskbar if the
+  // user ever un-sets skipTaskbar). Looked up relative to the built main
+  // bundle so it works both in dev and packaged.
+  const iconCandidates = [
+    path.join(__dirname, "..", "assets", "icon.png"),
+    path.join(__dirname, "..", "..", "assets", "icon.png"),
+    path.join(app.getAppPath(), "assets", "icon.png"),
+  ];
+  const winIcon = iconCandidates.find((p) => {
+    try { require("fs").accessSync(p); return true; } catch { return false; }
+  });
 
   const win = new BrowserWindow({
-    width: PANEL_WIDTH,
-    height: PANEL_HEIGHT,
+    width: config.panelWidth,
+    height: config.panelHeight,
     x: pos.x,
     y: pos.y,
     frame: false,
+    ...(winIcon ? { icon: winIcon } : {}),
+    // TRUE per-pixel transparency. All three of these must be set
+    // together on Windows — without them Electron draws a default
+    // opaque white/gray rectangle behind the CSS-rounded `.app`, which
+    // is what produced the visible "rectangle behind the rounded
+    // corners" bug:
+    //   - `transparent: true`        enables the alpha channel
+    //   - `backgroundColor: "#00000000"`  clears the default opaque fill
+    //   - `hasShadow: false`         disables the OS drop shadow (we
+    //                                draw our own macOS-style stacked
+    //                                shadow in global.css `.app`)
+    // We're also NOT using backdrop-filter (Chromium on an Electron
+    // transparent window can't sample the desktop behind) nor Windows 11
+    // acrylic (auto-dims on blur). The panel uses a solid teal-ink tint.
     transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
     alwaysOnTop: true,
     skipTaskbar: true,
+    // User-resizable. A frameless resizable window has an invisible
+    // ~6px edge-resize gutter on all sides — settings items that sit
+    // close to the right edge used to accidentally trigger a native
+    // edge-resize on long-click. We mitigate that with explicit
+    // min/max dimensions below + the header is a drag region, so the
+    // gutter is the only resize affordance. Final size is persisted
+    // via the `resize` / `close` handlers further down.
     resizable: true,
     minWidth: 320,
-    minHeight: 400,
+    minHeight: 360,
+    maxWidth: 900,
+    maxHeight: 1000,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -76,6 +115,43 @@ function createWindow(cursorX: number, cursorY: number): BrowserWindow {
       nodeIntegration: false,
     },
   });
+
+  // Persist the resized size on hide/close so it survives a relaunch.
+  // We persist only on hide/close — NOT on every `resize` event — to
+  // avoid hammering the config file while the user drags a corner.
+  // Position is NOT persisted; the panel is cursor-first and re-anchors
+  // on every activation.
+  const savePanelSizeOnHide = () => {
+    if (win.isDestroyed()) return;
+    const [w, h] = win.getSize();
+    patchConfigPersistOnly({ panelWidth: w, panelHeight: h });
+  };
+  win.on("hide", savePanelSizeOnHide);
+  win.on("close", savePanelSizeOnHide);
+
+  // Desktop-wide cursor polling for the owl mascot. Runs only while the
+  // panel is visible — ~33ms cadence (~30 Hz) is smooth enough for pupil
+  // tracking and cheap enough not to notice. Using the Electron `screen`
+  // API (not robotjs) so we don't pay a native-module call per tick.
+  let cursorTimer: NodeJS.Timeout | null = null;
+  const { screen: electronScreen } = require("electron") as typeof import("electron");
+  const startCursorPolling = () => {
+    if (cursorTimer) return;
+    cursorTimer = setInterval(() => {
+      if (win.isDestroyed() || !win.isVisible()) return;
+      const pos = electronScreen.getCursorScreenPoint();
+      win.webContents.send(IPC.CURSOR_POS, pos);
+    }, 33);
+  };
+  const stopCursorPolling = () => {
+    if (cursorTimer) {
+      clearInterval(cursorTimer);
+      cursorTimer = null;
+    }
+  };
+  win.on("show", startCursorPolling);
+  win.on("hide", stopCursorPolling);
+  win.on("close", stopCursorPolling);
 
   log(`Loading index.html from ${path.join(__dirname, "index.html")}`);
   log(`dist dir contents: ${fs.readdirSync(path.join(__dirname)).join(", ")}`);
@@ -245,11 +321,66 @@ function handleAreaActivate(): void {
   });
 }
 
-app.whenReady().then(() => {
+function applyTheme(theme: "system" | "light" | "dark"): void {
+  try {
+    nativeTheme.themeSource = theme;
+    log(`Theme set to: ${theme} (resolved dark=${nativeTheme.shouldUseDarkColors})`);
+  } catch (e: any) {
+    log(`applyTheme FAILED: ${e.message}`);
+  }
+}
+
+function applyLoginItemSetting(launchOnStartup: boolean): void {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: launchOnStartup,
+      openAsHidden: true,
+    });
+    log(`setLoginItemSettings: openAtLogin=${launchOnStartup}`);
+  } catch (e: any) {
+    log(`setLoginItemSettings FAILED: ${e.message}`);
+  }
+}
+
+async function maybeShowWelcome(): Promise<void> {
+  if (config.hasCompletedWelcome) return;
+  try {
+    await dialog.showMessageBox({
+      type: "info",
+      title: "Welcome to HoverBuddy",
+      message: "HoverBuddy runs from the system tray.",
+      detail:
+        `Press ${config.hotkeyPointer} on any window to open the assistant for the UI element under your cursor.\n\n` +
+        `Press ${config.hotkeyArea} to draw a rectangle and ask about that area.\n\n` +
+        `You can change the model, hotkeys, and startup behaviour from the ⚙ menu in the panel.`,
+      buttons: ["Get started"],
+      defaultId: 0,
+      noLink: true,
+    });
+  } catch (e: any) {
+    log(`Welcome dialog failed: ${e.message}`);
+  }
+  config.hasCompletedWelcome = true;
+  saveConfig(config);
+}
+
+app.whenReady().then(async () => {
   log("App ready, initializing...");
 
-  config = { ...DEFAULT_CONFIG, workingDir: path.join(__dirname, "..") || process.cwd() };
-  log(`Config: model=${config.model}, workingDir=${config.workingDir}`);
+  const firstRun = isFirstRun();
+  config = loadConfig();
+  log(`Config loaded: model=${config.model}, workingDir=${config.workingDir}, firstRun=${firstRun}`);
+
+  // Persist the default config on first run so subsequent launches see it
+  // and first-run detection is accurate.
+  if (firstRun) saveConfig(config);
+
+  ensureAgentInWorkingDir(config.workingDir);
+
+  applyTheme(config.theme);
+  applyLoginItemSetting(config.launchOnStartup);
+
+  await maybeShowWelcome();
 
   createTrayWithShow(
     () => {
@@ -257,39 +388,72 @@ app.whenReady().then(() => {
       if (lastCtx && mainWindow) {
         log("Show Panel from tray — re-showing with last context");
         showExistingPanel();
-      } else {
-        log("Show Panel from tray — no existing context, creating test context");
-        const display = screen.getPrimaryDisplay();
-        const testContext: ContextPayload = {
-          element: {
-            name: "Test Element",
-            type: "text",
-            value: "This is a test. If you can see this, the renderer is working!",
-            bounds: { x: 0, y: 0, width: 200, height: 50 },
-            children: [],
-          },
-          surrounding: [],
-          cursorPos: { x: Math.round(display.workAreaSize.width / 2), y: Math.round(display.workAreaSize.height / 2) },
-        };
-        setContext(testContext);
-        showPanel(testContext);
+        return;
       }
+      // No real context yet. Open an empty panel centered on the primary
+      // display so the user can chat without a target element. Previously we
+      // synthesized a fake "Test Element" context, which looked like a bug
+      // to first-time users.
+      log("Show Panel from tray — no existing context, opening empty panel");
+      const display = screen.getPrimaryDisplay();
+      const emptyContext: ContextPayload = {
+        element: {
+          name: "",
+          type: "none",
+          value: "",
+          bounds: { x: 0, y: 0, width: 0, height: 0 },
+          children: [],
+        },
+        surrounding: [],
+        cursorPos: {
+          x: Math.round(display.workAreaSize.width / 2),
+          y: Math.round(display.workAreaSize.height / 2),
+        },
+      };
+      setContext(emptyContext);
+      showPanel(emptyContext);
     },
     () => app.quit()
   );
   log("Tray created");
 
-  registerIpcHandlers(config, showPanel, hidePanel);
+  registerIpcHandlers(config, showPanel, hidePanel, (next, prev) => {
+    if (next.hotkeyPointer !== prev.hotkeyPointer || next.hotkeyArea !== prev.hotkeyArea) {
+      const result = applyHotkeys({ pointer: next.hotkeyPointer, area: next.hotkeyArea });
+      if (!result.ok) {
+        // Roll back the in-memory config so UI shows the previous working values.
+        config.hotkeyPointer = prev.hotkeyPointer;
+        config.hotkeyArea = prev.hotkeyArea;
+        saveConfig(config);
+      }
+    }
+    if (next.launchOnStartup !== prev.launchOnStartup) {
+      applyLoginItemSetting(next.launchOnStartup);
+    }
+    if (next.theme !== prev.theme) {
+      applyTheme(next.theme);
+    }
+    if (next.workingDir !== prev.workingDir) {
+      ensureAgentInWorkingDir(next.workingDir);
+    }
+  });
   log("IPC handlers registered");
 
-  startHotkeyListener({
-    onPointerActivate: handlePointerActivate,
-    onAreaActivate: handleAreaActivate,
-  });
+  startHotkeyListener(
+    {
+      onPointerActivate: handlePointerActivate,
+      onAreaActivate: handleAreaActivate,
+    },
+    { pointer: config.hotkeyPointer, area: config.hotkeyArea }
+  );
   log("Hotkey listener started");
+
+  initUpdater();
+  log("Updater initialized");
 
   app.on("before-quit", () => {
     log("App quitting...");
+    stopUpdater();
     stopHotkeyListener();
     destroyTray();
   });
