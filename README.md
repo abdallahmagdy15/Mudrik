@@ -1,136 +1,219 @@
+<div align="center">
+
+<img src="assets/icon.png" alt="HoverBuddy owl mascot" width="128" height="128" />
+
 # HoverBuddy
 
-> Press a hotkey, point at anything on your Windows desktop, and ask an AI about it.
+**A friendly owl that lives in your tray, reads whatever your cursor is pointing at, and does stuff for you.**
 
-HoverBuddy is a small tray app for Windows 10/11. Press **Alt+Space** over any window — a button, a form field, a paragraph — and a panel opens anchored near your cursor with the UI element's context already loaded. Ask questions, have the model explain or translate, or tell it to type/paste/click for you.
+*Alt+Space → point at anything on Windows → ask an AI → it acts.*
 
-Press **Ctrl+Space** and drag a rectangle to grab an on-screen region instead.
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0FA8C9?style=flat-square)](https://github.com/abdallahmagdy15/hoverbuddy/releases)
+[![License](https://img.shields.io/badge/license-MIT-18BFE1?style=flat-square)](LICENSE)
+[![Release](https://img.shields.io/github/v/release/abdallahmagdy15/hoverbuddy?style=flat-square&color=F2A93A)](https://github.com/abdallahmagdy15/hoverbuddy/releases)
+[![Electron](https://img.shields.io/badge/built%20with-Electron-5FD8F0?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Stars](https://img.shields.io/github/stars/abdallahmagdy15/hoverbuddy?style=flat-square&color=FFC06A)](https://github.com/abdallahmagdy15/hoverbuddy/stargazers)
 
-The model runs through the [OpenCode](https://opencode.ai) CLI, so you bring your own provider key (OpenAI, Anthropic, Ollama, Z.AI, and so on) and pick any model OpenCode supports.
+[Download](#-install) · [Demo](#-what-it-does) · [How it works](#-how-it-works) · [Roadmap](#-roadmap) · [Contribute](CONTRIBUTING.md)
 
-## Status
+</div>
 
-Pre-release (v1.0 MVP). Windows 10 and 11 only. The installer is **unsigned** — Windows SmartScreen will warn on first launch; click **More info → Run anyway**.
+---
 
-## Install
+## 🦉 What it does
 
-1. Install [Node.js ≥ 20](https://nodejs.org/).
-2. Install the OpenCode CLI and configure a provider:
-   ```
+HoverBuddy is a tiny tray app for Windows that turns any desktop app into something you can *talk to*.
+
+Hover your cursor over a button, a form field, a line of text, or anything else — hit **Alt+Space**, and a panel slides in anchored to your cursor with the element's UIA context already loaded. Ask questions. Have the model explain, translate, rewrite, summarize. Or tell it to **type, paste, click, press keys, fill forms** — it does the thing.
+
+> No copy-paste dance. No screenshot → upload → back-and-forth. The AI sees what you see and can act where you're pointing.
+
+<div align="center">
+
+<!-- Drop a demo GIF here. Keep it under ~2MB so the README feels light. -->
+<!-- <img src="docs/demo.gif" alt="HoverBuddy in action" width="720" /> -->
+
+</div>
+
+## ✨ Features
+
+| | |
+|---|---|
+| 🎯 **Cursor-anchored** | Panel opens near what you're pointing at, not in the middle of your screen |
+| 🪟 **Reads any Windows app** | UI Automation picks up the element under your cursor — buttons, inputs, text, menus |
+| 🖼️ **Area capture** | `Ctrl+Space` to drag a rectangle — screenshot + UIA-scan that region |
+| ⚡ **Acts for you** | Types, pastes, clicks, invokes buttons, presses keyboard chords, guides your cursor |
+| 🔌 **Any LLM** | Bring your own provider via [OpenCode](https://opencode.ai) — OpenAI, Anthropic, Ollama, Z.AI, local models |
+| 🔒 **Sandboxed by default** | No shell, no filesystem, no network — only safe UIA actions |
+| 🎨 **Themes + fonts** | Light / dark / auto, adjustable font size |
+| 💬 **Session continuity** | Conversation persists across panel opens; `+` starts fresh |
+| 📸 **On-demand screenshot** | Manual attach button — the AI only sees pixels when you say so |
+| 🚀 **Auto-update** | Installed via NSIS with `electron-updater` checking on launch |
+
+## 🚀 Install
+
+### Quick (recommended)
+
+1. Install **[Node.js ≥ 20](https://nodejs.org/)**.
+2. Install the **OpenCode CLI** and authenticate with any provider you like:
+   ```bash
    npm i -g opencode-ai
    opencode auth login
    ```
-   (Or edit `~/.config/opencode/opencode.json` directly.)
-3. Download `HoverBuddy-Setup-<version>.exe` from the [Releases](https://github.com/abdallahmagdy15/hoverbuddy/releases) page and run it.
+3. Grab the latest **`HoverBuddy-Setup-x.y.z.exe`** from [Releases](https://github.com/abdallahmagdy15/hoverbuddy/releases) and run it.
 
-The installer is a standard NSIS installer: it prompts for install location, adds a Start Menu and Desktop shortcut, and places config at `%APPDATA%\hoverbuddy\`. Uninstall from **Settings → Apps** keeps your config by default.
+> The installer is **unsigned** (pre-release). Windows SmartScreen will warn on first launch — click *More info → Run anyway*. Config lives at `%APPDATA%\hoverbuddy\`.
 
-## Hotkeys
+### From source
 
-| Shortcut | What it does |
-| --- | --- |
-| `Alt+Space` | Open the panel anchored near your cursor, with the UI element under the pointer as context. |
-| `Ctrl+Space` | Draw a rectangle to capture an on-screen region and attach it. |
+```bash
+git clone https://github.com/abdallahmagdy15/hoverbuddy
+cd hoverbuddy
+npm install
+npm start
+```
 
-Both are reconfigurable from the ⚙ menu in the panel.
+## ⌨️ Hotkeys
 
-## What the AI can and can't do
+| Shortcut      | What happens                                                              |
+| ------------- | ------------------------------------------------------------------------- |
+| `Alt+Space`   | Panel opens at the cursor with the UI element under it as context        |
+| `Ctrl+Space`  | Draw a rectangle — area is captured + scanned for UIA elements           |
+| `Esc`         | Stop the current response (first tap), close the panel (second tap)      |
+| `Enter`       | Send — `Shift+Enter` for a newline                                        |
 
-HoverBuddy is deliberately sandboxed. The assistant replies with plain text plus optional `<!--ACTION:{...}-->` markers that HoverBuddy parses and executes through Windows UI Automation (UIA). Allowed action types:
+Both hotkeys are rebindable from the ⚙ menu.
 
-- `type_text`, `paste_text`, `set_value`, `press_keys`
-- `invoke_element`, `click_element`, `guide_to`
-- `copy_to_clipboard`
-
-The following are **not** available, by design:
-
-- **No shell / PowerShell command execution from the model.** HoverBuddy itself uses PowerShell internally to drive UIA, but no tool surface is exposed to the model.
-- **No file reads or writes to your filesystem.**
-- **No network requests.**
-
-This is enforced in two layers: (1) a [sandboxed OpenCode agent](.opencode/agent/readonly.md) that declares the disallowed tools, and (2) a runtime kill-switch in the main process that terminates the OpenCode subprocess if a `tool_use` or `permission.asked` event names a disallowed tool. See [SECURITY.md](SECURITY.md) for the threat model.
-
-## Configure
-
-Settings live in the ⚙ menu inside the panel:
-
-- **Model** — quick-pick from recent models, or paste any `provider/model` string. Validated against `opencode models`. Default is `zai-coding-plan/glm-4.6v`.
-- **Hotkeys** — rebind `Alt+Space` (pointer) and `Ctrl+Space` (area).
-- **Auto-click guide** — if enabled, `guide_to` actions also click once the cursor reaches the target.
-- **Launch on startup** — registers HoverBuddy as a login item.
-- **Font size** — slider (11–20px) applied as `--font-size-base` on the panel root.
-- **Theme** — `system` / `light` / `dark`.
-- **Telemetry** — off by default; nothing is sent unless you turn this on.
-
-State is persisted to `%APPDATA%\hoverbuddy\config.json`. Logs are at `%APPDATA%\hoverbuddy\hoverbuddy.log` — there's a **Show Log** entry in the tray menu.
-
-## How it works
+## 🧠 How it works
 
 ```
  Alt+Space
    ↓
- Global hotkey → read cursor pos (robotjs)
+ global hotkey reads cursor pos (robotjs)
    ↓
- PowerShell UIA script → JSON description of the element under the cursor
+ PowerShell UIA script → JSON description of the element
    ↓
- Panel opens anchored near cursor, with element + surrounding context loaded
+ panel slides in, anchored to your cursor
    ↓
- You type a prompt → streamed to `opencode run --format json`
+ you type a prompt → streamed to `opencode run --format json`
    ↓
- Streaming tokens rendered; <!--ACTION:{...}--> markers parsed out
+ tokens render live; <!--ACTION:{...}--> markers parsed out of the text
    ↓
- Actions dispatched via UIA (preferred) or robotjs (fallback)
+ actions execute via UIA (preferred) or robotjs (fallback)
 ```
 
-The architecture details, including the four webpack bundles (main, preload, area-preload, renderer) and why actions are embedded text markers rather than tool calls, are in [CLAUDE.md](CLAUDE.md).
+**The trick:** HoverBuddy's LLM has **no tool-calling surface**. It replies in plain text. To perform an action it embeds a marker like:
 
-## Develop
-
-Requires Node ≥ 20 and the OpenCode CLI on `PATH`. There is no test runner, linter, or formatter configured in this repository.
-
+```html
+Done. <!--ACTION:{"type":"paste_text","selector":"Body","automationId":"Body","text":"Hi Ahmed, confirming the fix…"}-->
 ```
+
+The app reads the reply, extracts the marker, and dispatches it through the UIA layer. This is deliberate — it keeps the model honest, makes the action surface auditable, and lets *any* model work (no tool-call API required).
+
+See [CLAUDE.md](CLAUDE.md) for the full architecture (four webpack bundles, PowerShell UIA bridge, OpenCode client, action executor).
+
+## 🔒 Privacy & safety
+
+HoverBuddy is deliberately **sandboxed**:
+
+| Capability               | Exposed to the model? |
+| ------------------------ | --------------------- |
+| Shell / PowerShell exec  | ❌ No                 |
+| Filesystem read / write  | ❌ No                 |
+| Network requests         | ❌ No                 |
+| Windows UI Automation    | ✅ Yes (filtered)     |
+| Clipboard write          | ✅ Yes                |
+| Keyboard / mouse         | ✅ Yes (for UIA fallback) |
+| Screen pixels            | 🖐️ Manual attach only |
+
+Enforced in two layers:
+1. A [sandboxed OpenCode agent](.opencode/agent/readonly.md) declares the disallowed tools.
+2. A runtime kill-switch in the main process terminates the OpenCode subprocess if a `tool_use` event names a forbidden tool.
+
+Full threat model in **[SECURITY.md](SECURITY.md)**.
+
+## ⚙ Configure
+
+Everything lives in the ⚙ menu inside the panel:
+
+- **Model** — quick-pick from recent, or paste any `provider/model` string (validated against `opencode models`). Default: `zai-coding-plan/glm-4.6v`.
+- **Hotkeys** — rebind pointer and area activation.
+- **Auto-click guide** — if on, `guide_to` actions auto-click when the cursor arrives.
+- **Launch on startup** — registers as a Windows login item.
+- **Font size** — slider (11–20px).
+- **Theme** — `system` / `light` / `dark`.
+
+State → `%APPDATA%\hoverbuddy\config.json`. Logs → `%APPDATA%\hoverbuddy\hoverbuddy.log` (also reachable from *tray → Show Log*).
+
+## 🛠 Develop
+
+Requires Node ≥ 20 and the OpenCode CLI on `PATH`.
+
+```bash
 npm install
 npm run dev          # webpack --watch for all four bundles
-# in another terminal:
-electron .           # relaunch manually after main/preload changes
+electron .           # run — relaunch manually on main/preload changes
 ```
 
 Useful scripts:
 
-```
+```bash
 npm run build        # one-shot bundle into dist/
-npm run icons        # regenerate tray + app icons from the embedded vector
-npm run check:no-env # leak guard (fails if a credential lands in dist/)
+npm run icons        # regenerate tray + app icons from the SVG
+npm run check:no-env # leak guard — fails if credentials land in dist/
 npm run pack:dir     # build + package unsigned into release/win-unpacked/
-npm run dist         # build NSIS installer (no publish)
-npm run release      # build + publish to GitHub Releases (requires GH_TOKEN)
+npm run dist         # build the NSIS installer locally
+npm run release      # build + publish to GitHub Releases (needs GH_TOKEN)
 ```
 
-Hot-reload caveat: renderer changes hot-reload on window reload (`Ctrl+R` inside DevTools), but main/preload changes require restarting `electron .`.
+Renderer changes hot-reload on window reload (`Ctrl+R` in DevTools). Main/preload changes need an `electron .` restart.
 
-## Publishing a release
+## 📦 Release pipeline
 
-The release pipeline is electron-builder → NSIS → GitHub Releases, with auto-update served to already-installed clients via `electron-updater`.
+`electron-builder` → NSIS → GitHub Releases, with auto-update served via `electron-updater`.
 
-1. Bump `version` in `package.json` (SemVer; the installer filename and the auto-update feed key off this).
-2. Commit and tag:
-   ```
-   git commit -am "release: vX.Y.Z"
-   git tag vX.Y.Z
-   git push && git push --tags
-   ```
-3. Export a GitHub personal access token with `repo` scope and run:
-   ```
-   set GH_TOKEN=ghp_xxxxxxxx
-   npm run release
-   ```
-   This produces `release/HoverBuddy-Setup-X.Y.Z.exe` plus `latest.yml` and uploads both as assets on a draft GitHub Release.
-4. Open the draft release on GitHub, write the changelog, and **Publish** it. Installed clients will see the update on next launch (electron-updater polls `latest.yml` on startup).
+```bash
+# 1. bump version in package.json
+# 2. commit + tag
+git commit -am "release: vX.Y.Z"
+git tag vX.Y.Z && git push --tags
 
-For local testing without publishing, use `npm run dist` (builds the installer into `release/` without pushing to GitHub) or `npm run pack:dir` (unpacked directory — fastest for iteration).
+# 3. publish
+set GH_TOKEN=ghp_xxxxxxxx
+npm run release
+```
 
-The build is **not code-signed**. To sign with an EV or OV certificate, add the relevant `certificateFile` / `certificatePassword` (or `CSC_LINK` / `CSC_KEY_PASSWORD` env vars) as documented by [electron-builder](https://www.electron.build/code-signing).
+Produces `HoverBuddy-Setup-X.Y.Z.exe` + `latest.yml` and drafts a GitHub Release. Publish the draft and installed clients pick up the update on next launch. The build is **not code-signed** — add `CSC_LINK` / `CSC_KEY_PASSWORD` for EV/OV signing ([electron-builder docs](https://www.electron.build/code-signing)).
 
-## License
+## 🗺 Roadmap
 
-[MIT](LICENSE).
+- [ ] Code signing (removes the SmartScreen warning)
+- [ ] macOS + Linux ports (needs an Accessibility-API equivalent to UIA)
+- [ ] Voice activation
+- [ ] Workflow recording — replay a sequence of actions
+- [ ] Plugin API for custom action types
+
+Have an idea? [Open an issue](https://github.com/abdallahmagdy15/hoverbuddy/issues/new) or upvote an existing one.
+
+## 🤝 Contributing
+
+PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, coding conventions (single source of truth for IPC / types is `src/shared/types.ts`), and commit style. First-timer-friendly issues are tagged `good first issue`.
+
+## 💬 Community
+
+- 🐛 **Bugs / features** → [GitHub Issues](https://github.com/abdallahmagdy15/hoverbuddy/issues)
+- ⭐ **Liking the project?** → star the repo, it genuinely helps
+
+## 📄 License
+
+[MIT](LICENSE) — do what you want, just keep the notice.
+
+---
+
+<div align="center">
+
+Made with 💙 for people who are tired of copy-pasting screenshots into chatbots.
+
+**If HoverBuddy saved you time, star it. If it didn't, open an issue — the owl wants to help.**
+
+</div>

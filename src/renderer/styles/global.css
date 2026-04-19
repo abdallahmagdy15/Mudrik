@@ -917,15 +917,20 @@ body {
 /* ── Chat Input ── */
 .chat-input {
   flex-shrink: 0;
+  position: relative;
+  display: flex;
+  align-items: stretch;
 }
 
 .chat-input textarea {
+  flex: 1;
   width: 100%;
   background: var(--bg-elevated);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px 12px;
+  /* Right padding leaves room for the absolutely-positioned send button. */
+  padding: 10px 44px 10px 12px;
   font-family: inherit;
   font-size: var(--font-size-base);
   resize: none;
@@ -941,6 +946,44 @@ body {
 
 .chat-input textarea::placeholder { color: var(--text-muted); }
 .chat-input textarea:disabled { opacity: 0.4; }
+
+.btn-send {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--gradient-accent);
+  color: var(--owl-teal-ink);
+  border: 1px solid var(--border-bright);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(24, 191, 225, 0.25);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+.btn-send:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 4px 14px rgba(24, 191, 225, 0.4);
+}
+
+.btn-send:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
+}
+
+.btn-send:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.btn-send svg {
+  display: block;
+}
 
 .copy-chip {
   display: block;

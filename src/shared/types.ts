@@ -64,7 +64,7 @@ export const DEFAULT_CONFIG: Config = {
   hotkeyPointer: "Alt+Space",
   hotkeyArea: "CommandOrControl+Space",
   panelWidth: 380,
-  panelHeight: 480,
+  panelHeight: 336,
   launchOnStartup: false,
   hasCompletedWelcome: false,
   telemetryEnabled: false,

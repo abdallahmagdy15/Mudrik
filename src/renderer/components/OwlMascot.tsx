@@ -131,14 +131,41 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
   const thinking = state === "thinking";
 
   // ─── "Thinking" eye darts ────────────────────────────────────────────
-  const [darkTick, setDarkTick] = useState(0);
+  // Pick a random direction each step (never repeat the same one twice in a
+  // row) and hold it for either ~1s or ~1.5s (chosen at random). This breaks
+  // the old repetitive 4-pose cycle so the owl reads as actually mulling
+  // something over rather than performing a canned loop.
+  const THINK_POSES: Array<{ dx: number; dy: number }> = [
+    { dx:  PUPIL_TRAVEL * 0.85, dy: -PUPIL_TRAVEL * 0.7 },  // up-right
+    { dx: -PUPIL_TRAVEL * 0.85, dy: -PUPIL_TRAVEL * 0.7 },  // up-left
+    { dx:  PUPIL_TRAVEL * 0.9,  dy:  0                  },  // right
+    { dx: -PUPIL_TRAVEL * 0.9,  dy:  0                  },  // left
+    { dx:  PUPIL_TRAVEL * 0.55, dy:  PUPIL_TRAVEL * 0.55 }, // down-right
+    { dx: -PUPIL_TRAVEL * 0.55, dy:  PUPIL_TRAVEL * 0.55 }, // down-left
+    { dx:  0,                   dy: -PUPIL_TRAVEL * 0.8 },  // up
+    { dx:  0,                   dy:  PUPIL_TRAVEL * 0.4 },  // down
+    { dx:  0,                   dy:  0                  },  // centre
+  ];
+  const [thinkPose, setThinkPose] = useState(THINK_POSES[THINK_POSES.length - 1]);
   useEffect(() => {
-    if (!thinking) return;
+    if (!thinking) {
+      setThinkPose({ dx: 0, dy: 0 });
+      return;
+    }
     let cancelled = false;
+    let lastIdx = -1;
     const step = () => {
       if (cancelled) return;
-      setDarkTick((t) => t + 1);
-      const hold = 420 + Math.random() * 260;
+      // Pick a random pose that isn't the one we're currently on.
+      let idx = Math.floor(Math.random() * THINK_POSES.length);
+      if (idx === lastIdx) idx = (idx + 1) % THINK_POSES.length;
+      lastIdx = idx;
+      setThinkPose(THINK_POSES[idx]);
+      // Hold for either ~1s or ~1.5s — picked randomly, with a tiny jitter
+      // (±100ms) so consecutive same-duration holds don't land on identical
+      // frames.
+      const base = Math.random() < 0.5 ? 1000 : 1500;
+      const hold = base + (Math.random() - 0.5) * 200;
       setTimeout(step, hold);
     };
     const kick = setTimeout(step, 200);
@@ -147,14 +174,6 @@ export function OwlMascot({ state = "idle", size = 40 }: Props) {
       clearTimeout(kick);
     };
   }, [thinking]);
-
-  const THINK_POSES: Array<{ dx: number; dy: number }> = [
-    { dx:  PUPIL_TRAVEL * 0.85, dy: -PUPIL_TRAVEL * 0.7 },
-    { dx: -PUPIL_TRAVEL * 0.85, dy: -PUPIL_TRAVEL * 0.7 },
-    { dx:  0,                   dy:  PUPIL_TRAVEL * 0.35 },
-    { dx:  0,                   dy:  0 },
-  ];
-  const thinkPose = THINK_POSES[darkTick % THINK_POSES.length];
 
   const effectiveDx = thinking ? thinkPose.dx : pupilOffset.dx;
   const effectiveDy = thinking ? thinkPose.dy : pupilOffset.dy;

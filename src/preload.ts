@@ -1,8 +1,29 @@
 import { contextBridge, ipcRenderer } from "electron";
 
+// Buffer for context-ready messages that arrive before the renderer has
+// registered its onContext callback. This happens on first-ever panel show:
+// main sends CONTEXT_READY on `did-finish-load`, but React hasn't mounted
+// yet so `ipcRenderer.on(...)` isn't hooked up. Without buffering, the very
+// first area-selection silently drops its context and nothing renders.
+let bufferedContext: any = null;
+let contextCallback: ((data: any) => void) | null = null;
+ipcRenderer.on("context-ready", (_e, data) => {
+  if (contextCallback) {
+    contextCallback(data);
+  } else {
+    bufferedContext = data;
+  }
+});
+
 contextBridge.exposeInMainWorld("hoverbuddy", {
-  onContext: (cb: (data: any) => void) =>
-    ipcRenderer.on("context-ready", (_e, data) => cb(data)),
+  onContext: (cb: (data: any) => void) => {
+    contextCallback = cb;
+    if (bufferedContext) {
+      const pending = bufferedContext;
+      bufferedContext = null;
+      cb(pending);
+    }
+  },
   sendPrompt: (prompt: string) =>
     ipcRenderer.send("send-prompt", prompt),
   onStreamToken: (cb: (token: string) => void) =>
@@ -13,8 +34,8 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
     ipcRenderer.on("stream-error", (_e, err) => cb(err)),
   onToolUse: (cb: (event: any) => void) =>
     ipcRenderer.on("tool-use", (_e, event) => cb(event)),
-  onSessionReset: (cb: () => void) =>
-    ipcRenderer.on("session-reset", () => cb()),
+  onSessionReset: (cb: (data?: { hasImage?: boolean }) => void) =>
+    ipcRenderer.on("session-reset", (_e, data) => cb(data)),
   executeAction: (action: any) =>
     ipcRenderer.send("execute-action", action),
   onActionResult: (cb: (result: any) => void) =>

@@ -19,16 +19,22 @@ export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, d
     textareaRef.current?.focus();
   }, []);
 
+  const submit = () => {
+    if (text.trim() && !disabled) {
+      onSubmit(text.trim());
+      setText("");
+      setTimeout(() => textareaRef.current?.focus(), 50);
+    }
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (text.trim() && !disabled) {
-        onSubmit(text.trim());
-        setText("");
-        setTimeout(() => textareaRef.current?.focus(), 50);
-      }
+      submit();
     }
   };
+
+  const canSend = text.trim().length > 0 && !disabled;
 
   return (
     <div className="chat-input">
@@ -41,6 +47,19 @@ export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, d
         disabled={disabled}
         rows={2}
       />
+      <button
+        type="button"
+        className="btn-send"
+        onClick={submit}
+        disabled={!canSend}
+        title="Send (Enter)"
+        aria-label="Send"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M12 19V5" />
+          <path d="M5 12l7-7 7 7" />
+        </svg>
+      </button>
     </div>
   );
 });

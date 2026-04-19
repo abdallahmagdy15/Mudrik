@@ -12,7 +12,7 @@ import { readContextAtPoint } from "./context-reader";
 import { startAreaSelection } from "./area-selector";
 import { scanArea } from "./area-scanner";
 import { showElementHighlight, showAreaHighlight } from "./highlight";
-import { captureAndOptimize, computeFocusRegion, cleanupImage } from "./vision";
+import { cleanupImage } from "./vision";
 import { log } from "./logger";
 
 let mainWindow: BrowserWindow | null = null;
@@ -268,36 +268,33 @@ function showExistingPanel(): void {
 let lastCursorX: number | null = null;
 let lastCursorY: number | null = null;
 
+// Monotonically increasing activation id. Each hotkey press bumps it and
+// stamps the resulting context read; any .then that resolves for a superseded
+// id is dropped. Without this, a slow first UIA read can finish AFTER a
+// faster second read and overwrite the live context with stale data — the
+// user sees the panel "stuck on" the previous element.
+let activationSeq = 0;
+
 function handlePointerActivate(cursorPos: { x: number; y: number }): void {
-  log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y}`);
+  const myActivation = ++activationSeq;
+  log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y} (activation #${myActivation})`);
   lastCursorX = cursorPos.x;
   lastCursorY = cursorPos.y;
   readContextAtPoint(cursorPos.x, cursorPos.y).then(
     ({ element, surrounding, windowInfo }) => {
+      if (myActivation !== activationSeq) {
+        log(`Pointer activation #${myActivation} superseded by #${activationSeq} — discarding stale read`);
+        return;
+      }
       log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
       const context: ContextPayload = { element, surrounding, cursorPos, windowInfo };
       setContext(context);
       showElementHighlight(element.bounds);
       showPanel(context);
-
-      if (element.bounds.width > 0 && element.bounds.height > 0) {
-        const { x1, y1, x2, y2 } = computeFocusRegion(element.bounds, cursorPos);
-        log(`Capturing pointer image: (${x1},${y1})-(${x2},${y2})`);
-
-        captureAndOptimize(x1, y1, x2, y2).then((imagePath) => {
-          if (imagePath) {
-            log(`Pointer image captured: ${imagePath}`);
-            context.imagePath = imagePath;
-            context.hasScreenshot = true;
-            const win = BrowserWindow.getAllWindows()[0];
-            if (win) {
-              win.webContents.send(IPC.CONTEXT_READY, context);
-            }
-          }
-        }).catch((err) => {
-          log(`Pointer image capture failed (non-fatal): ${err.message}`);
-        });
-      }
+      // No automatic screenshot on pointer activation — the user has the
+      // "📸 Attach Screenshot" button for that. Auto-capturing on every
+      // Alt+Space was wasting tokens and attaching an image the user
+      // didn't ask for.
     }
   ).catch((err) => {
     log(`ERROR reading context: ${err.message}`);
@@ -305,14 +302,41 @@ function handlePointerActivate(cursorPos: { x: number; y: number }): void {
 }
 
 function handleAreaActivate(): void {
-  log(`Area hotkey triggered — starting area selection`);
+  const myActivation = ++activationSeq;
+  log(`Area hotkey triggered — starting area selection (activation #${myActivation})`);
   hidePanel();
   startAreaSelection((rect) => {
-    log(`Area selected: (${rect.x1},${rect.y1}) to (${rect.x2},${rect.y2})`);
-    showAreaHighlight(rect);
-    const cursorPos = { x: Math.round((rect.x1 + rect.x2) / 2), y: Math.round((rect.y1 + rect.y2) / 2) };
-    scanArea(rect.x1, rect.y1, rect.x2, rect.y2).then(({ elements, imagePath }) => {
+    if (myActivation !== activationSeq) {
+      log(`Area activation #${myActivation} superseded by #${activationSeq} — discarding selection`);
+      return;
+    }
+    log(`Area selected (DIP): (${rect.x1},${rect.y1}) to (${rect.x2},${rect.y2})`);
+    // The overlay reports coordinates in DIPs (CSS pixels). PowerShell runs
+    // with SetProcessDPIAware, so both the CopyFromScreen capture AND the
+    // UIA scan expect PHYSICAL pixels. On a 150%-scaled monitor the two
+    // coordinate spaces differ by 1.5×, which was producing screenshots of
+    // a completely different region than what the user dragged over.
+    const midX = (rect.x1 + rect.x2) / 2;
+    const midY = (rect.y1 + rect.y2) / 2;
+    const display = screen.getDisplayNearestPoint({ x: Math.round(midX), y: Math.round(midY) });
+    const sf = display.scaleFactor || 1;
+    const px1 = Math.round(rect.x1 * sf);
+    const py1 = Math.round(rect.y1 * sf);
+    const px2 = Math.round(rect.x2 * sf);
+    const py2 = Math.round(rect.y2 * sf);
+    log(`Area in physical px (sf=${sf}): (${px1},${py1}) to (${px2},${py2})`);
+    const cursorPos = { x: Math.round(midX), y: Math.round(midY) };
+    // Capture/scan BEFORE showing the highlight — otherwise the glowing
+    // border window is drawn on top of the region and gets baked into the
+    // PowerShell CopyFromScreen capture.
+    scanArea(px1, py1, px2, py2).then(({ elements, imagePath }) => {
+      if (myActivation !== activationSeq) {
+        log(`Area scan for #${myActivation} superseded by #${activationSeq} — discarding result`);
+        if (imagePath) cleanupImage(imagePath);
+        return;
+      }
       log(`Area scan found ${elements.length} elements, image=${imagePath ? "captured" : "none"}`);
+      showAreaHighlight(rect);
       const context = setAreaContext(elements, rect, cursorPos, imagePath);
       showPanel(context);
     }).catch((err) => {

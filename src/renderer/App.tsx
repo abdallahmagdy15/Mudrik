@@ -14,7 +14,7 @@ declare global {
       onStreamDone: (cb: () => void) => void;
       onStreamError: (cb: (err: string) => void) => void;
       onToolUse: (cb: (event: any) => void) => void;
-      onSessionReset: (cb: () => void) => void;
+      onSessionReset: (cb: (data?: { hasImage?: boolean }) => void) => void;
       executeAction: (action: any) => void;
       onActionResult: (cb: (result: any) => void) => void;
       retryAction: (action: any) => void;
@@ -167,12 +167,16 @@ export function App() {
       setActionResults((prev) => [...prev, result as ActionResultEntry]);
     });
 
-    window.hoverbuddy.onSessionReset(() => {
-      console.log("[RENDERER] Session reset");
+    window.hoverbuddy.onSessionReset((data) => {
+      console.log(`[RENDERER] Session reset (hasImage=${data?.hasImage ?? false})`);
       setCurrentResponse("");
       setError(null);
       setActionResults([]);
-      setScreenshotAttached(false);
+      // Keep the screenshot badge when the server still has an image armed
+      // for the next send (NEW_SESSION preserves pointer/area screenshots).
+      if (!data?.hasImage) {
+        setScreenshotAttached(false);
+      }
     });
 
     window.hoverbuddy.onScreenshotAttached((data) => {
@@ -279,14 +283,17 @@ export function App() {
   }, [screenshotAttached]);
 
   const handleNewSession = useCallback(() => {
-    console.log("[RENDERER] New session");
+    console.log("[RENDERER] New session — preserving prompt/context/image");
+    // Clear the conversation but leave screenshotAttached alone: the main
+    // process replies via onSessionReset with { hasImage } which drives the
+    // badge. The ChatInput keeps its own text state, so the typed prompt
+    // survives unless/until the user presses Enter.
     window.hoverbuddy.newSession();
     setMessages([]);
     setCurrentResponse("");
     setError(null);
     setActionResults([]);
     setStreaming(false);
-    setScreenshotAttached(false);
   }, []);
 
   const handleAttachScreenshot = useCallback(() => {

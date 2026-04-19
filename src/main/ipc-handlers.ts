@@ -74,6 +74,16 @@ export function getLastContext(): ContextPayload | null {
   return lastContext;
 }
 
+/**
+ * Returns the context that is *currently* active (i.e. the one most recently
+ * set via setContext or setAreaContext). Used by deferred async work (like
+ * pointer-flow image capture) to detect that the user has moved on to a
+ * different element before pushing a stale update to the renderer.
+ */
+export function getCurrentContext(): ContextPayload | null {
+  return currentContext;
+}
+
 export function setAreaContext(elements: any[], rect: { x1: number; y1: number; x2: number; y2: number }, cursorPos: { x: number; y: number }, imagePath?: string): ContextPayload {
   if (currentContext?.imagePath) {
     cleanupImage(currentContext.imagePath);
@@ -214,13 +224,22 @@ export function registerIpcHandlers(
   });
 
   ipcMain.on(IPC.NEW_SESSION, () => {
-    log("NEW_SESSION: resetting OpenCode session");
+    log("NEW_SESSION: resetting OpenCode session — preserving context/image");
     client.resetSession();
     contextNeedsSending = true;
     hasSentFirstMessage = false;
+    // Preserve currentContext, areaImagePath, isAreaContext, areaElements so
+    // the user's selection and attached image carry into the new chat. If a
+    // pointer-context screenshot is present, re-arm it for the next send
+    // (area images reattach automatically via the isAreaContext branch).
+    const hasPointerImage = !isAreaContext && !!currentContext?.imagePath;
+    if (hasPointerImage) {
+      attachScreenshotNext = true;
+      log(`NEW_SESSION: re-arming pointer screenshot for next send`);
+    }
     const win = BrowserWindow.getAllWindows()[0];
     if (win) {
-      win.webContents.send(IPC.SESSION_RESET);
+      win.webContents.send(IPC.SESSION_RESET, { hasImage: hasPointerImage || (isAreaContext && !!areaImagePath) });
     }
   });
 
@@ -469,20 +488,20 @@ export function registerIpcHandlers(
       }
     };
 
-    // Fast path: pointer/area hotkey already captured a screenshot in the
-    // current context. Just flag it for inclusion on the next prompt.
-    if (currentContext?.imagePath || areaImagePath) {
-      log(`ATTACH_SCREENSHOT — reusing existing image (context=${!!currentContext?.imagePath}, area=${!!areaImagePath})`);
+    // Area selections already captured the exact region the user drew, so
+    // re-capturing the whole screen would throw that away. Re-use it.
+    if (isAreaContext && areaImagePath) {
+      log(`ATTACH_SCREENSHOT — re-using area image ${areaImagePath.slice(-40)}`);
       attachScreenshotNext = true;
       sendStatus(true, true);
       return;
     }
 
-    // Cold attach: no existing screenshot (user opened the panel from the
-    // tray, or the original context had no image). Capture the display
-    // the cursor is on right now. Hide the panel first so HoverBuddy
-    // itself isn't in the screenshot.
-    log("ATTACH_SCREENSHOT — no existing image, capturing full screen now");
+    // For pointer / no-context, always grab a FRESH full-screen capture
+    // with the panel hidden. Reusing the pointer flow's focus crop gave the
+    // user a confusing "this isn't what I just selected" experience; a
+    // fresh hide → capture → show round-trip matches user expectation.
+    log("ATTACH_SCREENSHOT — capturing full screen (fresh, panel hidden)");
     try {
       const { screen: electronScreen } = require("electron");
       const cursor = electronScreen.getCursorScreenPoint();
@@ -664,13 +683,18 @@ function filterToolArtifactLines(text: string): string {
   return filtered.join("\n");
 }
 
+// Sanitizes assistant content for session-history replay to the renderer.
+// Strips prompt-injection noise (system-reminder / skill blocks) but PRESERVES
+// <!--ACTION:...--> markers — those are the model's action trail and belong
+// in the conversation. The renderer hides them visually in parseMessageContent
+// so they never render as raw text in the UI, but the original OpenCode
+// session (and our in-memory history) keeps them intact.
 function cleanAssistantContent(text: string): string {
   return text
     .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/gi, "")
     .replace(/<skill_content[\s\S]*?<\/skill_content>/gi, "")
     .replace(/<skill[\s\S]*?<\/skill>/gi, "")
     .replace(/\[skill\][\s\S]*?\[\/skill\]/gi, "")
-    .replace(/<!--ACTION:[\s\S]*?-->/g, "")
     .trim();
 }
 

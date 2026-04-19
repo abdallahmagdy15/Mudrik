@@ -9,16 +9,33 @@ import { log } from "./logger";
 const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v3.ps1";
 const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v3.ps1";
 
-const VK_MAP: Record<string, string> = {
+// Map LLM/user friendly names to the names robotjs uses in `keyTap`. robotjs
+// uses `SendInput` under the hood, which is far more reliable than the old
+// WinForms `SendKeys::SendWait` for modified key chords — SendKeys frequently
+// dropped the Ctrl/Alt/Shift modifier when the target window wasn't fully
+// focused yet, causing the modifier-less key to go through as a plain
+// character (typing "v" instead of firing Ctrl+V for paste).
+const ROBOT_KEY_MAP: Record<string, string> = {
   ctrl: "control",
+  control: "control",
+  cmd: "command",
+  command: "command",
+  win: "command",
+  windows: "command",
+  meta: "command",
   alt: "alt",
+  option: "alt",
   shift: "shift",
-  enter: "return",
+  enter: "enter",
+  return: "enter",
   tab: "tab",
   escape: "escape",
+  esc: "escape",
   backspace: "backspace",
   delete: "delete",
+  del: "delete",
   space: "space",
+  spacebar: "space",
   up: "up",
   down: "down",
   left: "left",
@@ -27,10 +44,13 @@ const VK_MAP: Record<string, string> = {
   end: "end",
   pageup: "pageup",
   pagedown: "pagedown",
+  insert: "insert",
   f1: "f1", f2: "f2", f3: "f3", f4: "f4",
   f5: "f5", f6: "f6", f7: "f7", f8: "f8",
   f9: "f9", f10: "f10", f11: "f11", f12: "f12",
 };
+
+const MODIFIERS = new Set(["control", "alt", "shift", "command"]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -88,75 +108,137 @@ async function pasteText(text: string): Promise<boolean> {
   try {
     const { clipboard } = require("electron");
     clipboard.writeText(text);
+    // Give the clipboard + the target window a beat. Without this the
+    // Ctrl+V chord can fire before the clipboard contents are published
+    // OR before the focus click/setValue has fully settled, and the paste
+    // either inserts stale clipboard or gets dropped.
+    await sleep(120);
+    // robotjs 0.7.0 throws "Invalid key code specified" on the array-modifier
+    // form of keyTap — `keyTap("v", ["control"])` is broken on this native
+    // binding. Synthesize the chord with explicit keyToggle down/up instead;
+    // it uses the same Win32 SendInput underneath and actually works.
+    robot.keyToggle("control", "down");
+    try {
+      robot.keyTap("v");
+    } finally {
+      robot.keyToggle("control", "up");
+    }
+    await sleep(120);
+    log("pasteText: completed via keyToggle(control) + keyTap(v)");
+    return true;
+  } catch (err: any) {
+    log(`pasteText FAILED via robotjs: ${err.message} — falling back to PowerShell SendInput`);
+    try {
+      await sendCtrlVViaPowerShell();
+      log("pasteText: completed via PowerShell fallback");
+      return true;
+    } catch (err2: any) {
+      log(`pasteText PowerShell fallback FAILED: ${err2.message}`);
+      return false;
+    }
+  }
+}
+
+// PowerShell SendInput fallback. Uses user32!keybd_event which is the same
+// underlying API robotjs wraps — but invoked from a fresh PowerShell process
+// so it side-steps whatever state has the node-native binding refusing keys.
+async function sendCtrlVViaPowerShell(): Promise<void> {
+  const scriptContent = [
+    'Add-Type @"',
+    'using System;',
+    'using System.Runtime.InteropServices;',
+    'public class Kbd {',
+    '  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, int extra);',
+    '}',
+    '"@',
+    '# VK_CONTROL=0x11, V=0x56, KEYEVENTF_KEYUP=2',
+    '[Kbd]::keybd_event(0x11,0,0,0)',
+    'Start-Sleep -Milliseconds 30',
+    '[Kbd]::keybd_event(0x56,0,0,0)',
+    'Start-Sleep -Milliseconds 30',
+    '[Kbd]::keybd_event(0x56,0,2,0)',
+    'Start-Sleep -Milliseconds 30',
+    '[Kbd]::keybd_event(0x11,0,2,0)',
+  ].join("\n");
+  const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `paste-fallback-${Date.now()}.ps1`);
+  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+  fs.writeFileSync(scriptPath, scriptContent);
+  await new Promise<void>((resolve, reject) => {
+    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (e) => {
+      try { fs.unlinkSync(scriptPath); } catch {}
+      if (e) reject(e); else resolve();
+    });
+  });
+}
+
+async function pressKeys(combination: string): Promise<void> {
+  log(`pressKeys: ${combination}`);
+  const tokens = combination.split("+").map((k) => k.trim().toLowerCase()).filter(Boolean);
+
+  const modifiers: string[] = [];
+  let finalKey = "";
+  for (const tok of tokens) {
+    const mapped = ROBOT_KEY_MAP[tok] || tok;
+    if (MODIFIERS.has(mapped)) {
+      if (!modifiers.includes(mapped)) modifiers.push(mapped);
+    } else {
+      finalKey = mapped;
+    }
+  }
+
+  if (!finalKey) {
+    log(`  pressKeys: no non-modifier key in "${combination}" — skipping`);
+    return;
+  }
+
+  // Single-character keys must be lowercased for robotjs. Shift is expressed
+  // as a modifier, not as uppercase (e.g. "shift+a" → keyTap("a", ["shift"])).
+  const keyArg = finalKey.length === 1 ? finalKey.toLowerCase() : finalKey;
+
+  try {
+    log(`  keyToggle(${modifiers.join("+")} down) + keyTap("${keyArg}")`);
+    // See pasteText for why the array-modifier form is avoided: robotjs 0.7.0
+    // throws "Invalid key code specified" on `keyTap(key, [modifiers])`. Press
+    // each modifier individually, tap the key, then release modifiers in
+    // reverse order (standard Win32 chord sequence).
+    for (const mod of modifiers) robot.keyToggle(mod, "down");
+    try {
+      robot.keyTap(keyArg);
+    } finally {
+      for (const mod of [...modifiers].reverse()) robot.keyToggle(mod, "up");
+    }
     await sleep(50);
-    const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `paste-${Date.now()}.ps1`);
-    fs.writeFileSync(scriptPath, `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait('^v')`);
+  } catch (err: any) {
+    log(`  robot.keyTap FAILED: ${err.message} — falling back to SendKeys`);
+    // Fallback for any key robotjs rejects (rare — mostly exotic keys).
+    const sendKeysCharMap: Record<string, string> = {
+      enter: "{ENTER}", tab: "{TAB}", escape: "{ESC}", backspace: "{BS}",
+      delete: "{DEL}", space: " ", up: "{UP}", down: "{DOWN}",
+      left: "{LEFT}", right: "{RIGHT}", home: "{HOME}", end: "{END}",
+      pageup: "{PGUP}", pagedown: "{PGDN}", insert: "{INS}",
+      f1: "{F1}", f2: "{F2}", f3: "{F3}", f4: "{F4}",
+      f5: "{F5}", f6: "{F6}", f7: "{F7}", f8: "{F8}",
+      f9: "{F9}", f10: "{F10}", f11: "{F11}", f12: "{F12}",
+    };
+    let sendStr = "";
+    if (modifiers.includes("control")) sendStr += "^";
+    if (modifiers.includes("alt")) sendStr += "%";
+    if (modifiers.includes("shift")) sendStr += "+";
+    sendStr += sendKeysCharMap[finalKey] || finalKey;
+    const scriptContent = `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait('${sendStr.replace(/'/g, "''")}')`;
+    const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `sendkey-${Date.now()}.ps1`);
+    fs.writeFileSync(scriptPath, scriptContent);
     try {
       await new Promise<void>((resolve, reject) => {
-        exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (err) => {
-          if (err) reject(err);
-          else resolve();
+        exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (e) => {
+          if (e) reject(e); else resolve();
         });
       });
     } finally {
       try { fs.unlinkSync(scriptPath); } catch {}
     }
-    await sleep(100);
-    log("pasteText: completed");
-    return true;
-  } catch (err: any) {
-    log(`pasteText FAILED: ${err.message}`);
-    return false;
+    await sleep(50);
   }
-}
-
-async function pressKeys(combination: string): Promise<void> {
-  log(`pressKeys: ${combination}`);
-  const keys = combination.split("+").map((k) => k.trim().toLowerCase());
-
-  const sendKeysCharMap: Record<string, string> = {
-    enter: "{ENTER}", tab: "{TAB}", escape: "{ESC}", backspace: "{BS}",
-    delete: "{DEL}", space: " ", up: "{UP}", down: "{DOWN}",
-    left: "{LEFT}", right: "{RIGHT}", home: "{HOME}", end: "{END}",
-    pageup: "{PGUP}", pagedown: "{PGDN}",
-    f1: "{F1}", f2: "{F2}", f3: "{F3}", f4: "{F4}",
-    f5: "{F5}", f6: "{F6}", f7: "{F7}", f8: "{F8}",
-    f9: "{F9}", f10: "{F10}", f11: "{F11}", f12: "{F12}",
-  };
-
-  // Build SendKeys notation: Ctrl=^ Alt=% Shift=+
-  let sendStr = "";
-  let finalKey = "";
-
-  for (const key of keys) {
-    const mapped = VK_MAP[key] || key;
-    if (mapped === "control") { sendStr += "^"; }
-    else if (mapped === "alt") { sendStr += "%"; }
-    else if (mapped === "shift") { sendStr += "+"; }
-    else { finalKey = mapped; }
-  }
-
-  if (finalKey && sendKeysCharMap[finalKey]) {
-    sendStr += sendKeysCharMap[finalKey];
-  } else if (finalKey) {
-    sendStr += finalKey;
-  }
-
-  log(`  SendKeys string: ${sendStr}`);
-  const scriptContent = `Add-Type -AssemblyName System.Windows.Forms\n[System.Windows.Forms.SendKeys]::SendWait('${sendStr.replace(/'/g, "''")}')`;
-  const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `sendkey-${Date.now()}.ps1`);
-  fs.writeFileSync(scriptPath, scriptContent);
-  try {
-    await new Promise<void>((resolve, reject) => {
-      exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-  } finally {
-    try { fs.unlinkSync(scriptPath); } catch {}
-  }
-  await sleep(50);
 }
 
 function copyToClipboard(text: string): boolean {
