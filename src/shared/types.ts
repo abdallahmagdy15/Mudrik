@@ -54,6 +54,8 @@ export interface Config {
   theme: "system" | "light" | "dark";
   /** Base font size in px. Applied as `--font-size-base` on :root. */
   fontSize: number;
+  /** When true, restores previous chat history on panel popup. When false, always starts fresh. */
+  restoreSessionOnActivate: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -70,6 +72,7 @@ export const DEFAULT_CONFIG: Config = {
   telemetryEnabled: false,
   theme: "system",
   fontSize: 14,
+  restoreSessionOnActivate: true,
 };
 
 export interface WindowInfo {

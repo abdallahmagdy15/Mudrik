@@ -107,6 +107,8 @@ export function App() {
   const [launchOnStartup, setLaunchOnStartup] = useState(false);
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const [fontSize, setFontSize] = useState(14);
+  const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
+  const restoreSessionRef = useRef(true);
   const chatInputRef = useRef<{ focus: () => void }>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -129,6 +131,10 @@ export function App() {
         if (prev.length > 0) {
           console.log("[RENDERER] Context changed within active session — keeping messages");
           return prev;
+        }
+        if (!restoreSessionRef.current) {
+          console.log("[RENDERER] Fresh activation — restore disabled, starting clean");
+          return [];
         }
         console.log("[RENDERER] Fresh activation — clearing messages, restoring session");
         setRestoringSession(true);
@@ -233,6 +239,10 @@ export function App() {
       if (cfg?.launchOnStartup !== undefined) setLaunchOnStartup(cfg.launchOnStartup);
       if (cfg?.theme) setTheme(cfg.theme);
       if (typeof cfg?.fontSize === "number") setFontSize(cfg.fontSize);
+      if (cfg?.restoreSessionOnActivate !== undefined) {
+        setRestoreSessionOnActivate(cfg.restoreSessionOnActivate);
+        restoreSessionRef.current = cfg.restoreSessionOnActivate;
+      }
     });
   }, []);
 
@@ -353,6 +363,13 @@ export function App() {
     setLaunchOnStartup(newVal);
     window.hoverbuddy.setConfig({ launchOnStartup: newVal });
   }, [launchOnStartup]);
+
+  const handleToggleRestoreSession = useCallback(() => {
+    const newVal = !restoreSessionOnActivate;
+    setRestoreSessionOnActivate(newVal);
+    restoreSessionRef.current = newVal;
+    window.hoverbuddy.setConfig({ restoreSessionOnActivate: newVal });
+  }, [restoreSessionOnActivate]);
 
   const handleSetTheme = useCallback((newTheme: "system" | "light" | "dark") => {
     setTheme(newTheme);
@@ -530,6 +547,12 @@ export function App() {
             <label className="settings-toggle">
               <span>Launch on startup</span>
               <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
+                <div className="toggle-knob" />
+              </div>
+            </label>
+            <label className="settings-toggle">
+              <span>Restore chat on popup</span>
+              <div className={`toggle-switch ${restoreSessionOnActivate ? "on" : ""}`} onClick={handleToggleRestoreSession}>
                 <div className="toggle-knob" />
               </div>
             </label>
