@@ -1,7 +1,7 @@
 {
-  "name": "hoverbuddy",
+  "name": "mudrik",
   "version": "1.0.0",
-  "description": "Windows tray AI assistant that reads the UI element under your cursor and acts on it via UI Automation.",
+  "description": "Mudrik — a Windows tray AI assistant that perceives the UI element under your cursor and acts on it via UI Automation.",
   "main": "dist/main.js",
   "scripts": {
     "icons": "node scripts/generate-icons.js",
@@ -14,8 +14,8 @@
     "dist": "npm run build && npm run check:no-env && electron-builder --win",
     "release": "npm run build && npm run check:no-env && electron-builder --win --publish always"
   },
-  "keywords": ["electron", "windows", "ai-assistant", "uiautomation", "opencode"],
-  "author": "HoverBuddy contributors",
+  "keywords": ["electron", "windows", "ai-assistant", "uiautomation", "opencode", "mudrik"],
+  "author": "Mudrik contributors",
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {

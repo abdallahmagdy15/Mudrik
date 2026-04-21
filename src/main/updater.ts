@@ -61,7 +61,7 @@ export function initUpdater(): void {
     log(`Update downloaded: ${info.version}`);
     try {
       new Notification({
-        title: "HoverBuddy update ready",
+        title: "Mudrik update ready",
         body: `Version ${info.version} will be installed the next time you quit.`,
       }).show();
     } catch (e: any) {
@@ -109,7 +109,7 @@ export async function checkForUpdatesInteractive(): Promise<void> {
     if (updateDownloaded) {
       const choice = await dialog.showMessageBox({
         type: "info",
-        message: `HoverBuddy ${status.kind === "downloaded" ? status.version : "update"} is ready.`,
+        message: `Mudrik ${status.kind === "downloaded" ? status.version : "update"} is ready.`,
         detail: "Restart now to install, or keep working and it will install when you quit.",
         buttons: ["Restart now", "Later"],
         defaultId: 0,
@@ -133,7 +133,7 @@ export async function checkForUpdatesInteractive(): Promise<void> {
     }
     await dialog.showMessageBox({
       type: "info",
-      message: `HoverBuddy is up to date (${app.getVersion()}).`,
+      message: `Mudrik is up to date (${app.getVersion()}).`,
       buttons: ["OK"],
     });
   } catch (err: any) {

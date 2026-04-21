@@ -5,8 +5,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: HoverBuddy version
-      description: Tray menu → the first disabled entry, e.g. "HoverBuddy v1.0.1".
+      label: Mudrik version
+      description: Tray menu → the first disabled entry, e.g. "Mudrik v1.0.1".
       placeholder: v1.0.0
     validations:
       required: true

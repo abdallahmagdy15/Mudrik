@@ -13,7 +13,7 @@ Electron loads `dist/main.js` (set in `package.json > main`), so a build is requ
 
 ## Architecture
 
-HoverBuddy is a Windows-only Electron tray app that acts as a cursor-anchored AI assistant for any desktop application. It reads the UI element under the cursor, sends it plus a user prompt to an LLM, and executes UI actions the LLM requests.
+Mudrik (مدرك — Arabic for "perceiver") is a Windows-only Electron tray app that acts as a cursor-anchored AI assistant for any desktop application. It reads the UI element under the cursor, sends it plus a user prompt to an LLM, and executes UI actions the LLM requests. The repository folder is still named `hoverbuddy` — that is the previous name; all user-facing strings and published artifacts have been rebranded to Mudrik.
 
 ### Four webpack bundles (see `webpack.config.js`)
 

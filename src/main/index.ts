@@ -6,7 +6,7 @@ import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
 import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener, applyHotkeys } from "./hotkey";
-import { loadConfig, saveConfig, isFirstRun, ensureAgentInWorkingDir } from "./config-store";
+import { loadConfig, saveConfig, isFirstRun, ensureAgentInWorkingDir, migrateLegacyConfig } from "./config-store";
 import { initUpdater, stopUpdater } from "./updater";
 import { readContextAtPoint } from "./context-reader";
 import { startAreaSelection } from "./area-selector";
@@ -371,8 +371,8 @@ async function maybeShowWelcome(): Promise<void> {
   try {
     await dialog.showMessageBox({
       type: "info",
-      title: "Welcome to HoverBuddy",
-      message: "HoverBuddy runs from the system tray.",
+      title: "Welcome to Mudrik",
+      message: "Mudrik runs from the system tray.",
       detail:
         `Press ${config.hotkeyPointer} on any window to open the assistant for the UI element under your cursor.\n\n` +
         `Press ${config.hotkeyArea} to draw a rectangle and ask about that area.\n\n` +
@@ -390,6 +390,11 @@ async function maybeShowWelcome(): Promise<void> {
 
 app.whenReady().then(async () => {
   log("App ready, initializing...");
+
+  // One-shot: carry the user's config over from %APPDATA%\hoverbuddy\ if it
+  // was installed pre-rebrand. Must run BEFORE isFirstRun/loadConfig so the
+  // first-run flow doesn't trigger for people who already had config.
+  migrateLegacyConfig();
 
   const firstRun = isFirstRun();
   config = loadConfig();

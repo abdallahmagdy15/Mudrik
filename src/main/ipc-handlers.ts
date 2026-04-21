@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
-import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction } from "./action-executor";
+import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction, isInteractiveAction } from "./action-executor";
 import { showNotification } from "./tray";
 import { cleanupImage, captureAndOptimize } from "./vision";
 import { saveConfig } from "./config-store";
@@ -35,6 +35,12 @@ let areaImagePath: string = "";
 let lastContextHash: string = "";
 let contextNeedsSending: boolean = false;
 let hasSentFirstMessage: boolean = false;
+// The "Allow desktop actions" setting is snapshotted at the moment each
+// session starts and held for the life of the session. Toggling it mid-
+// conversation no longer changes behaviour — the user has to start a new
+// session (+) for the change to take effect. This prevents the AI from
+// seeing contradictory instructions across turns in the same conversation.
+let sessionActionsEnabled: boolean = true;
 let attachScreenshotNext: boolean = false;
 
 export function setContext(context: ContextPayload): void {
@@ -262,6 +268,15 @@ export function registerIpcHandlers(
 
     const isFollowUp = hasSentFirstMessage && !contextNeedsSending;
     log(`isFollowUp=${isFollowUp} (hasSent=${hasSentFirstMessage}, needsSend=${contextNeedsSending})`);
+
+    // Snapshot the actions-allowed setting on the FIRST send of every new
+    // session. All subsequent turns (+ runtime guards) in this conversation
+    // use the snapshot regardless of what the user toggles in settings, so
+    // the AI never sees the rule change mid-conversation.
+    if (!hasSentFirstMessage) {
+      sessionActionsEnabled = config.actionsEnabled;
+      log(`Session actions snapshot: actionsEnabled=${sessionActionsEnabled}`);
+    }
     let fullPrompt: string;
 
     if (isFollowUp) {
@@ -350,7 +365,17 @@ export function registerIpcHandlers(
       }
 
       const systemPrefix = `${SYSTEM_PROMPT}\n\n`;
-      fullPrompt = systemPrefix + contextBlock + `\n--- USER SETTING ---\nautoClickGuide: ${config.autoClickGuide ? "true" : "false"}\n--- END SETTING ---\n\n--- USER MESSAGE ---\n${prompt}\n--- END MESSAGE ---\n`;
+      // Tell the AI about the current actions permission. This setting is
+      // SNAPSHOTTED at the moment each message fires — the Allow Desktop
+      // Actions toggle takes effect on the NEXT send, never mid-response.
+      // Crucially, if the user toggles mid-conversation, the AI must tell
+      // them to start a new conversation (+ button) for the new mode to
+      // take full effect end-to-end; otherwise the old conversation can
+      // contain contradictory instructions and the model will be confused.
+      const actionsBlock = sessionActionsEnabled
+        ? `\n--- USER SETTING ---\nactionsEnabled: true — you MAY emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to). If the user asks to go read-only, tell them: "Toggle 'Allow desktop actions' off in settings, then start a new conversation (+ button) so the change applies cleanly."\n--- END SETTING ---\n`
+        : `\n--- USER SETTING ---\nactionsEnabled: false — READ-ONLY MODE. Do NOT emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to) — they will be blocked and the user will see a "blocked" error. You MAY still emit copy_to_clipboard markers and COPY chips so the user can paste content themselves.\n\nIf the user asks you to perform an action, or wants to re-enable actions: gently tell them "I'm in read-only mode for this session. To re-enable desktop actions, toggle 'Allow desktop actions' in ⚙ settings AND start a new conversation (+ button) — the setting is locked in at the start of each session."\n--- END SETTING ---\n`;
+      fullPrompt = systemPrefix + contextBlock + actionsBlock + `\n--- USER MESSAGE ---\n${prompt}\n--- END MESSAGE ---\n`;
     }
 
     contextNeedsSending = false;
@@ -416,6 +441,16 @@ export function registerIpcHandlers(
       if (actions.length > 0) {
         log(`Found ${actions.length} actions in response: ${actions.map((a) => a.type).join(", ")}`);
         for (const action of actions) {
+          // Read-only mode guard. Interactive actions are blocked with a clear
+          // reason; copy_to_clipboard still passes through.
+          if (!sessionActionsEnabled && isInteractiveAction(action.type)) {
+            log(`BLOCKED (read-only): ${action.type}`);
+            win.webContents.send(IPC.ACTION_RESULT, {
+              action,
+              result: { success: false, error: "Desktop actions are disabled (read-only mode). Toggle 'Allow desktop actions' in settings to enable." },
+            });
+            continue;
+          }
           log(`Executing action: type=${action.type} selector=${action.selector || ""}`);
           const result: ActionResult = await executeAction(action);
           log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
@@ -449,6 +484,16 @@ export function registerIpcHandlers(
       return;
     }
     const action = v.action;
+    if (!sessionActionsEnabled && isInteractiveAction(action.type)) {
+      log(`EXECUTE_ACTION BLOCKED (read-only): ${action.type}`);
+      if (win) {
+        win.webContents.send(IPC.ACTION_RESULT, {
+          action,
+          result: { success: false, error: "Desktop actions are disabled (read-only mode). Toggle 'Allow desktop actions' in settings to enable." },
+        });
+      }
+      return;
+    }
     log(`EXECUTE_ACTION: type=${action.type}`);
     const result = await executeAction(action);
     log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
@@ -472,6 +517,16 @@ export function registerIpcHandlers(
       return;
     }
     const action = v.action;
+    if (!sessionActionsEnabled && isInteractiveAction(action.type)) {
+      log(`RETRY_ACTION BLOCKED (read-only): ${action.type}`);
+      if (win) {
+        win.webContents.send(IPC.ACTION_RESULT, {
+          action,
+          result: { success: false, error: "Desktop actions are disabled (read-only mode). Toggle 'Allow desktop actions' in settings to enable." },
+        });
+      }
+      return;
+    }
     log(`RETRY_ACTION: type=${action.type} selector=${action.selector || ""}`);
     const result = await executeAction(action);
     log(`Retry result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
@@ -745,7 +800,7 @@ function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {
           log("Panel was hidden — auto-showing with last context");
           showPanelFn?.(lastContext);
         }
-        showNotification("HoverBuddy", "AI response is ready");
+        showNotification("Mudrik", "AI response is ready");
       }
       break;
 

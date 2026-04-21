@@ -32,7 +32,7 @@ export interface OpenCodeEvent {
 export type EventHandler = (event: OpenCodeEvent) => void;
 
 /**
- * Tools that must NEVER execute from a HoverBuddy-initiated OpenCode session.
+ * Tools that must NEVER execute from a Mudrik-initiated OpenCode session.
  * The model is limited to text + `<!--ACTION:...-->` markers; anything else is
  * treated as a sandbox breach and terminates the session.
  *
@@ -167,7 +167,7 @@ export class OpenCodeClient {
 
             const blockedTool = detectDisallowedTool(event);
             if (blockedTool) {
-              const msg = `Blocked: model attempted to use the "${blockedTool}" tool. HoverBuddy only allows UI action markers. Session terminated for safety.`;
+              const msg = `Blocked: model attempted to use the "${blockedTool}" tool. Mudrik only allows UI action markers. Session terminated for safety.`;
               log(msg);
               onEvent({ type: "error", error: { message: msg, data: { blockedTool } } });
               try { proc.kill("SIGKILL"); } catch (e: any) { log(`kill failed: ${e.message}`); }

@@ -9,6 +9,23 @@ import { log } from "./logger";
 const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v3.ps1";
 const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v3.ps1";
 
+// Action types that actually drive the desktop (mouse, keyboard, UIA invoke).
+// Everything NOT in this set is considered "safe" in read-only mode —
+// copy_to_clipboard only touches the clipboard, nothing else.
+const INTERACTIVE_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
+  "click_element",
+  "invoke_element",
+  "type_text",
+  "paste_text",
+  "set_value",
+  "press_keys",
+  "guide_to",
+]);
+
+export function isInteractiveAction(type: ActionType): boolean {
+  return INTERACTIVE_ACTION_TYPES.has(type);
+}
+
 // Map LLM/user friendly names to the names robotjs uses in `keyTap`. robotjs
 // uses `SendInput` under the hood, which is far more reliable than the old
 // WinForms `SendKeys::SendWait` for modified key chords — SendKeys frequently
@@ -1034,7 +1051,7 @@ export function parseActionsFromResponse(text: string): ParsedActions {
       if (!ALLOWED_ACTION_TYPES.has(parsed.type as ActionType)) {
         const reason =
           parsed.type === "run_command"
-            ? "shell commands are disabled in HoverBuddy"
+            ? "shell commands are disabled in Mudrik"
             : `unknown action type "${parsed.type}"`;
         log(`BLOCKED action marker: type=${parsed.type} (${reason})`);
         blocked.push({ type: parsed.type, reason });

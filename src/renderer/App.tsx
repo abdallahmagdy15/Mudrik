@@ -92,9 +92,12 @@ export function App() {
   const [currentResponse, setCurrentResponse] = useState("");
   const [actionResults, setActionResults] = useState<ActionResultEntry[]>([]);
   const [screenshotAttached, setScreenshotAttached] = useState(false);
-  const [copiedChip, setCopiedChip] = useState<string | null>(null);
+  // Per-chip copied flag keyed by "<messageKey>::<segmentIndex>" so that
+  // clicking one chip never highlights other chips that happen to have the
+  // same text content. Cleared after 1.5s.
+  const [copiedChipId, setCopiedChipId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [autoClickGuide, setAutoClickGuide] = useState(false);
+  const [actionsEnabled, setActionsEnabled] = useState(true);
   const [currentModel, setCurrentModel] = useState("zai-coding-plan/glm-4.6v");
   const [recentModels, setRecentModels] = useState<string[]>(["zai-coding-plan/glm-4.6v"]);
   const [customModelInput, setCustomModelInput] = useState("");
@@ -111,6 +114,9 @@ export function App() {
   const restoreSessionRef = useRef(true);
   const chatInputRef = useRef<{ focus: () => void }>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Last prompt the user sent — powers the Retry button on error. Stored in a
+  // ref (not state) because it never needs to trigger a re-render on its own.
+  const lastPromptRef = useRef<string>("");
 
   useEffect(() => {
     if (!window.hoverbuddy) {
@@ -231,7 +237,7 @@ export function App() {
     window.addEventListener("focus", handleWindowFocus);
 
     window.hoverbuddy.getConfig().then((cfg: any) => {
-      if (cfg?.autoClickGuide !== undefined) setAutoClickGuide(cfg.autoClickGuide);
+      if (cfg?.actionsEnabled !== undefined) setActionsEnabled(cfg.actionsEnabled);
       if (cfg?.model) setCurrentModel(cfg.model);
       if (cfg?.recentModels) setRecentModels(cfg.recentModels);
       if (cfg?.hotkeyPointer) setHotkeyPointer(cfg.hotkeyPointer);
@@ -283,6 +289,7 @@ export function App() {
 
   const handleSubmit = useCallback((prompt: string) => {
     console.log(`[RENDERER] Submit prompt: "${prompt}"`);
+    lastPromptRef.current = prompt;
     setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], screenshotAttached: screenshotAttached }]);
     setCurrentResponse("");
     setError(null);
@@ -291,6 +298,17 @@ export function App() {
     setScreenshotAttached(false);
     window.hoverbuddy.sendPrompt(prompt);
   }, [screenshotAttached]);
+
+  const handleRetry = useCallback(() => {
+    const prompt = lastPromptRef.current;
+    if (!prompt || streaming) return;
+    console.log(`[RENDERER] Retry: re-sending "${prompt}"`);
+    setError(null);
+    setCurrentResponse("");
+    setActionResults([]);
+    setStreaming(true);
+    window.hoverbuddy.sendPrompt(prompt);
+  }, [streaming]);
 
   const handleNewSession = useCallback(() => {
     console.log("[RENDERER] New session — preserving prompt/context/image");
@@ -346,17 +364,17 @@ export function App() {
     window.hoverbuddy.retryAction(action);
   }, []);
 
-  const handleCopyChip = useCallback((text: string) => {
+  const handleCopyChip = useCallback((text: string, id: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedChip(text);
-    setTimeout(() => setCopiedChip(null), 1500);
+    setCopiedChipId(id);
+    setTimeout(() => setCopiedChipId((cur) => (cur === id ? null : cur)), 1500);
   }, []);
 
-  const handleToggleAutoClick = useCallback(() => {
-    const newVal = !autoClickGuide;
-    setAutoClickGuide(newVal);
-    window.hoverbuddy.setConfig({ autoClickGuide: newVal });
-  }, [autoClickGuide]);
+  const handleToggleActionsEnabled = useCallback(() => {
+    const newVal = !actionsEnabled;
+    setActionsEnabled(newVal);
+    window.hoverbuddy.setConfig({ actionsEnabled: newVal });
+  }, [actionsEnabled]);
 
   const handleToggleLaunchOnStartup = useCallback(() => {
     const newVal = !launchOnStartup;
@@ -417,20 +435,23 @@ export function App() {
     setModelValidating(false);
   }, [customModelInput, handleSwitchModel]);
 
-  const renderSegments = useCallback((content: string) => {
+  // msgKey disambiguates chips across messages — e.g. two separate replies
+  // can each have a <!--COPY:pwd--> chip without sharing highlight state.
+  const renderSegments = useCallback((content: string, msgKey: string) => {
     const segments = parseMessageContent(content);
     return segments.map((seg, i) => {
       if (seg.type === "copy-chip") {
-        const isCopied = copiedChip === seg.content;
+        const id = `${msgKey}::${i}`;
+        const isCopied = copiedChipId === id;
         return (
-          <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content)}>
+          <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content, id)}>
             {isCopied ? "✓ Copied!" : seg.content}
           </span>
         );
       }
       return <span key={i}>{seg.content}</span>;
     });
-  }, [copiedChip, handleCopyChip]);
+  }, [copiedChipId, handleCopyChip]);
 
   return (
     <div className="app">
@@ -440,7 +461,7 @@ export function App() {
             state={streaming ? "thinking" : (currentResponse ? "replying" : "idle") as OwlState}
             size={44}
           />
-          <span className="app-title">HoverBuddy</span>
+          <span className="app-title">Mudrik</span>
         </div>
         <div className="header-actions">
           <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title="Settings">&#9881;</button>
@@ -538,9 +559,9 @@ export function App() {
                 onChange={(e) => handleSetFontSize(Number(e.target.value))}
               />
             </div>
-            <label className="settings-toggle">
-              <span>Auto-click guide</span>
-              <div className={`toggle-switch ${autoClickGuide ? "on" : ""}`} onClick={handleToggleAutoClick}>
+            <label className="settings-toggle" title="When off, Mudrik runs in read-only mode: it can answer and copy content to the clipboard, but cannot click, type, paste, press keys, or move your cursor.">
+              <span>Allow desktop actions</span>
+              <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
                 <div className="toggle-knob" />
               </div>
             </label>
@@ -582,7 +603,7 @@ export function App() {
         {messages.map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
             <div className="message-role">{msg.role === "user" ? "You" : "Assistant"}{msg.screenshotAttached ? " 📸" : ""}</div>
-            <pre className="message-content">{renderSegments(msg.content)}</pre>
+            <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
                 <div className="loading-bar" />
@@ -595,7 +616,7 @@ export function App() {
         {currentResponse && (
           <div className="message message-assistant">
             <div className="message-role">Assistant</div>
-            <pre className="message-content">{renderSegments(currentResponse)}</pre>
+            <pre className="message-content">{renderSegments(currentResponse, "streaming")}</pre>
             {streaming && <span className="cursor-blink">|</span>}
             {streaming && <button className="btn-stop-inline" onClick={handleStopResponse}>Stop</button>}
           </div>
@@ -611,7 +632,16 @@ export function App() {
             {ar.result.output && <div className="action-result-output">{ar.result.output.slice(0, 500)}</div>}
           </div>
         ))}
-        {error && <div className="response-error">{error}</div>}
+        {error && (
+          <div className="response-error">
+            <div className="response-error-msg">{error}</div>
+            {lastPromptRef.current && (
+              <button className="btn-retry-response" onClick={handleRetry} disabled={streaming}>
+                ↻ Retry
+              </button>
+            )}
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
       <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} />

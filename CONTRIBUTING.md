@@ -1,4 +1,4 @@
-# Contributing to HoverBuddy
+# Contributing to Mudrik
 
 Thanks for your interest. This doc covers the minimum you need to send a patch.
 

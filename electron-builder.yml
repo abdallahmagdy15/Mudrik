@@ -1,6 +1,6 @@
-appId: com.hoverbuddy.app
-productName: HoverBuddy
-copyright: Copyright © 2026 HoverBuddy contributors
+appId: com.mudrik.app
+productName: Mudrik
+copyright: Copyright © 2026 Mudrik contributors
 directories:
   output: release
   buildResources: assets
@@ -22,7 +22,7 @@ extraResources:
 win:
   target: nsis
   icon: assets/icon.ico
-  artifactName: HoverBuddy-Setup-${version}.${ext}
+  artifactName: Mudrik-Setup-${version}.${ext}
 nsis:
   oneClick: false
   perMachine: false
@@ -30,10 +30,10 @@ nsis:
   createDesktopShortcut: true
   createStartMenuShortcut: true
   deleteAppDataOnUninstall: false
-  uninstallDisplayName: HoverBuddy
-  shortcutName: HoverBuddy
+  uninstallDisplayName: Mudrik
+  shortcutName: Mudrik
 publish:
   provider: github
   owner: abdallahmagdy15
-  repo: hoverbuddy
+  repo: mudrik
   releaseType: release

@@ -310,6 +310,11 @@ body {
   padding: 10px 12px;
   z-index: 100;
   min-width: 240px;
+  /* Never overflow the panel. Header is ~48px, panel has 8px inner padding
+     and a ~6px gap — leave ~64px of breathing room so the dropdown fits
+     inside the visible frame and scrolls when its content is tall. */
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
   box-shadow: 0 12px 32px rgba(12, 37, 48, 0.45);
   -webkit-app-region: no-drag;
   animation: msgSlide 0.15s ease;
@@ -838,12 +843,46 @@ body {
 }
 
 .response-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
   color: var(--red);
   padding: 8px;
   background: var(--red-glow);
   border: 1px solid rgba(251,113,133,0.2);
   border-radius: var(--radius);
   margin-bottom: 8px;
+}
+
+.response-error-msg {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.btn-retry-response {
+  flex-shrink: 0;
+  background: rgba(251,113,133,0.12);
+  color: var(--red);
+  border: 1px solid rgba(251,113,133,0.35);
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.btn-retry-response:hover:not(:disabled) {
+  background: rgba(251,113,133,0.22);
+  border-color: var(--red);
+}
+
+.btn-retry-response:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .cursor-blink {

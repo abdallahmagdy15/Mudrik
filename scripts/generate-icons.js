@@ -1,5 +1,5 @@
 /**
- * Generates the HoverBuddy raster icons from scratch, drawing the same
+ * Generates the Mudrik raster icons from scratch, drawing the same
  * blue-owl character that appears in:
  *   - assets/icon.svg            (static brand mark)
  *   - src/renderer/components/OwlMascot.tsx   (animated in-panel mascot)
@@ -15,12 +15,13 @@
  *   assets/tray@2x.png      64x64   — HiDPI tray (Electron picks when available)
  *   assets/icon.ico         ICO with 16,24,32,48,64,128,256 PNG-compressed frames
  *
- * Colour reference (matches OwlMascot.tsx):
- *   body          #5B90BF   (warm cartoon blue)
- *   wing shadow   #4A7CA8
+ * Colour reference (matches OwlMascot.tsx / assets/icon.svg):
+ *   body          #7499C2   (soft steel blue)
+ *   wing shadow   #4F7399   (deeper feather)
  *   outline       #2D4A63   (navy — drawn as a slightly-larger shape beneath each fill)
- *   belly         #EAF2F8
- *   iris          #D4A574   (tan)
+ *   belly         #E8EEF5
+ *   iris          #F2C94C   (golden yellow)
+ *   iris ring     #D99A1E   (darker rim)
  *   pupil         #1C1C1C
  *   beak / feet   #F2A93A
  */
@@ -186,14 +187,14 @@ function drawOwl(size) {
   const T = (ax, ay, bx, by, cx_, cy_, col) =>
     triangle(c, ax * s, ay * s, bx * s, by * s, cx_ * s, cy_ * s, col);
 
-  const BODY  = [91, 144, 191, 255];    // #5B90BF
-  const WING  = [74, 124, 168, 220];    // #4A7CA8
-  const LINE  = [45, 74, 99, 255];      // #2D4A63
-  const BELLY = [234, 242, 248, 255];   // #EAF2F8
-  const IRIS  = [212, 165, 116, 255];   // #D4A574
-  const PUPIL = [28, 28, 28, 255];
+  const BODY  = [116, 153, 194, 255];   // #7499C2 — soft steel blue
+  const WING  = [ 79, 115, 153, 235];   // #4F7399 — deeper feather
+  const LINE  = [ 45,  74,  99, 255];   // #2D4A63
+  const BELLY = [232, 238, 245, 255];   // #E8EEF5
+  const IRIS  = [242, 201,  76, 255];   // #F2C94C — golden yellow
+  const PUPIL = [ 28,  28,  28, 255];
   const HI    = [255, 255, 255, 255];
-  const WARM  = [242, 169, 58, 255];    // #F2A93A
+  const WARM  = [242, 169,  58, 255];   // #F2A93A
 
   // Stroke weight in 256-space. Outlines skipped for tray-sized icons
   // where a 3-5px-equivalent stroke would eat the shape.

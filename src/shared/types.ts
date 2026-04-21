@@ -42,7 +42,13 @@ export interface Action {
 export interface Config {
   model: string;
   workingDir: string;
-  autoClickGuide: boolean;
+  /**
+   * Master switch for desktop-interactive actions (click, type, paste, press
+   * keys, invoke, set_value, guide_to). When false, the model runs in
+   * read-only mode: it can still answer questions and put text on the
+   * clipboard (copy_to_clipboard / COPY chips), but cannot drive the desktop.
+   */
+  actionsEnabled: boolean;
   recentModels: string[];
   hotkeyPointer: string;
   hotkeyArea: string;
@@ -61,7 +67,7 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
   model: "zai-coding-plan/glm-4.6v",
   workingDir: "",
-  autoClickGuide: false,
+  actionsEnabled: true,
   recentModels: ["zai-coding-plan/glm-4.6v"],
   hotkeyPointer: "Alt+Space",
   hotkeyArea: "CommandOrControl+Space",

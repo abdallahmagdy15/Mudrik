@@ -1,8 +1,51 @@
 import { app } from "electron";
+import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
 import { Config, DEFAULT_CONFIG } from "../shared/types";
 import { log } from "./logger";
+
+/**
+ * One-shot rebrand migration: copy any config the user had under the old
+ * `%APPDATA%\hoverbuddy\` folder into the new `%APPDATA%\mudrik\` (or
+ * `Mudrik\` when packaged) folder that Electron now resolves
+ * `app.getPath("userData")` to.
+ *
+ * Runs BEFORE loadConfig on app startup. Safe to run every launch:
+ *   - if the new config already exists, does nothing
+ *   - if there's no old folder at all, does nothing (fresh install)
+ *   - if only the old folder exists, copies config.json + the log file
+ *
+ * Leaves the old folder on disk so users can still find it if they want
+ * to roll back. Can be removed once a few minor releases have shipped.
+ */
+export function migrateLegacyConfig(): void {
+  try {
+    const newDir = app.getPath("userData");
+    const newConfig = path.join(newDir, "config.json");
+    if (fs.existsSync(newConfig)) return; // already migrated or fresh new install
+
+    const legacyDir = path.join(os.homedir(), "AppData", "Roaming", "hoverbuddy");
+    const legacyConfig = path.join(legacyDir, "config.json");
+    if (!fs.existsSync(legacyConfig)) return; // nothing to migrate
+
+    fs.mkdirSync(newDir, { recursive: true });
+    fs.copyFileSync(legacyConfig, newConfig);
+    log(`migrateLegacyConfig: copied ${legacyConfig} -> ${newConfig}`);
+
+    // Also carry over the log file so users keep their history on first launch
+    // after the rebrand. Best-effort — don't fail migration if this trips.
+    const legacyLog = path.join(legacyDir, "hoverbuddy.log");
+    const newLog = path.join(newDir, "hoverbuddy.log");
+    if (fs.existsSync(legacyLog) && !fs.existsSync(newLog)) {
+      try { fs.copyFileSync(legacyLog, newLog); } catch (e: any) {
+        log(`migrateLegacyConfig: log copy skipped (${e.message})`);
+      }
+    }
+  } catch (err: any) {
+    log(`migrateLegacyConfig FAILED (non-fatal): ${err.message}`);
+  }
+}
 
 /**
  * Ensure the sandboxed OpenCode agent definition exists in the given working
