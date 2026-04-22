@@ -56,7 +56,6 @@ export interface Config {
   panelHeight: number;
   launchOnStartup: boolean;
   hasCompletedWelcome: boolean;
-  telemetryEnabled: boolean;
   theme: "system" | "light" | "dark";
   /** Base font size in px. Applied as `--font-size-base` on :root. */
   fontSize: number;
@@ -75,7 +74,6 @@ export const DEFAULT_CONFIG: Config = {
   panelHeight: 336,
   launchOnStartup: false,
   hasCompletedWelcome: false,
-  telemetryEnabled: false,
   theme: "system",
   fontSize: 14,
   restoreSessionOnActivate: true,

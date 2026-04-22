@@ -7,3 +7,9 @@ scripts/out/
 .env
 .env.*
 !.env.example
+
+# Local-only working dirs (planning notes, scratch, agent state)
+.claude/
+.local/
+docs/superpowers/
+docs/ROADMAP.md
