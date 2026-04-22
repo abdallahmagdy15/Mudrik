@@ -21,7 +21,7 @@ Out-of-scope (not defended against):
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue for security problems. Email the maintainer directly (see the repo's "About" section on GitHub for the current contact address) with:
+Please **do not** open a public issue for security problems. Email the maintainer directly at **abdallah.magdy1515@gmail.com** with:
 
 - A description of the issue and the impact.
 - Reproduction steps or a proof-of-concept.
