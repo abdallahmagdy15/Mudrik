@@ -13,20 +13,53 @@ Read [CLAUDE.md](CLAUDE.md) for the architecture map — it's intentionally shor
 
 ## Local setup
 
-```
+Requires Node ≥ 20 and the OpenCode CLI on `PATH`.
+
+```bash
 npm install
-npm run dev          # webpack --watch
-electron .           # in another terminal
+npm run dev          # webpack --watch for all four bundles
+electron .           # run — relaunch manually on main/preload changes
 ```
 
-Before sending a PR:
+Renderer changes hot-reload on window reload (`Ctrl+R` in DevTools). Main/preload changes need an `electron .` restart.
 
+### Useful scripts
+
+```bash
+npm run build        # one-shot bundle into dist/
+npm run icons        # regenerate tray + app icons from the SVG
+npm run check:no-env # leak guard — fails if credentials land in dist/
+npm run pack:dir     # build + package unsigned into release/win-unpacked/
+npm run dist         # build the NSIS installer locally
+npm run release      # build + publish to GitHub Releases (needs GH_TOKEN)
 ```
+
+### Before sending a PR
+
+```bash
 npx tsc --noEmit -p .     # typecheck
 npm run build             # webpack production
-npm run test              # unit/integration suite
 npm run check:no-env      # leak guard
 ```
+
+## Release pipeline
+
+`electron-builder` → NSIS → GitHub Releases, with auto-update served via `electron-updater`.
+
+```bash
+# 1. bump version in package.json
+# 2. commit + tag
+git commit -am "release: vX.Y.Z"
+git tag vX.Y.Z && git push --tags
+
+# 3. publish
+set GH_TOKEN=ghp_xxxxxxxx
+npm run release
+```
+
+Produces `Mudrik-Setup-X.Y.Z.exe` + `latest.yml` and drafts a GitHub Release. Publish the draft and installed clients pick up the update on next launch.
+
+The build is **not code-signed**. To sign with an EV or OV certificate add `CSC_LINK` / `CSC_KEY_PASSWORD` ([electron-builder docs](https://www.electron.build/code-signing)).
 
 ## What we want
 
@@ -47,7 +80,7 @@ npm run check:no-env      # leak guard
 Your PR template asks you to confirm:
 
 - [ ] `npx tsc --noEmit -p .` passes.
-- [ ] `npm run test` passes.
+- [ ] `npm run build` produces a clean bundle.
 - [ ] No new IPC handler bypasses `validateAction`.
 - [ ] No new subprocess spawn accepts model-derived arguments without allowlisting.
 - [ ] If you added/changed a PowerShell script, you bumped its `-vN` filename.
