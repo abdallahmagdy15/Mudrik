@@ -3,7 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { log } from "./logger";
-import { buildProviderEnv } from "../shared/providers";
+import { buildCleanOpenCodeEnv } from "../shared/providers";
 
 export interface OpenCodeEvent {
   type: string;
@@ -144,10 +144,14 @@ export class OpenCodeClient {
       const promptSnippet = prompt.slice(0, 80).replace(/\n/g, " ");
       log(`Spawning node ${args.join(" ")} (prompt: "${promptSnippet}...")`);
 
+      // Use a minimal env (Windows essentials + provider keys) to avoid
+      // the Bun 1.3.13 segfault triggered by Electron/Chromium-injected env
+      // vars on Windows. Inheriting process.env wholesale crashes opencode
+      // 1.14.x at startup (~1ms in, in the Windows loader).
       const proc = spawn("node", args, {
         cwd: this.workingDir,
         stdio: ["pipe", "pipe", "pipe"],
-        env: buildProviderEnv(process.env, this.apiKeys),
+        env: buildCleanOpenCodeEnv(process.env, this.apiKeys),
       });
 
       this.activeProcess = proc;
@@ -226,7 +230,11 @@ export class OpenCodeClient {
         this.activeProcess = null;
         if (!errorOccurred && !resolved) {
           resolved = true;
-          resolve();
+          if (code !== 0 && code !== null) {
+            reject(new Error(`exit:${code}`));
+          } else {
+            resolve();
+          }
         }
       });
 

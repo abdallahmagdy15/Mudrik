@@ -2,7 +2,7 @@ import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
-import { buildProviderEnv, providerFromModelId } from "../shared/providers";
+import { buildCleanOpenCodeEnv, providerFromModelId } from "../shared/providers";
 import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction, isInteractiveAction } from "./action-executor";
 import { showNotification } from "./tray";
 import { cleanupImage, captureAndOptimize } from "./vision";
@@ -219,7 +219,7 @@ export function registerIpcHandlers(
       if (!opencodeBin) return { valid: false, error: "opencode not found" };
       const { execFile } = require("child_process");
       const cwd = appConfig.workingDir || os.homedir();
-      const env = buildProviderEnv(process.env, config.apiKeys);
+      const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
       const raw = await new Promise<string>((res, rej) => {
         execFile("node", [opencodeBin, "models"], { encoding: "utf-8", timeout: 30000, cwd, env, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
@@ -501,6 +501,15 @@ export function registerIpcHandlers(
       if (timeoutFired) return;
       log("OpenCode session completed");
 
+      // If the process exited cleanly but produced zero text (e.g. Bun segfault
+      // with exit code 0 suppressed), surface a friendly error instead of a
+      // blank response.
+      if (!receivedAnyText && fullResponseText.trim().length === 0) {
+        log("No text received — sending friendly error");
+        win.webContents.send(IPC.STREAM_ERROR, "No response was received from the AI. Please try again — if this keeps happening, restart Mudrik.");
+        return;
+      }
+
       const { actions, blocked } = parseActionsFromResponse(fullResponseText);
       if (blocked.length > 0) {
         log(`Blocked ${blocked.length} disallowed action marker(s): ${blocked.map((b) => b.type).join(", ")}`);
@@ -537,8 +546,14 @@ export function registerIpcHandlers(
       }
       win.webContents.send(IPC.STREAM_DONE);
     } catch (err: any) {
-      log(`ERROR from OpenCode: ${err.message}`);
-      win.webContents.send(IPC.STREAM_ERROR, err.message || String(err));
+      const msg = err?.message || String(err);
+      log(`ERROR from OpenCode: ${msg}`);
+      if (msg.startsWith("exit:")) {
+        const code = msg.replace("exit:", "");
+        win.webContents.send(IPC.STREAM_ERROR, `Oops! The AI engine crashed (exit code ${code}). Please try again — if this keeps happening, restart Mudrik.`);
+      } else {
+        win.webContents.send(IPC.STREAM_ERROR, msg.length > 120 ? "Something went wrong. Please try again." : msg);
+      }
     }
   });
 
@@ -700,15 +715,16 @@ export function registerIpcHandlers(
       if (!opencodeBin) { log("restoreSession: bin not found"); return null; }
       const { execFile } = require("child_process");
       const cwd = config.workingDir || os.homedir();
+      const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
       const listRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
       const sessions = JSON.parse(listRaw);
       if (!Array.isArray(sessions) || sessions.length === 0) { log("restoreSession: no sessions"); return null; }
       const sessionId = sessions[0].id;
       log(`restoreSession: latest=${sessionId.slice(0, 30)}`);
       const exportRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, env, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
       const jsonStart = exportRaw.indexOf("{");
       if (jsonStart < 0) { log("restoreSession: no json"); return null; }
@@ -751,8 +767,9 @@ function cleanupOldSessions(): void {
   if (!opencodeBin) return;
   const { execFile } = require("child_process");
   const cwd = appConfig.workingDir || os.homedir();
+  const env = buildCleanOpenCodeEnv(process.env, appConfig.apiKeys);
 
-  execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "100"], { encoding: "utf-8", timeout: 15000, cwd, maxBuffer: 2*1024*1024 }, async (err: any, stdout: string) => {
+  execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "100"], { encoding: "utf-8", timeout: 15000, cwd, env, maxBuffer: 2*1024*1024 }, async (err: any, stdout: string) => {
     if (err) { log(`cleanupSessions list error: ${err.message}`); return; }
     try {
       const sessions = JSON.parse(stdout);
@@ -771,7 +788,7 @@ function cleanupOldSessions(): void {
       log(`cleanupSessions: deleting ${toDelete.length} old sessions (keeping ${MAX_SESSIONS})`);
 
       for (const session of toDelete) {
-        const delProc = spawn("node", [opencodeBin, "session", "delete", session.id], { cwd, stdio: "pipe" });
+        const delProc = spawn("node", [opencodeBin, "session", "delete", session.id], { cwd, env, stdio: "pipe" });
         let delStderr = "";
         delProc.stderr!.on("data", (d: Buffer) => { delStderr += d.toString(); });
         delProc.on("close", (code) => {

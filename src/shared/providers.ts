@@ -67,3 +67,83 @@ export function buildProviderEnv(
   }
   return out;
 }
+
+/**
+ * Windows-essential env vars that any child process needs to run correctly
+ * (DLL search path, temp dirs, user profile resolution). Inheriting the full
+ * Electron `process.env` into Bun-compiled children (OpenCode 1.14.x and up)
+ * triggers a Bun segfault on Windows — somewhere in the Electron/Chromium-
+ * injected vars there's a value Bun can't parse during startup. Passing only
+ * these keys sidesteps the issue.
+ *
+ * The filter also scrubs `ELECTRON_RUN_AS_NODE`, `ATOM_*`, and `CHROME_*`
+ * noise that OpenCode has no business seeing.
+ */
+const WINDOWS_ESSENTIAL_ENV_VARS: readonly string[] = [
+  "PATH",
+  "PATHEXT",
+  "SYSTEMROOT",
+  "SYSTEMDRIVE",
+  "WINDIR",
+  "COMSPEC",
+  "USERPROFILE",
+  "USERNAME",
+  "USERDOMAIN",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "PROGRAMDATA",
+  "PROGRAMFILES",
+  "PROGRAMFILES(X86)",
+  "COMMONPROGRAMFILES",
+  "TEMP",
+  "TMP",
+  "COMPUTERNAME",
+  "PROCESSOR_ARCHITECTURE",
+  "PROCESSOR_IDENTIFIER",
+  "NUMBER_OF_PROCESSORS",
+  "OS",
+  // OpenCode honours XDG locations for config/data on all platforms.
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_CACHE_HOME",
+  // User-set override for the OpenCode binary path.
+  "OPENCODE_BIN_PATH",
+];
+
+/**
+ * Build a minimal env for spawning the OpenCode binary from Electron. Copies
+ * only Windows-essential vars + any `*_API_KEY` keys already in the shell,
+ * then layers provider API keys from `apiKeys` on top. Shell-provided keys
+ * still win.
+ *
+ * Use this instead of `buildProviderEnv` wherever you spawn OpenCode — the
+ * latter is kept for anywhere else that needs the full env passthrough.
+ */
+export function buildCleanOpenCodeEnv(
+  baseEnv: NodeJS.ProcessEnv,
+  apiKeys: Record<string, string> | undefined,
+): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  // 1. Whitelist essential Windows env vars.
+  for (const key of WINDOWS_ESSENTIAL_ENV_VARS) {
+    const val = baseEnv[key];
+    if (val !== undefined) out[key] = val;
+  }
+  // 2. Preserve any existing *_API_KEY from the shell so user overrides still work.
+  for (const key of Object.keys(baseEnv)) {
+    if (/_API_KEY$/.test(key) && baseEnv[key]) {
+      out[key] = baseEnv[key];
+    }
+  }
+  // 3. Layer in config-stored provider keys (shell values above take precedence).
+  if (apiKeys) {
+    for (const [provider, key] of Object.entries(apiKeys)) {
+      if (!key) continue;
+      const envName = envVarForProvider(provider);
+      if (!out[envName]) out[envName] = key;
+    }
+  }
+  return out;
+}
