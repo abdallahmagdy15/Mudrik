@@ -65,6 +65,7 @@ export interface Config {
   launchOnStartup: boolean;
   hasCompletedWelcome: boolean;
   theme: "system" | "light" | "dark";
+  lang: "en" | "ar";
   /** Base font size in px. Applied as `--font-size-base` on :root. */
   fontSize: number;
   /** When true, restores previous chat history on panel popup. When false, always starts fresh. */
@@ -80,10 +81,11 @@ export const DEFAULT_CONFIG: Config = {
   hotkeyPointer: "Alt+Space",
   hotkeyArea: "CommandOrControl+Space",
   panelWidth: 380,
-  panelHeight: 336,
+  panelHeight: 400,
   launchOnStartup: false,
   hasCompletedWelcome: false,
   theme: "system",
+  lang: "en",
   fontSize: 14,
   restoreSessionOnActivate: true,
 };

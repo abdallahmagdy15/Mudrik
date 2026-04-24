@@ -1,11 +1,14 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from "react";
+import { t as translate, Lang } from "@shared/i18n";
 
 interface Props {
   onSubmit: (prompt: string) => void;
   disabled: boolean;
+  lang: Lang;
 }
 
-export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, disabled }, ref) => {
+export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, disabled, lang }, ref) => {
+  const tp = (key: any) => translate(lang, key);
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -43,7 +46,7 @@ export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, d
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder="Ask something about this element..."
+        placeholder={tp("inputPlaceholder")}
         disabled={disabled}
         rows={2}
       />
@@ -52,8 +55,8 @@ export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, d
         className="btn-send"
         onClick={submit}
         disabled={!canSend}
-        title="Send (Enter)"
-        aria-label="Send"
+        title={tp("send")}
+        aria-label={tp("send")}
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
           <path d="M12 19V5" />

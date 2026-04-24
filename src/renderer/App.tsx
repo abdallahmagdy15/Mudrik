@@ -4,6 +4,7 @@ import { OwlMascot, OwlState } from "./components/OwlMascot";
 import { ChatInput } from "./components/ChatInput";
 import { ResponseView } from "./components/ResponseView";
 import { ContextPayload, Action } from "@shared/types";
+import { t as translate, Lang } from "@shared/i18n";
 
 declare global {
   interface Window {
@@ -128,9 +129,12 @@ export function App() {
   const [hotkeyError, setHotkeyError] = useState<string | null>(null);
   const [launchOnStartup, setLaunchOnStartup] = useState(false);
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
+  const [lang, setLang] = useState<Lang>("en");
+  const t = useCallback((key: any) => translate(lang, key), [lang]);
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const restoreSessionRef = useRef(true);
+  const configLoadedRef = useRef(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // Last prompt the user sent — powers the Retry button on error. Stored in a
@@ -153,15 +157,19 @@ export function App() {
       setScreenshotAttached(false);
       setSettingsOpen(false);
       setMessages((prev) => {
-        if (prev.length > 0) {
-          console.log("[RENDERER] Context changed within active session — keeping messages");
-          return prev;
-        }
-        if (!restoreSessionRef.current) {
-          console.log("[RENDERER] Fresh activation — restore disabled, starting clean");
+        if (!configLoadedRef.current) {
+          console.log("[RENDERER] Config not loaded yet — starting clean, will respect config on next activation");
           return [];
         }
-        console.log("[RENDERER] Fresh activation — clearing messages, restoring session");
+        if (!restoreSessionRef.current) {
+          console.log("[RENDERER] Restore disabled — starting clean");
+          return [];
+        }
+        if (prev.length > 0) {
+          console.log("[RENDERER] Restore enabled + active session — keeping messages");
+          return prev;
+        }
+        console.log("[RENDERER] Fresh activation — restoring session");
         setRestoringSession(true);
         window.hoverbuddy.restoreSession().finally(() => setRestoringSession(false));
         return [];
@@ -263,11 +271,13 @@ export function App() {
       if (cfg?.hotkeyArea) setHotkeyArea(cfg.hotkeyArea);
       if (cfg?.launchOnStartup !== undefined) setLaunchOnStartup(cfg.launchOnStartup);
       if (cfg?.theme) setTheme(cfg.theme);
+      if (cfg?.lang) setLang(cfg.lang);
       if (typeof cfg?.fontSize === "number") setFontSize(cfg.fontSize);
       if (cfg?.restoreSessionOnActivate !== undefined) {
         setRestoreSessionOnActivate(cfg.restoreSessionOnActivate);
         restoreSessionRef.current = cfg.restoreSessionOnActivate;
       }
+      configLoadedRef.current = true;
     });
   }, []);
 
@@ -360,7 +370,7 @@ export function App() {
       setCurrentResponse("");
     } else {
       setCurrentResponse("");
-      setError("Response stopped by user");
+      setError(t("responseStopped"));
     }
   }, [currentResponse]);
 
@@ -413,11 +423,16 @@ export function App() {
     window.hoverbuddy.setConfig({ theme: newTheme });
   }, []);
 
+  const handleSetLang = useCallback((newLang: Lang) => {
+    setLang(newLang);
+    window.hoverbuddy.setConfig({ lang: newLang });
+  }, []);
+
   const commitHotkeys = useCallback(async (pointer: string, area: string) => {
     setHotkeyError(null);
     const cfg: any = await window.hoverbuddy.setConfig({ hotkeyPointer: pointer, hotkeyArea: area });
     if (cfg?.hotkeyPointer !== pointer || cfg?.hotkeyArea !== area) {
-      setHotkeyError("One or both hotkeys are already in use; reverted to the previous binding.");
+      setHotkeyError(t("hotkeyInUse"));
       if (cfg?.hotkeyPointer) setHotkeyPointer(cfg.hotkeyPointer);
       if (cfg?.hotkeyArea) setHotkeyArea(cfg.hotkeyArea);
     }
@@ -452,7 +467,7 @@ export function App() {
       } else {
         setModelValidationError(result.suggestions?.length
           ? `${result.error}. Did you mean: ${result.suggestions.join(", ")}?`
-          : (result.error || "Model not found"));
+          : (result.error || t("modelNotFound")));
       }
     } catch (err: any) {
       setModelValidationError(err.message);
@@ -477,7 +492,7 @@ export function App() {
     try {
       const saved = await window.hoverbuddy.saveApiKey(provider, key);
       if (!saved.ok) {
-        setModelValidationError(saved.error || "Failed to save key");
+        setModelValidationError(saved.error || t("failedToSaveKey"));
         setApiKeySaving(false);
         return;
       }
@@ -546,20 +561,20 @@ export function App() {
   }, [copiedChipId, handleCopyChip]);
 
   return (
-    <div className="app">
+    <div className="app" dir={lang === "ar" ? "rtl" : "ltr"}>
       <div className="app-header">
         <div className="app-brand">
           <OwlMascot
             state={streaming ? "thinking" : (currentResponse ? "replying" : "idle") as OwlState}
             size={44}
           />
-          <span className="app-title">Mudrik</span>
+          <span className="app-title">{t("appTitle")}</span>
         </div>
         <div className="header-actions">
-          <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title="Settings">&#9881;</button>
-          <button className="btn-new-session" onClick={handleNewSession} title="New Session">+</button>
-          <button className="btn-minimize" onClick={handleMinimize} title="Minimize (auto-show on response)">&#8211;</button>
-          <button className="btn-dismiss" onClick={handleDismiss} title="Close">&times;</button>
+          <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>&#9881;</button>
+          <button className="btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>+</button>
+          <button className="btn-minimize" onClick={handleMinimize} title={t("minimize")}>&#8211;</button>
+          <button className="btn-dismiss" onClick={handleDismiss} title={t("close")}>&times;</button>
         </div>
         {settingsOpen && (
           <div className="settings-dropdown">
@@ -570,7 +585,7 @@ export function App() {
                 onClick={() => toggleSection("model")}
                 aria-expanded={openSections.model}
               >
-                <span className="settings-label">Model</span>
+                <span className="settings-label">{t("model")}</span>
                 <span className="settings-section-meta">{currentModel.split("/").pop()}</span>
                 <span className={`settings-chevron ${openSections.model ? "open" : ""}`}>▾</span>
               </button>
@@ -619,21 +634,21 @@ export function App() {
                       disabled={modelValidating}
                     />
                     <button className="model-input-btn" onClick={handleCustomModelSubmit} disabled={modelValidating || !customModelInput.trim()}>
-                      {modelValidating ? "..." : "Set"}
+                      {modelValidating ? "..." : t("set")}
                     </button>
                   </div>
                   {modelValidationError && <div className="model-error">{modelValidationError}</div>}
                   {authPromptProvider && (
                     <div className="api-key-prompt">
                       <div className="api-key-label">
-                        {customModelInput.trim() ? "API key for " : "Replace key for "}
+                        {customModelInput.trim() ? t("apiKeyFor") : t("replaceKeyFor")}
                         <span className="api-key-provider">{authPromptProvider}</span>
                       </div>
                       <div className="model-input-row">
                         <input
                           className="model-input"
                           type="password"
-                          placeholder="paste key — stays on this machine"
+                          placeholder={t("pasteKeyHint")}
                           value={apiKeyInput}
                           onChange={(e) => setApiKeyInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") handleSaveApiKey(); }}
@@ -647,19 +662,19 @@ export function App() {
                           onClick={handleSaveApiKey}
                           disabled={apiKeySaving || !apiKeyInput.trim()}
                         >
-                          {apiKeySaving ? "..." : "Save"}
+                          {apiKeySaving ? "..." : t("save")}
                         </button>
                         <button
                           className="model-input-btn model-input-btn-secondary"
                           onClick={() => { setAuthPromptProvider(null); setApiKeyInput(""); setModelValidationError(null); }}
                           disabled={apiKeySaving}
-                          title="Cancel"
+                          title={t("cancel")}
                         >
                           ✕
                         </button>
                       </div>
                       <div className="api-key-hint">
-                        Stored in your local config. Used only to spawn OpenCode.
+                        {t("storedLocally")}
                       </div>
                     </div>
                   )}
@@ -673,7 +688,7 @@ export function App() {
                 onClick={() => toggleSection("hotkeys")}
                 aria-expanded={openSections.hotkeys}
               >
-                <span className="settings-label">Hotkeys</span>
+                <span className="settings-label">{t("hotkeys")}</span>
                 <span className="settings-section-meta">{hotkeyPointer} · {hotkeyArea.replace("CommandOrControl", "Ctrl")}</span>
                 <span className={`settings-chevron ${openSections.hotkeys ? "open" : ""}`}>▾</span>
               </button>
@@ -714,25 +729,37 @@ export function App() {
                 onClick={() => toggleSection("appearance")}
                 aria-expanded={openSections.appearance}
               >
-                <span className="settings-label">Appearance</span>
-                <span className="settings-section-meta">{theme === "system" ? "Auto" : theme === "light" ? "Light" : "Dark"} · {fontSize}px</span>
+                <span className="settings-label">{t("appearance")}</span>
+                <span className="settings-section-meta">{theme === "system" ? t("themeAuto") : theme === "light" ? t("themeLight") : t("themeDark")} · {fontSize}px</span>
                 <span className={`settings-chevron ${openSections.appearance ? "open" : ""}`}>▾</span>
               </button>
               {openSections.appearance && (
                 <div className="settings-section-body">
-                  <div className="settings-sublabel">Theme</div>
+                  <div className="settings-sublabel">{t("theme")}</div>
                   <div className="theme-picker">
-                    {(["system", "light", "dark"] as const).map((t) => (
+                    {(["system", "light", "dark"] as const).map((th) => (
                       <button
-                        key={t}
-                        className={`theme-option ${theme === t ? "theme-active" : ""}`}
-                        onClick={() => handleSetTheme(t)}
+                        key={th}
+                        className={`theme-option ${theme === th ? "theme-active" : ""}`}
+                        onClick={() => handleSetTheme(th)}
                       >
-                        {t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}
+                        {th === "system" ? t("themeAuto") : th === "light" ? t("themeLight") : t("themeDark")}
                       </button>
                     ))}
                   </div>
-                  <div className="settings-sublabel">Font size <span className="settings-hint">{fontSize}px</span></div>
+                  <div className="settings-sublabel">{t("language")}</div>
+                  <div className="theme-picker">
+                    {(["en", "ar"] as const).map((l) => (
+                      <button
+                        key={l}
+                        className={`theme-option ${lang === l ? "theme-active" : ""}`}
+                        onClick={() => handleSetLang(l)}
+                      >
+                        {l === "en" ? "EN" : "عربي"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="settings-sublabel">{t("fontSize")} <span className="settings-hint">{fontSize}px</span></div>
                   <input
                     className="font-size-slider"
                     type="range"
@@ -752,25 +779,25 @@ export function App() {
                 onClick={() => toggleSection("behavior")}
                 aria-expanded={openSections.behavior}
               >
-                <span className="settings-label">Behavior</span>
+                <span className="settings-label">{t("behavior")}</span>
                 <span className={`settings-chevron ${openSections.behavior ? "open" : ""}`}>▾</span>
               </button>
               {openSections.behavior && (
                 <div className="settings-section-body">
                   <label className="settings-toggle" title="When off, Mudrik runs in read-only mode: it can answer and copy content to the clipboard, but cannot click, type, paste, press keys, or move your cursor.">
-                    <span>Allow desktop actions</span>
+                    <span>{t("allowDesktopActions")}</span>
                     <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
                       <div className="toggle-knob" />
                     </div>
                   </label>
                   <label className="settings-toggle">
-                    <span>Launch on startup</span>
+                    <span>{t("launchOnStartup")}</span>
                     <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
                       <div className="toggle-knob" />
                     </div>
                   </label>
                   <label className="settings-toggle">
-                    <span>Restore chat on popup</span>
+                    <span>{t("restoreChatOnPopup")}</span>
                     <div className={`toggle-switch ${restoreSessionOnActivate ? "on" : ""}`} onClick={handleToggleRestoreSession}>
                       <div className="toggle-knob" />
                     </div>
@@ -781,45 +808,44 @@ export function App() {
           </div>
         )}
       </div>
-      {/* Context preview only renders if there's an actual element. The cold
-          "Show Panel" fallback uses a placeholder context with empty fields,
-          which would otherwise render an empty grey bar. */}
-      {context && (context.element?.name || context.element?.value || (context.surrounding && context.surrounding.length > 0)) && (
-        <ContextPreview context={context} />
-      )}
+{/* Context preview hidden from end users — the LLM receives it
+          internally but the UI doesn't need to show the raw element data. */}
       {/* Screenshot attachment is always available — even from a cold panel
           opened via the tray, the user can attach a screenshot and chat. */}
       {!screenshotAttached && (
         <button className="btn-attach-screenshot" onClick={handleAttachScreenshot} disabled={streaming}>
-          📸 Attach Screenshot
+          {t("attachScreenshot")}
         </button>
       )}
       {screenshotAttached && (
-        <div className="screenshot-badge">📸 Screenshot attached</div>
+        <div className="screenshot-badge">{t("screenshotAttached")}</div>
       )}
       <div className="messages">
         {restoringSession && (
-          <div className="session-restoring">Loading chat history...</div>
+          <div className="session-restoring">{t("loadingHistory")}</div>
+        )}
+        {!restoringSession && messages.length === 0 && !currentResponse && (
+          <div className="new-conversation-hint">{t("startNewConversation")}</div>
         )}
         {messages.map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
-            <div className="message-role">{msg.role === "user" ? "You" : "Assistant"}{msg.screenshotAttached ? " 📸" : ""}</div>
+            <div className="message-role">{msg.role === "user" ? t("you") : t("assistant")}{msg.screenshotAttached ? " 📸" : ""}</div>
             <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
                 <div className="loading-bar" />
-                <div className="loading-text">Thinking...</div>
-                <button className="btn-stop" onClick={handleStopResponse}>Stop</button>
+                <div className="loading-text">{t("thinking")}</div>
+                <button className="btn-stop" onClick={handleStopResponse}>{t("stop")}</button>
               </div>
             )}
           </div>
         ))}
         {currentResponse && (
           <div className="message message-assistant">
-            <div className="message-role">Assistant</div>
+            <div className="message-role">{t("assistant")}</div>
             <pre className="message-content">{renderSegments(currentResponse, "streaming")}</pre>
             {streaming && <span className="cursor-blink">|</span>}
-            {streaming && <button className="btn-stop-inline" onClick={handleStopResponse}>Stop</button>}
+            {streaming && <button className="btn-stop-inline" onClick={handleStopResponse}>{t("stop")}</button>}
           </div>
         )}
         {actionResults.map((ar, i) => (
@@ -827,7 +853,7 @@ export function App() {
             <span className="action-result-label">{ar.action.type}{ar.action.selector ? `: ${ar.action.selector}` : ""}</span>
             <span className="action-result-status">{ar.result.success ? "OK" : "FAIL"}</span>
             {!ar.result.success && (
-              <button className="btn-retry" onClick={() => handleRetryAction(ar.action)}>Retry</button>
+              <button className="btn-retry" onClick={() => handleRetryAction(ar.action)}>{t("retry")}</button>
             )}
             {ar.result.error && <div className="action-result-error">{ar.result.error}</div>}
             {ar.result.output && <div className="action-result-output">{ar.result.output.slice(0, 500)}</div>}
@@ -838,14 +864,14 @@ export function App() {
             <div className="response-error-msg">{error}</div>
             {lastPromptRef.current && (
               <button className="btn-retry-response" onClick={handleRetry} disabled={streaming}>
-                ↻ Retry
+                {t("retry")}
               </button>
             )}
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
-      <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} />
+      <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} lang={lang} />
     </div>
   );
 }
