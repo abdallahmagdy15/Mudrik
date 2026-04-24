@@ -11,12 +11,18 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0FA8C9?style=flat-square)](https://github.com/abdallahmagdy15/mudrik/releases)
 [![License](https://img.shields.io/badge/license-MIT-18BFE1?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/abdallahmagdy15/mudrik?style=flat-square&color=F2A93A)](https://github.com/abdallahmagdy15/mudrik/releases)
+[![Release](https://img.shields.io/github/v/release/abdallahmagdy15/mudrik?style=flat-square&color=F2A93A&include_prereleases)](https://github.com/abdallahmagdy15/mudrik/releases)
+[![Preview](https://img.shields.io/badge/status-preview-F2A93A?style=flat-square)](CHANGELOG.md)
 [![Stars](https://img.shields.io/github/stars/abdallahmagdy15/mudrik?style=flat-square&color=FFC06A)](https://github.com/abdallahmagdy15/mudrik/stargazers)
 
 [Install](#-install) · [What it does](#-what-it-does) · [How it works](#-how-it-works) · [Security](#-privacy--security) · [Contribute](CONTRIBUTING.md) · [About](#-about)
 
 </div>
+
+---
+
+> [!NOTE]
+> **🐣 v0.9.0 Preview — first public release.** Mudrik is pre-v1: the core is stable and in daily use, but the API surface (action markers, config shape, IPC) may still change before v1.0. If something breaks or feels off, [open an issue](https://github.com/abdallahmagdy15/mudrik/issues) — feedback in this window shapes what v1.0 looks like. See [CHANGELOG](CHANGELOG.md) for what's in 0.9.0.
 
 ---
 
@@ -34,12 +40,12 @@ The AI sees your screen's *structure* (UIA), not pixels — unless you explicitl
 ## 🚀 Install
 
 1. Install **[Node.js ≥ 20](https://nodejs.org/)**.
-2. Install the **OpenCode CLI** and authenticate with any provider (OpenAI, Anthropic, Ollama, Z.AI, local models…):
+2. Install the **OpenCode CLI** (authentication is optional here — you can add keys inside Mudrik too):
    ```bash
    npm i -g opencode-ai
-   opencode auth login
    ```
-3. Grab the latest **`Mudrik-Setup-x.y.z.exe`** from [Releases](https://github.com/abdallahmagdy15/mudrik/releases) and run it.
+3. Grab the latest **`Mudrik-Setup-0.9.0.exe`** from [Releases](https://github.com/abdallahmagdy15/mudrik/releases) and run it.
+4. Launch Mudrik → ⚙ → **Model** → pick or type a `provider/model` (e.g. `anthropic/claude-sonnet-4-5`). If you haven't authed that provider yet, Mudrik will prompt you to paste an API key right there. No terminal required.
 
 > The installer is **unsigned** (pre-v1.0). Windows SmartScreen will warn on first launch — *More info → Run anyway*. Code signing is on the roadmap.
 
@@ -64,8 +70,11 @@ Both hotkeys are rebindable from the ⚙ menu.
 | 🪟 **Reads any Windows app** | UI Automation picks up buttons, inputs, text, menus, lists — anywhere |
 | 🖼️ **Area capture** | Drag a rectangle — screenshot + UIA scan of that region |
 | ⚡ **Acts for you** | Types, pastes, clicks, invokes buttons, presses chords, guides your cursor |
-| 🔌 **Any LLM** | Bring your own provider via [OpenCode](https://opencode.ai) |
-| 🔒 **Sandboxed by default** | No shell, no filesystem, no network — only allow-listed UIA actions |
+| 🔌 **Any LLM** | Bring your own provider via [OpenCode](https://opencode.ai) — Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter… |
+| 🔑 **Keys live in-app** | Add or replace an API key from the settings panel; no terminal auth dance |
+| 🧊 **Frosted glass panel** | Native Windows acrylic blur + DWM rounded corners — not a Chromium fake |
+| 🌐 **English + Arabic** | Full RTL when Arabic is selected; other languages land as contributors add them |
+| 🔒 **Sandbox first** | No shell, no network, no filesystem writes — only allow-listed UIA actions + read-only file lookups |
 | 💬 **Session continuity** | Conversation persists across panel opens; `+` starts fresh |
 | 📸 **Privacy-first vision** | AI only sees pixels when you manually attach a screenshot |
 
@@ -76,20 +85,22 @@ Both hotkeys are rebindable from the ⚙ menu.
    ↓  global hotkey reads cursor pos (robotjs)
    ↓  PowerShell UIA script → JSON description of the element
    ↓  panel slides in, anchored to your cursor
-   ↓  prompt streamed to `opencode run --format json`
+   ↓  prompt streamed to `opencode run --format json --agent readonly`
    ↓  tokens render live; <!--ACTION:{...}--> markers parsed out of the text
    ↓  actions execute via UIA (preferred) or robotjs (fallback)
 ```
 
-### The twist — no tool calling
+### The twist — actions are text, not tool calls
 
-Mudrik's LLM has **no tool-calling surface**. It replies in plain text and embeds markers like:
+Mudrik's LLM has a deliberately split tool surface:
 
-```html
-Done. <!--ACTION:{"type":"paste_text","selector":"Body","automationId":"Body","text":"Hi Ahmed…"}-->
-```
+- **Desktop actions** (click, type, paste, press keys, guide cursor) are **never** tool calls. The model embeds them as markers in plain text:
+  ```html
+  Done. <!--ACTION:{"type":"paste_text","selector":"Body","automationId":"Body","text":"Hi Ahmed…"}-->
+  ```
+  The app extracts each marker, validates it against an allow-list, and dispatches through UIA. Side effects are auditable with one regex, work with *any* model (not just ones with tool-call APIs), and can't be hidden in opaque tool payloads.
 
-The app extracts the marker, validates against an allow-list, and dispatches through UIA. Why: actions are visible in the text trail, the side-effect surface is one regex away, and it works with *any* model — not just ones with tool-call APIs.
+- **Reading your files** (code, notes, docs in the working dir) **is** allowed when the AI needs to — through OpenCode's `read`, `grep`, `glob`, and `list` tools. A runtime kill-switch terminates the session if the model reaches for anything heavier (`bash`, `edit`, `write`, `webfetch`, `websearch`, etc.).
 
 Full architecture in **[CLAUDE.md](CLAUDE.md)**.
 
@@ -97,23 +108,39 @@ Full architecture in **[CLAUDE.md](CLAUDE.md)**.
 
 Mudrik is designed for paranoid desktop use. The AI's capabilities are **deliberately narrow**:
 
-| Capability               | Exposed to the model? |
-| ------------------------ | --------------------- |
-| Shell / PowerShell exec  | ❌ No                 |
-| Filesystem read / write  | ❌ No                 |
-| Network requests         | ❌ No                 |
-| Windows UI Automation    | ✅ Yes (allow-listed) |
-| Clipboard write          | ✅ Yes                |
-| Keyboard / mouse         | ✅ Yes (UIA fallback) |
-| Screen pixels            | 🖐️ Manual attach only |
+| Capability                  | Exposed to the model? |
+| --------------------------- | --------------------- |
+| Shell / PowerShell exec     | ❌ No                 |
+| Filesystem **write**        | ❌ No                 |
+| Network requests (fetch/search) | ❌ No             |
+| Filesystem **read** (`read`/`grep`/`glob`/`list`) | ✅ Yes (within working dir) |
+| Windows UI Automation       | ✅ Yes (allow-listed actions) |
+| Clipboard write             | ✅ Yes                |
+| Keyboard / mouse            | ✅ Yes (UIA fallback) |
+| Screen pixels               | 🖐️ Manual attach only |
 
-Enforced in four layers — sandboxed OpenCode agent, runtime kill-switch, parse-time action allow-list, IPC schema validation. Full threat model + reporting in **[SECURITY.md](SECURITY.md)**.
+Enforced in four layers — sandboxed OpenCode agent, runtime kill-switch that `SIGKILL`s the subprocess on any disallowed tool, parse-time action allow-list, IPC schema validation. Full threat model + reporting in **[SECURITY.md](SECURITY.md)**.
 
 ## 🗺 Roadmap
 
-- [ ] Code signing (removes the SmartScreen warning)
+**Shipped in v0.9.0 preview:**
+
+- [x] In-app API key management (no more `opencode auth login` dance)
+- [x] Arabic / English i18n with RTL
+- [x] Frosted glass panel (acrylic + rounded corners)
+- [x] Read-only tool access (AI can look at your files when asked to)
+- [x] Model list — add, switch, edit key, remove
+
+**Next (toward v1.0):**
+
+- [ ] Code signing (removes the SmartScreen warning on first launch)
 - [ ] Session picker — browse and resume previous conversations
 - [ ] Demo GIF + landing page
+- [ ] Bundled OpenCode binary (drop the `npm i -g opencode-ai` step)
+- [ ] More languages — French / Spanish / German / etc. (PRs welcome)
+
+**Later:**
+
 - [ ] macOS + Linux ports (needs Accessibility-API equivalents to UIA)
 - [ ] Voice activation
 - [ ] Workflow recording — replay a sequence of actions
