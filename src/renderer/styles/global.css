@@ -68,28 +68,24 @@
   --gradient-accent: linear-gradient(135deg, var(--owl-cyan-500), var(--owl-cyan-300) 55%, var(--owl-orange-500));
   --gradient-green:  linear-gradient(135deg, var(--green), var(--owl-cyan-300));
 
-  --radius: 12px;
+  --radius: 8px;
   --radius-sm: 8px;
-  --radius-panel: 22px;
 
   /* Font size is read from Config.fontSize and written by the renderer
      as an inline style on :root. 14 is the fallback before config
      loads — matches DEFAULT_CONFIG.fontSize. */
   --font-size-base: 14px;
 
-  /* Panel chrome tint — solid enough to read comfortably over any
-     wallpaper. No backdrop-filter here: Electron's transparent window
-     on Windows does not blur the desktop behind it, so we commit to a
-     readable teal-ink surface instead of fake transparency. */
-  --panel-paint:  rgba(14, 34, 44, 0.94);
+  /* Panel chrome tint — translucent so Windows acrylic blur shows through.
+     Acrylic provides the desktop blur; this is the tint layer on top. */
+  --panel-paint:  rgba(14, 34, 44, 0.30);
   --panel-border: rgba(95, 216, 240, 0.28);
 
-  /* Soft top-down cyan sheen over the paint. Painted first, so the
-     tint sits above the solid base and fades to transparent. */
-  --app-gradient: linear-gradient(180deg,
-    rgba(24, 191, 225, 0.08) 0%,
-    transparent 40%,
-    rgba(12, 37, 48, 0) 100%);
+  --app-gradient: none;
+
+  --btn-attach-bg: rgba(22, 54, 68, 0.75);
+  --btn-attach-hover: var(--bg-elevated);
+  --btn-attach-text: rgba(255, 255, 255, 0.88);
 
   /* Copy chips — neutral dark grey, intentionally not accented so
      they read as "copyable snippet" rather than a link/CTA. */
@@ -127,21 +123,14 @@
     --border:        rgba(15, 168, 201, 0.20);
     --border-bright: rgba(15, 168, 201, 0.45);
 
-    --panel-paint:  rgba(252, 254, 255, 0.96);
-    --panel-border: rgba(15, 168, 201, 0.32);
+     --panel-paint:  rgba(252, 254, 255, 0.30);
+     --panel-border: rgba(15, 168, 201, 0.32);
 
-    /* Glassy light panel: a soft diagonal sheen from cool-white through
-       pale owl-cyan into near-transparent, then a subtle highlight bloom
-       at the top-left. Keeps the surface clearly white while giving the
-       chrome that frosted-glass look. */
-    --app-gradient:
-      radial-gradient(circle at 20% 0%,
-        rgba(255, 255, 255, 0.85) 0%,
-        rgba(255, 255, 255, 0) 55%),
-      linear-gradient(155deg,
-        rgba(235, 248, 252, 0.65) 0%,
-        rgba(214, 238, 245, 0.45) 45%,
-        rgba(248, 253, 254, 0.30) 100%);
+     --app-gradient: none;
+
+     --btn-attach-bg: rgba(230, 238, 242, 0.80);
+     --btn-attach-hover: var(--bg-elevated);
+     --btn-attach-text: #3A4750;
 
     /* Light-mode chips: soft pebble grey on the pale chrome. */
     --chip-bg:     rgba(230, 234, 238, 0.85);
@@ -178,38 +167,23 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  /* Small inner padding so content sits off the rounded corners
-     without creating an "inner card" look (the header itself has
-     no background of its own — see .app-header). */
   padding: 8px;
   gap: 6px;
   background: var(--app-gradient), var(--panel-paint);
-  border-radius: var(--radius-panel);
   border: 1px solid var(--panel-border);
-  /* macOS-style stacked shadow:
-       1. Ambient contact shadow (short, high blur)
-       2. Mid-distance soft shadow
-       3. Far-throw low-alpha shadow for depth off the desktop
-       4. Inner highlight along the top edge (1px) for the glass bevel */
-  box-shadow:
-    0 1px 2px rgba(6, 20, 28, 0.25),
-    0 6px 18px rgba(6, 20, 28, 0.28),
-    0 28px 60px rgba(6, 20, 28, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.07);
   overflow: hidden;
 }
 
 /* ── Header ── */
-/* The header blends into the panel chrome — no separate background,
-   no border, no top gradient stripe. Rounded top corners match the
-   panel so the header fills the top of the card cleanly. */
+/* Solid opaque bar so owl + buttons are always crisp above the blur. */
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 4px 6px 6px 6px;
-  background: transparent;
+  background: var(--bg-surface);
   border: 0;
+  border-radius: 8px;
   cursor: grab;
   user-select: none;
   -webkit-app-region: drag;
@@ -233,7 +207,7 @@ body {
 
 .app-title {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 16px;
   background: var(--gradient-accent);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -321,9 +295,70 @@ body {
 }
 
 .settings-section {
-  margin-bottom: 8px;
-  padding-bottom: 8px;
+  margin-bottom: 2px;
   border-bottom: 1px solid var(--border);
+}
+
+.settings-section.closed {
+  padding-bottom: 0;
+}
+
+.settings-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  color: inherit;
+}
+
+.settings-section-header:hover .settings-label {
+  color: var(--text);
+}
+
+.settings-section-header .settings-label {
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.settings-section-meta {
+  flex: 1;
+  font-size: 10px;
+  color: var(--text-subtle);
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: "Segoe UI Mono", Consolas, monospace;
+}
+
+.settings-chevron {
+  color: var(--text-muted);
+  font-size: 10px;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+  width: 12px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.settings-chevron.open {
+  transform: rotate(180deg);
+}
+
+.settings-section-body {
+  padding-bottom: 10px;
+  animation: sectionSlide 0.15s ease;
+}
+
+@keyframes sectionSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .settings-label {
@@ -332,6 +367,18 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   margin-bottom: 4px;
+}
+
+.settings-sublabel {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 10px 0 4px 0;
+}
+
+.settings-sublabel:first-child {
+  margin-top: 2px;
 }
 
 .model-option {
@@ -353,6 +400,48 @@ body {
 .model-active {
   color: var(--text);
   background: var(--accent-glow-strong);
+}
+
+.model-remove,
+.model-edit-key {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: 3px;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  font-family: inherit;
+}
+
+.model-remove {
+  font-size: 14px;
+}
+
+.model-edit-key {
+  font-size: 11px;
+}
+
+.model-option:hover .model-remove,
+.model-option:hover .model-edit-key {
+  opacity: 1;
+}
+
+.model-edit-key:hover {
+  background: var(--accent-glow, rgba(116, 153, 194, 0.15));
+  color: var(--accent, #7499C2);
+}
+
+.model-remove:hover {
+  background: var(--red, rgba(255, 80, 80, 0.15));
+  color: var(--red, #ff6a6a);
+}
+
+.model-input-btn-secondary {
+  padding: 3px 8px !important;
+  font-size: 10px !important;
 }
 
 .model-name {
@@ -424,6 +513,36 @@ body {
   color: var(--red);
   margin-top: 4px;
   line-height: 1.3;
+}
+
+.api-key-prompt {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--panel-alt, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.api-key-label {
+  font-size: 11px;
+  color: var(--muted, #a0a8b4);
+  letter-spacing: 0.02em;
+}
+
+.api-key-provider {
+  color: var(--accent, #7499C2);
+  font-weight: 600;
+  font-family: "Segoe UI Mono", Consolas, monospace;
+}
+
+.api-key-hint {
+  font-size: 10px;
+  color: var(--muted, #8088a0);
+  line-height: 1.3;
+  font-style: italic;
 }
 
 .settings-toggle {
@@ -635,23 +754,23 @@ body {
 .btn-attach-screenshot {
   display: block;
   width: 100%;
-  background: linear-gradient(135deg, rgba(24,191,225,0.12), rgba(242,169,58,0.08));
-  color: var(--accent-bright);
+  background: var(--btn-attach-bg);
+  color: var(--btn-attach-text);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius);
   padding: 7px 8px;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 400;
   text-align: center;
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
 
 .btn-attach-screenshot:hover {
-  background: var(--accent-glow);
-  border-color: var(--accent-bright);
-  box-shadow: 0 0 16px rgba(24,191,225,0.25);
+  background: var(--btn-attach-hover);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(24,191,225,0.18);
 }
 
 .btn-attach-screenshot:disabled {

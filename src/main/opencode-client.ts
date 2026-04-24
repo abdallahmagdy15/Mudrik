@@ -3,6 +3,7 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { log } from "./logger";
+import { buildProviderEnv } from "../shared/providers";
 
 export interface OpenCodeEvent {
   type: string;
@@ -67,16 +68,24 @@ export class OpenCodeClient {
   private model: string;
   private workingDir: string;
   private activeProcess: ChildProcess | null = null;
+  private apiKeys: Record<string, string> = {};
 
-  constructor(model: string = "opencode-go/kimi-k2.5", workingDir?: string) {
+  constructor(model: string = "opencode-go/kimi-k2.5", workingDir?: string, apiKeys?: Record<string, string>) {
     this.model = model;
     this.workingDir = workingDir || os.homedir();
-    log(`OpenCodeClient created: model=${this.model}, dir=${this.workingDir}`);
+    this.apiKeys = apiKeys || {};
+    log(`OpenCodeClient created: model=${this.model}, dir=${this.workingDir}, keys=${Object.keys(this.apiKeys).length}`);
   }
 
   updateModel(model: string): void {
     this.model = model;
     log(`Model updated to: ${model}`);
+  }
+
+  /** Replace the provider→key map used to inject env vars on spawn. */
+  updateApiKeys(apiKeys: Record<string, string>): void {
+    this.apiKeys = apiKeys || {};
+    log(`API keys updated: providers=[${Object.keys(this.apiKeys).join(", ")}]`);
   }
 
   resetSession(): void {
@@ -138,6 +147,7 @@ export class OpenCodeClient {
       const proc = spawn("node", args, {
         cwd: this.workingDir,
         stdio: ["pipe", "pipe", "pipe"],
+        env: buildProviderEnv(process.env, this.apiKeys),
       });
 
       this.activeProcess = proc;

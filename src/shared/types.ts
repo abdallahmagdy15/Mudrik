@@ -50,6 +50,14 @@ export interface Config {
    */
   actionsEnabled: boolean;
   recentModels: string[];
+  /**
+   * Map of provider name → API key. When spawning OpenCode (for both
+   * `opencode run` and `opencode models`), each entry is injected as an
+   * environment variable following the provider-env-var convention (e.g.
+   * `anthropic` → `ANTHROPIC_API_KEY`). Keys are stored in plaintext in
+   * config.json — a future release may migrate to Electron `safeStorage`.
+   */
+  apiKeys: Record<string, string>;
   hotkeyPointer: string;
   hotkeyArea: string;
   panelWidth: number;
@@ -68,6 +76,7 @@ export const DEFAULT_CONFIG: Config = {
   workingDir: "",
   actionsEnabled: true,
   recentModels: ["zai-coding-plan/glm-4.6v"],
+  apiKeys: {},
   hotkeyPointer: "Alt+Space",
   hotkeyArea: "CommandOrControl+Space",
   panelWidth: 380,
@@ -118,5 +127,7 @@ export const IPC = {
   SESSION_HISTORY: "session-history",
   STOP_RESPONSE: "stop-response",
   VALIDATE_MODEL: "validate-model",
+  SAVE_API_KEY: "save-api-key",
+  REMOVE_MODEL: "remove-model",
   CURSOR_POS: "cursor-pos",
 } as const;

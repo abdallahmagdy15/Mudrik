@@ -17,6 +17,7 @@ module.exports = [
     output: { filename: "main.js", path: path.resolve(__dirname, "dist") },
     externals: {
       robotjs: "commonjs robotjs",
+      koffi: "commonjs koffi",
     },
   },
   {

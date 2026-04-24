@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
+import { buildProviderEnv, providerFromModelId } from "../shared/providers";
 import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction, isInteractiveAction } from "./action-executor";
 import { showNotification } from "./tray";
 import { cleanupImage, captureAndOptimize } from "./vision";
@@ -164,8 +165,8 @@ export function registerIpcHandlers(
   appConfig = config;
   configChangeListener = onConfigChange || null;
   const workingDir = config.workingDir || process.cwd();
-  client = new OpenCodeClient(config.model || "opencode-go/kimi-k2.5", workingDir);
-  log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}`);
+  client = new OpenCodeClient(config.model || "opencode-go/kimi-k2.5", workingDir, config.apiKeys);
+  log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}, keys=${Object.keys(config.apiKeys || {}).length}`);
 
   ipcMain.on(IPC.DISMISS, () => {
     log("DISMISS received");
@@ -197,7 +198,11 @@ export function registerIpcHandlers(
     }
     Object.assign(config, newConfig, { recentModels: config.recentModels });
     if (newConfig.workingDir) {
-      client = new OpenCodeClient(config.model, config.workingDir);
+      client = new OpenCodeClient(config.model, config.workingDir, config.apiKeys);
+    }
+    // If keys changed without a full client rebuild, propagate the new map.
+    if (newConfig.apiKeys) {
+      client.updateApiKeys(config.apiKeys);
     }
     log(`Config updated: model=${config.model}, recentModels=${JSON.stringify(config.recentModels)}`);
     saveConfig(config);
@@ -214,19 +219,87 @@ export function registerIpcHandlers(
       if (!opencodeBin) return { valid: false, error: "opencode not found" };
       const { execFile } = require("child_process");
       const cwd = appConfig.workingDir || os.homedir();
+      const env = buildProviderEnv(process.env, config.apiKeys);
       const raw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "models"], { encoding: "utf-8", timeout: 30000, cwd, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        execFile("node", [opencodeBin, "models"], { encoding: "utf-8", timeout: 30000, cwd, env, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
       const allModels = raw.trim().split("\n").map((l: string) => l.trim()).filter(Boolean);
       const match = allModels.find((m: string) => m.toLowerCase() === modelId.toLowerCase());
       if (match) {
         return { valid: true, modelId: match };
       }
+      // Miss — figure out whether it's the provider that isn't authed, vs the
+      // model name being wrong on an authed provider. `allModels` lists every
+      // model OpenCode can see right now; if NONE of them start with the same
+      // provider prefix the user typed, the provider is likely unauthenticated
+      // and the UI should offer an API-key input.
+      const provider = providerFromModelId(modelId);
+      const providerHasAnyModel = allModels.some((m: string) =>
+        providerFromModelId(m).toLowerCase() === provider.toLowerCase(),
+      );
+      const needsAuth = !providerHasAnyModel && !!provider && provider !== modelId;
       const suggestions = allModels.filter((m: string) => m.toLowerCase().includes(modelId.split("/").pop()!.toLowerCase())).slice(0, 5);
-      return { valid: false, error: `Model "${modelId}" not found`, suggestions };
+      log(`VALIDATE_MODEL miss: modelId=${modelId}, provider=${provider}, needsAuth=${needsAuth}, suggestions=${suggestions.length}`);
+      return {
+        valid: false,
+        error: needsAuth
+          ? `Provider "${provider}" is not authenticated. Add an API key to use this model.`
+          : `Model "${modelId}" not found`,
+        suggestions,
+        needsAuth,
+        provider: needsAuth ? provider : undefined,
+      };
     } catch (err: any) {
       return { valid: false, error: err.message };
     }
+  });
+
+  /**
+   * Persist an API key for the named provider and refresh the OpenCode
+   * client's env map so the next `opencode run` / `opencode models` call
+   * sees it. Does NOT validate the key — OpenCode has no pre-flight test
+   * endpoint, so a bad key surfaces as a runtime error on the first
+   * message send. An empty key clears the entry.
+   */
+  ipcMain.handle(IPC.SAVE_API_KEY, (_e, provider: string, key: string) => {
+    if (!provider) return { ok: false, error: "provider is required" };
+    const trimmed = (key || "").trim();
+    const map = { ...(config.apiKeys || {}) };
+    if (trimmed) {
+      map[provider.toLowerCase()] = trimmed;
+    } else {
+      delete map[provider.toLowerCase()];
+    }
+    config.apiKeys = map;
+    client.updateApiKeys(map);
+    saveConfig(config);
+    log(`SAVE_API_KEY: provider=${provider} (${trimmed ? "set" : "cleared"}), total providers=${Object.keys(map).length}`);
+    return { ok: true };
+  });
+
+  /**
+   * Remove a model from the recentModels list. If the removed entry was the
+   * currently-active model, switch to the next remaining one (or keep the
+   * current model if the list would become empty — we never let the user
+   * orphan themselves).
+   */
+  ipcMain.handle(IPC.REMOVE_MODEL, (_e, modelToRemove: string) => {
+    if (!modelToRemove) return config;
+    const filtered = config.recentModels.filter((m) => m !== modelToRemove);
+    if (filtered.length === 0) {
+      log(`REMOVE_MODEL ignored: would empty the list (model=${modelToRemove})`);
+      return config;
+    }
+    config.recentModels = filtered;
+    if (modelToRemove === config.model) {
+      config.model = filtered[0];
+      client.updateModel(filtered[0]);
+      log(`REMOVE_MODEL: removed current model ${modelToRemove}, switched to ${filtered[0]}`);
+    } else {
+      log(`REMOVE_MODEL: removed ${modelToRemove}, active model ${config.model} unchanged`);
+    }
+    saveConfig(config);
+    return config;
   });
 
   ipcMain.on(IPC.NEW_SESSION, () => {

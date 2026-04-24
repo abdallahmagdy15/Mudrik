@@ -30,7 +30,9 @@ declare global {
       restoreSession: () => Promise<any>;
       onSessionHistory: (cb: (messages: any[]) => void) => void;
       stopResponse: () => void;
-      validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[] }>;
+      validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[]; needsAuth?: boolean; provider?: string }>;
+      saveApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
+      removeModel: (modelId: string) => Promise<any>;
     };
   }
 }
@@ -103,6 +105,23 @@ export function App() {
   const [customModelInput, setCustomModelInput] = useState("");
   const [modelValidationError, setModelValidationError] = useState<string | null>(null);
   const [modelValidating, setModelValidating] = useState(false);
+  // When validation fails because a provider isn't authed, the main process
+  // sets needsAuth + provider. We surface an inline API-key input so the user
+  // can paste a key and retry without leaving the panel.
+  const [authPromptProvider, setAuthPromptProvider] = useState<string | null>(null);
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [apiKeySaving, setApiKeySaving] = useState(false);
+  // Collapsible settings groups. Model + Hotkeys default closed (rarely touched
+  // once configured); Appearance + Behavior default open (quick tweaks).
+  const [openSections, setOpenSections] = useState<{ model: boolean; hotkeys: boolean; appearance: boolean; behavior: boolean }>({
+    model: false,
+    hotkeys: false,
+    appearance: true,
+    behavior: true,
+  });
+  const toggleSection = useCallback((key: keyof typeof openSections) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
   const [restoringSession, setRestoringSession] = useState(false);
   const [hotkeyPointer, setHotkeyPointer] = useState("Alt+Space");
   const [hotkeyArea, setHotkeyArea] = useState("CommandOrControl+Space");
@@ -420,10 +439,16 @@ export function App() {
     if (!modelId) return;
     setModelValidating(true);
     setModelValidationError(null);
+    setAuthPromptProvider(null);
     try {
       const result = await window.hoverbuddy.validateModel(modelId);
       if (result.valid && result.modelId) {
         handleSwitchModel(result.modelId);
+        setApiKeyInput("");
+      } else if (result.needsAuth && result.provider) {
+        // Provider not authenticated — reveal the inline API-key input.
+        setAuthPromptProvider(result.provider);
+        setModelValidationError(result.error || `API key required for ${result.provider}`);
       } else {
         setModelValidationError(result.suggestions?.length
           ? `${result.error}. Did you mean: ${result.suggestions.join(", ")}?`
@@ -434,6 +459,73 @@ export function App() {
     }
     setModelValidating(false);
   }, [customModelInput, handleSwitchModel]);
+
+  /**
+   * Save the API key and switch to the requested model. OpenCode has no way
+   * to pre-validate a key, so we trust the user's input — if the key is bad,
+   * the first message send surfaces the real error from the provider. This
+   * is simpler and honest: every "validate" would just be a second shot at
+   * the same failing call.
+   */
+  const handleSaveApiKey = useCallback(async () => {
+    const provider = authPromptProvider;
+    const key = apiKeyInput.trim();
+    const modelId = customModelInput.trim();
+    if (!provider || !key) return;
+    setApiKeySaving(true);
+    setModelValidationError(null);
+    try {
+      const saved = await window.hoverbuddy.saveApiKey(provider, key);
+      if (!saved.ok) {
+        setModelValidationError(saved.error || "Failed to save key");
+        setApiKeySaving(false);
+        return;
+      }
+      // If the user opened this prompt by typing a new custom model, also
+      // switch to that model. If they opened it via the ✎ edit-key button
+      // (customModelInput empty), just save the key and close — they're
+      // editing an existing model's credentials, not adding a new one.
+      if (modelId) {
+        handleSwitchModel(modelId);
+        setCustomModelInput("");
+      }
+      setAuthPromptProvider(null);
+      setApiKeyInput("");
+    } catch (err: any) {
+      setModelValidationError(err.message);
+    }
+    setApiKeySaving(false);
+  }, [authPromptProvider, apiKeyInput, customModelInput, handleSwitchModel]);
+
+  /**
+   * Remove a model from the recent list. Main-process handler picks the
+   * next recent as the new active model if the removed entry was current.
+   * Disabled (via filtered click handler) when only one model remains.
+   */
+  const handleRemoveModel = useCallback(async (modelToRemove: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (recentModels.length <= 1) return;
+    const cfg = await window.hoverbuddy.removeModel(modelToRemove);
+    if (cfg?.recentModels) setRecentModels(cfg.recentModels);
+    if (cfg?.model) setCurrentModel(cfg.model);
+  }, [recentModels.length]);
+
+  /**
+   * Open the API-key input for an existing model's provider without changing
+   * the selected model. Used when a saved key turns out to be wrong and the
+   * user needs to replace it — a common case since we can't pre-validate
+   * keys against the provider. `handleSaveApiKey` detects this entry point
+   * (empty customModelInput) and skips the model-switch step.
+   */
+  const handleEditProviderKey = useCallback((modelId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const provider = modelId.split("/")[0];
+    setAuthPromptProvider(provider);
+    setApiKeyInput("");
+    setModelValidationError(null);
+    // Ensure Model section is open so the input is visible.
+    setOpenSections((prev) => ({ ...prev, model: true }));
+  }, []);
 
   // msgKey disambiguates chips across messages — e.g. two separate replies
   // can each have a <!--COPY:pwd--> chip without sharing highlight state.
@@ -471,112 +563,221 @@ export function App() {
         </div>
         {settingsOpen && (
           <div className="settings-dropdown">
-            <div className="settings-section">
-              <div className="settings-label">Model</div>
-              {recentModels.map((m) => (
-                <div
-                  key={m}
-                  className={`model-option ${m === currentModel ? "model-active" : ""}`}
-                  onClick={() => handleSwitchModel(m)}
-                >
-                  <span className="model-name">{m.split("/").pop()}</span>
-                  <span className="model-provider">{m.split("/")[0]}</span>
-                  {m === currentModel && <span className="model-check">&#10003;</span>}
+            <div className={`settings-section ${openSections.model ? "open" : "closed"}`}>
+              <button
+                type="button"
+                className="settings-section-header"
+                onClick={() => toggleSection("model")}
+                aria-expanded={openSections.model}
+              >
+                <span className="settings-label">Model</span>
+                <span className="settings-section-meta">{currentModel.split("/").pop()}</span>
+                <span className={`settings-chevron ${openSections.model ? "open" : ""}`}>▾</span>
+              </button>
+              {openSections.model && (
+                <div className="settings-section-body">
+                  {recentModels.map((m) => (
+                    <div
+                      key={m}
+                      className={`model-option ${m === currentModel ? "model-active" : ""}`}
+                      onClick={() => handleSwitchModel(m)}
+                    >
+                      <span className="model-name">{m.split("/").pop()}</span>
+                      <span className="model-provider">{m.split("/")[0]}</span>
+                      {m === currentModel && <span className="model-check">&#10003;</span>}
+                      <button
+                        type="button"
+                        className="model-edit-key"
+                        onClick={(e) => handleEditProviderKey(m, e)}
+                        title={`Edit API key for ${m.split("/")[0]}`}
+                        aria-label={`Edit key for ${m.split("/")[0]}`}
+                      >
+                        &#9998;
+                      </button>
+                      {recentModels.length > 1 && (
+                        <button
+                          type="button"
+                          className="model-remove"
+                          onClick={(e) => handleRemoveModel(m, e)}
+                          title={`Remove ${m} from recent models`}
+                          aria-label={`Remove ${m}`}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  <div className="settings-sublabel">Custom</div>
+                  <div className="model-input-row">
+                    <input
+                      className="model-input"
+                      type="text"
+                      placeholder="provider/model-name"
+                      value={customModelInput}
+                      onChange={(e) => { setCustomModelInput(e.target.value); setModelValidationError(null); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") handleCustomModelSubmit(); }}
+                      disabled={modelValidating}
+                    />
+                    <button className="model-input-btn" onClick={handleCustomModelSubmit} disabled={modelValidating || !customModelInput.trim()}>
+                      {modelValidating ? "..." : "Set"}
+                    </button>
+                  </div>
+                  {modelValidationError && <div className="model-error">{modelValidationError}</div>}
+                  {authPromptProvider && (
+                    <div className="api-key-prompt">
+                      <div className="api-key-label">
+                        {customModelInput.trim() ? "API key for " : "Replace key for "}
+                        <span className="api-key-provider">{authPromptProvider}</span>
+                      </div>
+                      <div className="model-input-row">
+                        <input
+                          className="model-input"
+                          type="password"
+                          placeholder="paste key — stays on this machine"
+                          value={apiKeyInput}
+                          onChange={(e) => setApiKeyInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveApiKey(); }}
+                          disabled={apiKeySaving}
+                          autoComplete="new-password"
+                          spellCheck={false}
+                          autoFocus
+                        />
+                        <button
+                          className="model-input-btn"
+                          onClick={handleSaveApiKey}
+                          disabled={apiKeySaving || !apiKeyInput.trim()}
+                        >
+                          {apiKeySaving ? "..." : "Save"}
+                        </button>
+                        <button
+                          className="model-input-btn model-input-btn-secondary"
+                          onClick={() => { setAuthPromptProvider(null); setApiKeyInput(""); setModelValidationError(null); }}
+                          disabled={apiKeySaving}
+                          title="Cancel"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <div className="api-key-hint">
+                        Stored in your local config. Used only to spawn OpenCode.
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
-            <div className="settings-section">
-              <div className="settings-label">Custom Model</div>
-              <div className="model-input-row">
-                <input
-                  className="model-input"
-                  type="text"
-                  placeholder="provider/model-name"
-                  value={customModelInput}
-                  onChange={(e) => { setCustomModelInput(e.target.value); setModelValidationError(null); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") handleCustomModelSubmit(); }}
-                  disabled={modelValidating}
-                />
-                <button className="model-input-btn" onClick={handleCustomModelSubmit} disabled={modelValidating || !customModelInput.trim()}>
-                  {modelValidating ? "..." : "Set"}
-                </button>
-              </div>
-              {modelValidationError && <div className="model-error">{modelValidationError}</div>}
+            <div className={`settings-section ${openSections.hotkeys ? "open" : "closed"}`}>
+              <button
+                type="button"
+                className="settings-section-header"
+                onClick={() => toggleSection("hotkeys")}
+                aria-expanded={openSections.hotkeys}
+              >
+                <span className="settings-label">Hotkeys</span>
+                <span className="settings-section-meta">{hotkeyPointer} · {hotkeyArea.replace("CommandOrControl", "Ctrl")}</span>
+                <span className={`settings-chevron ${openSections.hotkeys ? "open" : ""}`}>▾</span>
+              </button>
+              {openSections.hotkeys && (
+                <div className="settings-section-body">
+                  <label className="hotkey-row">
+                    <span>Pointer</span>
+                    <input
+                      className="hotkey-input"
+                      type="text"
+                      value={hotkeyPointer}
+                      onChange={(e) => setHotkeyPointer(e.target.value)}
+                      onBlur={() => { if (hotkeyPointer) commitHotkeys(hotkeyPointer, hotkeyArea); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      placeholder="Alt+Space"
+                    />
+                  </label>
+                  <label className="hotkey-row">
+                    <span>Area</span>
+                    <input
+                      className="hotkey-input"
+                      type="text"
+                      value={hotkeyArea}
+                      onChange={(e) => setHotkeyArea(e.target.value)}
+                      onBlur={() => { if (hotkeyArea) commitHotkeys(hotkeyPointer, hotkeyArea); }}
+                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                      placeholder="CommandOrControl+Space"
+                    />
+                  </label>
+                  {hotkeyError && <div className="model-error">{hotkeyError}</div>}
+                </div>
+              )}
             </div>
-            <div className="settings-section">
-              <div className="settings-label">Hotkeys</div>
-              <label className="hotkey-row">
-                <span>Pointer</span>
-                <input
-                  className="hotkey-input"
-                  type="text"
-                  value={hotkeyPointer}
-                  onChange={(e) => setHotkeyPointer(e.target.value)}
-                  onBlur={() => { if (hotkeyPointer) commitHotkeys(hotkeyPointer, hotkeyArea); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  placeholder="Alt+Space"
-                />
-              </label>
-              <label className="hotkey-row">
-                <span>Area</span>
-                <input
-                  className="hotkey-input"
-                  type="text"
-                  value={hotkeyArea}
-                  onChange={(e) => setHotkeyArea(e.target.value)}
-                  onBlur={() => { if (hotkeyArea) commitHotkeys(hotkeyPointer, hotkeyArea); }}
-                  onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                  placeholder="CommandOrControl+Space"
-                />
-              </label>
-              {hotkeyError && <div className="model-error">{hotkeyError}</div>}
+            <div className={`settings-section ${openSections.appearance ? "open" : "closed"}`}>
+              <button
+                type="button"
+                className="settings-section-header"
+                onClick={() => toggleSection("appearance")}
+                aria-expanded={openSections.appearance}
+              >
+                <span className="settings-label">Appearance</span>
+                <span className="settings-section-meta">{theme === "system" ? "Auto" : theme === "light" ? "Light" : "Dark"} · {fontSize}px</span>
+                <span className={`settings-chevron ${openSections.appearance ? "open" : ""}`}>▾</span>
+              </button>
+              {openSections.appearance && (
+                <div className="settings-section-body">
+                  <div className="settings-sublabel">Theme</div>
+                  <div className="theme-picker">
+                    {(["system", "light", "dark"] as const).map((t) => (
+                      <button
+                        key={t}
+                        className={`theme-option ${theme === t ? "theme-active" : ""}`}
+                        onClick={() => handleSetTheme(t)}
+                      >
+                        {t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="settings-sublabel">Font size <span className="settings-hint">{fontSize}px</span></div>
+                  <input
+                    className="font-size-slider"
+                    type="range"
+                    min={11}
+                    max={20}
+                    step={1}
+                    value={fontSize}
+                    onChange={(e) => handleSetFontSize(Number(e.target.value))}
+                  />
+                </div>
+              )}
             </div>
-            <div className="settings-section">
-              <div className="settings-label">Theme</div>
-              <div className="theme-picker">
-                {(["system", "light", "dark"] as const).map((t) => (
-                  <button
-                    key={t}
-                    className={`theme-option ${theme === t ? "theme-active" : ""}`}
-                    onClick={() => handleSetTheme(t)}
-                  >
-                    {t === "system" ? "Auto" : t === "light" ? "Light" : "Dark"}
-                  </button>
-                ))}
-              </div>
+            <div className={`settings-section ${openSections.behavior ? "open" : "closed"}`}>
+              <button
+                type="button"
+                className="settings-section-header"
+                onClick={() => toggleSection("behavior")}
+                aria-expanded={openSections.behavior}
+              >
+                <span className="settings-label">Behavior</span>
+                <span className={`settings-chevron ${openSections.behavior ? "open" : ""}`}>▾</span>
+              </button>
+              {openSections.behavior && (
+                <div className="settings-section-body">
+                  <label className="settings-toggle" title="When off, Mudrik runs in read-only mode: it can answer and copy content to the clipboard, but cannot click, type, paste, press keys, or move your cursor.">
+                    <span>Allow desktop actions</span>
+                    <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
+                      <div className="toggle-knob" />
+                    </div>
+                  </label>
+                  <label className="settings-toggle">
+                    <span>Launch on startup</span>
+                    <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
+                      <div className="toggle-knob" />
+                    </div>
+                  </label>
+                  <label className="settings-toggle">
+                    <span>Restore chat on popup</span>
+                    <div className={`toggle-switch ${restoreSessionOnActivate ? "on" : ""}`} onClick={handleToggleRestoreSession}>
+                      <div className="toggle-knob" />
+                    </div>
+                  </label>
+                </div>
+              )}
             </div>
-            <div className="settings-section">
-              <div className="settings-label">
-                Font size <span className="settings-hint">{fontSize}px</span>
-              </div>
-              <input
-                className="font-size-slider"
-                type="range"
-                min={11}
-                max={20}
-                step={1}
-                value={fontSize}
-                onChange={(e) => handleSetFontSize(Number(e.target.value))}
-              />
-            </div>
-            <label className="settings-toggle" title="When off, Mudrik runs in read-only mode: it can answer and copy content to the clipboard, but cannot click, type, paste, press keys, or move your cursor.">
-              <span>Allow desktop actions</span>
-              <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
-                <div className="toggle-knob" />
-              </div>
-            </label>
-            <label className="settings-toggle">
-              <span>Launch on startup</span>
-              <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
-                <div className="toggle-knob" />
-              </div>
-            </label>
-            <label className="settings-toggle">
-              <span>Restore chat on popup</span>
-              <div className={`toggle-switch ${restoreSessionOnActivate ? "on" : ""}`} onClick={handleToggleRestoreSession}>
-                <div className="toggle-knob" />
-              </div>
-            </label>
           </div>
         )}
       </div>

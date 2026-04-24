@@ -2,6 +2,7 @@ import { app, BrowserWindow, screen, dialog, nativeTheme } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
+import * as koffi from "koffi";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
 import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly } from "./ipc-handlers";
@@ -15,8 +16,39 @@ import { showElementHighlight, showAreaHighlight } from "./highlight";
 import { cleanupImage } from "./vision";
 import { log } from "./logger";
 
+app.commandLine.appendSwitch("enable-features", "BackDropFilter");
+
 let mainWindow: BrowserWindow | null = null;
 let config: Config = { ...DEFAULT_CONFIG };
+
+const dwmapi = koffi.load("dwmapi.dll");
+const DwmSetWindowAttribute = dwmapi.func(
+  "int DwmSetWindowAttribute(unsigned long long hwnd, int attr, void *val, int size)"
+);
+const DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+const DWMWCP_ROUND = 2;
+
+function applyRoundedCorners(win: BrowserWindow): void {
+  try {
+    const buf = win.getNativeWindowHandle();
+    const hwnd = buf.length === 8 ? Number(buf.readBigUInt64LE()) : buf.readUInt32LE();
+    const prefBuf = Buffer.alloc(4);
+    prefBuf.writeUInt32LE(DWMWCP_ROUND, 0);
+    const hr = DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, prefBuf, 4);
+    log(`DwmSetWindowAttribute hwnd=0x${hwnd.toString(16)} hr=0x${(hr >>> 0).toString(16)}`);
+  } catch (e: any) {
+    log(`DWM rounded corners failed: ${e.message}`);
+  }
+}
+
+function applyAcrylic(win: BrowserWindow): void {
+  try {
+    win.setBackgroundMaterial("acrylic");
+    log("setBackgroundMaterial('acrylic') applied");
+  } catch (e: any) {
+    log(`setBackgroundMaterial failed: ${e.message}`);
+  }
+}
 
 function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; y: number } {
   // Panel always anchors to the cursor on activation. We used to support a
@@ -215,6 +247,8 @@ function showPanel(context: ContextPayload): void {
   }
 
   mainWindow.show();
+  applyAcrylic(mainWindow);
+  applyRoundedCorners(mainWindow);
   mainWindow.focus();
   mainWindow.moveTop();
 
