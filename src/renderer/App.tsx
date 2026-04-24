@@ -198,7 +198,7 @@ export function App() {
     window.hoverbuddy.onStreamError((err) => {
       console.log(`[RENDERER] Stream error: ${err}`);
       setStreaming(false);
-      setError(err);
+      setError(typeof err === "string" && err.length < 120 ? err : t("somethingWentWrong"));
     });
 
     window.hoverbuddy.onActionResult((result) => {

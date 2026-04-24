@@ -281,18 +281,15 @@ body {
   top: 100%;
   right: 8px;
   margin-top: 6px;
-  /* Matches panel chrome. Solid tint — no backdrop-filter
-     (see rationale in .app). */
   background: var(--bg-overlay);
   border: 1px solid var(--panel-border);
   border-radius: var(--radius);
   padding: 10px 12px;
   z-index: 100;
   min-width: 240px;
-  /* Never overflow the panel. Header is ~48px, panel has 8px inner padding
-     and a ~6px gap — leave ~64px of breathing room so the dropdown fits
-     inside the visible frame and scrolls when its content is tall. */
-  max-height: calc(100vh - 64px);
+  /* Fit within the panel: header (~48px) + app padding (8px top + 8px bottom)
+     + gap (6px) + small buffer (6px) = ~76px. Dropdown scrolls when taller. */
+  max-height: calc(100vh - 76px);
   overflow-y: auto;
   box-shadow: 0 12px 32px rgba(12, 37, 48, 0.45);
   -webkit-app-region: no-drag;
@@ -1194,4 +1191,51 @@ body {
   color: var(--text-muted);
   font-size: 12px;
   animation: pulse 2s ease-in-out infinite;
+}
+
+.crash-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+}
+
+.crash-icon {
+  font-size: 48px;
+  margin-bottom: 16px;
+  color: var(--red);
+}
+
+.crash-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.crash-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.crash-restart-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 8px 24px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.crash-restart-btn:hover {
+  opacity: 0.85;
 }

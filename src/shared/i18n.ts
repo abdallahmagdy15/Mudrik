@@ -44,6 +44,9 @@ const en = {
   inputPlaceholder: "Ask about what you're working on...",
   send: "Send",
   startNewConversation: "Start a new conversation",
+  somethingWentWrong: "Something went wrong",
+  errorDescription: "Mudrik hit an unexpected error. Try reopening the panel or restarting the app.",
+  restart: "Restart",
 };
 
 const ar: Record<Key, string> = {
@@ -89,6 +92,9 @@ const ar: Record<Key, string> = {
   inputPlaceholder: "اسأل عما تعمل عليه...",
   send: "إرسال",
   startNewConversation: "بدء محادثة جديدة",
+  somethingWentWrong: "حدث خطأ ما",
+  errorDescription: "واجه مدرك خطأ غير متوقع. حاول إعادة فتح اللوحة أو إعادة تشغيل التطبيق.",
+  restart: "إعادة تشغيل",
 };
 
 const strings: Record<Lang, Record<Key, string>> = { en, ar };
