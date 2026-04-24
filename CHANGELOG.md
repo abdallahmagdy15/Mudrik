@@ -6,20 +6,36 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-04-24 (Preview)
+
+First public preview release. Pre-v1 — breaking changes possible while the API surface stabilises and we collect feedback.
+
 ### Added
-- Contact / About section in README (GitHub, X, LinkedIn, email)
-- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1)
-- This `CHANGELOG.md`
+- **Multi-provider API key management**. `Config.apiKeys` (provider → key map) injected into OpenCode subprocess env vars via `src/shared/providers.ts`. New `SAVE_API_KEY` IPC + inline "API key for `<provider>`" input in the Model settings section. Per-row ✎ edit + × remove on recent models.
+- **Arabic / English i18n** with full RTL support (`Config.lang`, `src/shared/i18n.ts`). Root element flips `dir="rtl"` when Arabic is selected.
+- **Frosted glass panel** via native Windows acrylic (`setBackgroundMaterial`) + DWM rounded corners (`DwmSetWindowAttribute` via `koffi`). Electron upgraded 33 → 35.
+- **Error boundary** around the React root with a localized crash screen + restart button.
+- **Collapsible settings sections** — Model + Hotkeys collapsed by default; Appearance + Behavior expanded. Summary shown in each header.
+- **Read-only tool access** for the LLM: `read`, `grep`, `glob`, `list` are now permitted so the model can look up on-disk docs when a question requires them. Write/execute tools (`bash`, `edit`, `write`, `webfetch`, `websearch`, `task`, `todowrite`, `skill`) remain hard-blocked by the runtime kill-switch.
+- Contact / About section in README (GitHub, X, LinkedIn, email).
+- `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1).
+- This `CHANGELOG.md`.
 
 ### Changed
-- README trimmed and restructured for open-source launch
-- `CONTRIBUTING.md` now owns the full Develop + Release pipeline sections
+- README trimmed and restructured for open-source launch.
+- `CONTRIBUTING.md` now owns the full Develop + Release pipeline sections.
+- Settings dropdown `max-height` tightened to `calc(100vh - 76px)` so it never overflows the panel frame.
+- Long stream-error strings (>120 chars) are replaced with a localized friendly message; full error still goes to the renderer console.
+
+### Fixed
+- `restoreSessionOnActivate` was ignored on first launch because `CONTEXT_READY` fired before `getConfig()` resolved. Added `configLoadedRef` to gate restore until config is loaded.
+- When restore is OFF, messages now clear on every re-activation instead of being kept by the `prev.length > 0` shortcut.
 
 ### Removed
-- `telemetryEnabled` config field (never wired; removing the placeholder)
-- `docs/ROADMAP.md` from the public repo (internal planning lives elsewhere)
+- `telemetryEnabled` config field (never wired; removing the placeholder).
+- `docs/ROADMAP.md` from the public repo (internal planning lives elsewhere).
 
-## [1.0.0] — rebrand
+## [Internal] — rebrand
 
 ### Changed
 - HoverBuddy → **Mudrik** (مدرك — Arabic for "perceiver"). User-facing strings, installer artifacts, and config paths migrated. Repo folder stays `hoverbuddy/` for compatibility.
@@ -42,5 +58,5 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Stale previous-context bug (monotonic `activationSeq` drops superseded reads).
 - Auto-screenshot on Alt+Space removed — manual 📸 button only.
 
-[Unreleased]: https://github.com/abdallahmagdy15/mudrik/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/abdallahmagdy15/mudrik/releases/tag/v1.0.0
+[Unreleased]: https://github.com/abdallahmagdy15/mudrik/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/abdallahmagdy15/mudrik/releases/tag/v0.9.0

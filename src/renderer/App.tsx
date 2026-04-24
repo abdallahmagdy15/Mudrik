@@ -62,6 +62,14 @@ interface MessageSegment {
   content: string;
 }
 
+/**
+ * Threshold for inlining a stream-error string in the UI. Anything longer
+ * (or non-string) is treated as "unexpected runtime detail the user doesn't
+ * need to see" and replaced with a localized friendly message. The full
+ * value still goes to the renderer console for debugging.
+ */
+const MAX_INLINE_ERROR_LEN = 120;
+
 function parseMessageContent(content: string): MessageSegment[] {
   const segments: MessageSegment[] = [];
   const copyRe = /<!--COPY:([\s\S]*?)-->/g;
@@ -131,6 +139,12 @@ export function App() {
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const [lang, setLang] = useState<Lang>("en");
   const t = useCallback((key: any) => translate(lang, key), [lang]);
+  // Mirror `lang` to localStorage so ErrorBoundary — which renders outside
+  // of React state when App crashes — can still pick the right direction
+  // + strings for the crash screen.
+  useEffect(() => {
+    try { localStorage.setItem("mudrik-lang", lang); } catch {}
+  }, [lang]);
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const restoreSessionRef = useRef(true);
@@ -198,7 +212,7 @@ export function App() {
     window.hoverbuddy.onStreamError((err) => {
       console.log(`[RENDERER] Stream error: ${err}`);
       setStreaming(false);
-      setError(typeof err === "string" && err.length < 120 ? err : t("somethingWentWrong"));
+      setError(typeof err === "string" && err.length < MAX_INLINE_ERROR_LEN ? err : t("somethingWentWrong"));
     });
 
     window.hoverbuddy.onActionResult((result) => {
