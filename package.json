@@ -4,12 +4,11 @@
   "description": "Mudrik — a Windows tray AI assistant that perceives the UI element under your cursor and acts on it via UI Automation.",
   "main": "dist/main.js",
   "scripts": {
-    "icons": "node scripts/generate-icons.js",
-    "prebuild": "node scripts/generate-icons.js",
     "build": "webpack",
     "start": "npm run build && electron .",
     "dev": "webpack --watch",
     "check:no-env": "node scripts/check-no-env.js",
+    "postinstall": "node scripts/prune-platform-bins.js",
     "pack:dir": "npm run build && electron-builder --win --dir",
     "dist": "npm run build && npm run check:no-env && electron-builder --win",
     "release": "npm run build && npm run check:no-env && electron-builder --win --publish always"
