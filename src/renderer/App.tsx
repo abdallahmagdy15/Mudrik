@@ -109,8 +109,8 @@ export function App() {
   const [copiedChipId, setCopiedChipId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [actionsEnabled, setActionsEnabled] = useState(true);
-  const [currentModel, setCurrentModel] = useState("zai-coding-plan/glm-4.6v");
-  const [recentModels, setRecentModels] = useState<string[]>(["zai-coding-plan/glm-4.6v"]);
+  const [currentModel, setCurrentModel] = useState("ollama-cloud/gemini-3-flash-preview");
+  const [recentModels, setRecentModels] = useState<string[]>(["ollama-cloud/gemini-3-flash-preview"]);
   const [customModelInput, setCustomModelInput] = useState("");
   const [modelValidationError, setModelValidationError] = useState<string | null>(null);
   const [modelValidating, setModelValidating] = useState(false);
@@ -145,6 +145,22 @@ export function App() {
   useEffect(() => {
     try { localStorage.setItem("mudrik-lang", lang); } catch {}
   }, [lang]);
+
+  // Close settings dropdown on click outside. Mousedown (not click) so we
+  // intercept before any focus shift that could swallow a click on the
+  // dropdown itself. The settings gear and dropdown both opt out via their
+  // class names — clicking either keeps the panel open.
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target) return;
+      if (target.closest(".settings-dropdown") || target.closest(".btn-settings")) return;
+      setSettingsOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [settingsOpen]);
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const restoreSessionRef = useRef(true);
@@ -510,10 +526,11 @@ export function App() {
         setApiKeySaving(false);
         return;
       }
-      // If the user opened this prompt by typing a new custom model, also
-      // switch to that model. If they opened it via the ✎ edit-key button
-      // (customModelInput empty), just save the key and close — they're
-      // editing an existing model's credentials, not adding a new one.
+      // Save the key, then switch to whatever model is currently in the
+      // input. Both the "type a new custom model" flow and the "✎ edit key"
+      // flow populate customModelInput, so the behaviour is uniform: what
+      // you see in the input is the model you'll be on after Save. If the
+      // input matches the active model already, the switch is a no-op.
       if (modelId) {
         handleSwitchModel(modelId);
         setCustomModelInput("");
@@ -552,6 +569,10 @@ export function App() {
     setAuthPromptProvider(provider);
     setApiKeyInput("");
     setModelValidationError(null);
+    // Show which model the key edit targets so the user can confirm. On Save
+    // we'll also switch to this model — same behaviour as typing the model
+    // by hand and clicking Set, which keeps the flow predictable.
+    setCustomModelInput(modelId);
     // Ensure Model section is open so the input is visible.
     setOpenSections((prev) => ({ ...prev, model: true }));
   }, []);

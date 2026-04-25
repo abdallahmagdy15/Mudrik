@@ -70,7 +70,7 @@ export class OpenCodeClient {
   private activeProcess: ChildProcess | null = null;
   private apiKeys: Record<string, string> = {};
 
-  constructor(model: string = "opencode-go/kimi-k2.5", workingDir?: string, apiKeys?: Record<string, string>) {
+  constructor(model: string = "ollama-cloud/gemini-3-flash-preview", workingDir?: string, apiKeys?: Record<string, string>) {
     this.model = model;
     this.workingDir = workingDir || os.homedir();
     this.apiKeys = apiKeys || {};

@@ -49,6 +49,20 @@ export function providerFromModelId(modelId: string): string {
 }
 
 /**
+ * Shape of OpenCode's `auth.json` — a flat map of provider → credential.
+ * Values are kept narrow (`type: "api"` is the only kind we manage from
+ * Mudrik). OAuth-style entries written by `opencode auth login` use the
+ * same shape with `type: "oauth"` and an `access`/`refresh` pair; we only
+ * touch entries whose type is `"api"` to avoid trampling on those.
+ */
+export interface OpenCodeAuthEntry {
+  type: string;
+  key?: string;
+  [k: string]: unknown;
+}
+export type OpenCodeAuthFile = Record<string, OpenCodeAuthEntry>;
+
+/**
  * Merges the apiKeys map into the current environment, returning a new
  * env object suitable for passing to `spawn`'s `env` option. Existing env
  * vars in `baseEnv` take precedence — a user's shell-level key wins over

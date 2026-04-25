@@ -2,7 +2,65 @@ import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
-import { buildCleanOpenCodeEnv, providerFromModelId } from "../shared/providers";
+import { buildCleanOpenCodeEnv, providerFromModelId, OpenCodeAuthFile } from "../shared/providers";
+
+/**
+ * OpenCode reads provider credentials from `<XDG_DATA_HOME>/opencode/auth.json`.
+ * On Windows there's no native `XDG_DATA_HOME`, so OpenCode (and Mudrik)
+ * fall back to `~/.local/share/opencode/auth.json` — same as Linux/macOS.
+ */
+function findOpenCodeAuthPath(): string {
+  const xdgData = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
+  return path.join(xdgData, "opencode", "auth.json");
+}
+
+/**
+ * Mirror Mudrik's apiKey changes into OpenCode's on-disk auth.json. Env-var
+ * injection is enough to make a Mudrik-spawned `opencode run` use the right
+ * key, but if the user later runs `opencode` from a terminal, they'd see a
+ * stale or missing entry — so we keep the file in sync.
+ *
+ * `key === null` clears the entry. Only touches `type: "api"` rows so any
+ * OAuth credentials written by `opencode auth login` survive untouched.
+ */
+function syncOpenCodeAuth(provider: string, key: string | null): void {
+  const authPath = findOpenCodeAuthPath();
+  let auth: OpenCodeAuthFile = {};
+  try {
+    if (fs.existsSync(authPath)) {
+      const raw = fs.readFileSync(authPath, "utf-8");
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object") auth = parsed as OpenCodeAuthFile;
+    }
+  } catch (err: any) {
+    log(`syncOpenCodeAuth: read failed (${err.message}) — starting fresh`);
+  }
+
+  const existing = auth[provider];
+  if (existing && existing.type !== "api") {
+    log(`syncOpenCodeAuth: skipping ${provider} — entry is type=${existing.type}, not API key`);
+    return;
+  }
+
+  if (key) {
+    auth[provider] = { type: "api", key };
+  } else {
+    delete auth[provider];
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(authPath), { recursive: true });
+    fs.writeFileSync(authPath, JSON.stringify(auth, null, 2));
+    log(`syncOpenCodeAuth: ${key ? "set" : "cleared"} ${provider} in ${authPath}`);
+  } catch (err: any) {
+    log(`syncOpenCodeAuth: write failed (${err.message}) — env-var injection still works for Mudrik-spawned runs`);
+  }
+}
+
+/** True while a SEND_PROMPT cycle is in-flight. STOP_RESPONSE flips this so
+ *  the "no text received" branch can stay quiet (the user knows they stopped
+ *  it; surfacing a generic error would be misleading). */
+let userStoppedCurrentResponse = false;
 import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction, isInteractiveAction } from "./action-executor";
 import { showNotification } from "./tray";
 import { cleanupImage, captureAndOptimize } from "./vision";
@@ -165,7 +223,7 @@ export function registerIpcHandlers(
   appConfig = config;
   configChangeListener = onConfigChange || null;
   const workingDir = config.workingDir || process.cwd();
-  client = new OpenCodeClient(config.model || "opencode-go/kimi-k2.5", workingDir, config.apiKeys);
+  client = new OpenCodeClient(config.model || "ollama-cloud/gemini-3-flash-preview", workingDir, config.apiKeys);
   log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}, keys=${Object.keys(config.apiKeys || {}).length}`);
 
   ipcMain.on(IPC.DISMISS, () => {
@@ -263,16 +321,20 @@ export function registerIpcHandlers(
    */
   ipcMain.handle(IPC.SAVE_API_KEY, (_e, provider: string, key: string) => {
     if (!provider) return { ok: false, error: "provider is required" };
+    const normalized = provider.toLowerCase();
     const trimmed = (key || "").trim();
     const map = { ...(config.apiKeys || {}) };
     if (trimmed) {
-      map[provider.toLowerCase()] = trimmed;
+      map[normalized] = trimmed;
     } else {
-      delete map[provider.toLowerCase()];
+      delete map[normalized];
     }
     config.apiKeys = map;
     client.updateApiKeys(map);
     saveConfig(config);
+    // Mirror into OpenCode's auth.json so a plain `opencode` invocation from
+    // a terminal sees the same credentials Mudrik uses internally.
+    syncOpenCodeAuth(normalized, trimmed || null);
     log(`SAVE_API_KEY: provider=${provider} (${trimmed ? "set" : "cleared"}), total providers=${Object.keys(map).length}`);
     return { ok: true };
   });
@@ -297,6 +359,19 @@ export function registerIpcHandlers(
       log(`REMOVE_MODEL: removed current model ${modelToRemove}, switched to ${filtered[0]}`);
     } else {
       log(`REMOVE_MODEL: removed ${modelToRemove}, active model ${config.model} unchanged`);
+    }
+    // Cascade: if no remaining model uses this provider, drop the saved key
+    // (both from Mudrik's config and OpenCode's auth.json) so the credential
+    // doesn't sit on disk for a provider the user no longer wants.
+    const removedProvider = providerFromModelId(modelToRemove).toLowerCase();
+    const stillUsed = filtered.some((m) => providerFromModelId(m).toLowerCase() === removedProvider);
+    if (!stillUsed && config.apiKeys && removedProvider in config.apiKeys) {
+      const nextKeys = { ...config.apiKeys };
+      delete nextKeys[removedProvider];
+      config.apiKeys = nextKeys;
+      client.updateApiKeys(nextKeys);
+      syncOpenCodeAuth(removedProvider, null);
+      log(`REMOVE_MODEL: cleared API key for provider=${removedProvider} (no remaining models use it)`);
     }
     saveConfig(config);
     return config;
@@ -324,7 +399,12 @@ export function registerIpcHandlers(
 
   ipcMain.on(IPC.STOP_RESPONSE, () => {
     log("STOP_RESPONSE received — killing active process");
+    userStoppedCurrentResponse = true;
     client.kill();
+    // Tell renderer the stream is done so it can drop the "thinking" UI.
+    // No error message — the stop was deliberate.
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) win.webContents.send(IPC.STREAM_DONE);
   });
 
   ipcMain.on(IPC.SEND_PROMPT, async (_e, prompt: string) => {
@@ -338,6 +418,7 @@ export function registerIpcHandlers(
     }
 
     fullResponseText = "";
+    userStoppedCurrentResponse = false;
 
     const isFollowUp = hasSentFirstMessage && !contextNeedsSending;
     log(`isFollowUp=${isFollowUp} (hasSent=${hasSentFirstMessage}, needsSend=${contextNeedsSending})`);
@@ -503,10 +584,16 @@ export function registerIpcHandlers(
 
       // If the process exited cleanly but produced zero text (e.g. Bun segfault
       // with exit code 0 suppressed), surface a friendly error instead of a
-      // blank response.
+      // blank response. EXCEPT when the user explicitly hit Stop — that's a
+      // deliberate cancellation, not a failure, and showing an error message
+      // would be misleading.
       if (!receivedAnyText && fullResponseText.trim().length === 0) {
-        log("No text received — sending friendly error");
-        win.webContents.send(IPC.STREAM_ERROR, "No response was received from the AI. Please try again — if this keeps happening, restart Mudrik.");
+        if (userStoppedCurrentResponse) {
+          log("No text received — but user manually stopped, skipping error");
+        } else {
+          log("No text received — sending friendly error");
+          win.webContents.send(IPC.STREAM_ERROR, "No response was received from the AI. Please try again — if this keeps happening, restart Mudrik.");
+        }
         return;
       }
 

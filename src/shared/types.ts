@@ -73,10 +73,10 @@ export interface Config {
 }
 
 export const DEFAULT_CONFIG: Config = {
-  model: "zai-coding-plan/glm-4.6v",
+  model: "ollama-cloud/gemini-3-flash-preview",
   workingDir: "",
   actionsEnabled: true,
-  recentModels: ["zai-coding-plan/glm-4.6v"],
+  recentModels: ["ollama-cloud/gemini-3-flash-preview"],
   apiKeys: {},
   hotkeyPointer: "Alt+Space",
   hotkeyArea: "CommandOrControl+Space",
