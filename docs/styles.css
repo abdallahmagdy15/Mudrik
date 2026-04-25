@@ -282,7 +282,7 @@ img { max-width: 100%; display: block; }
 /* ============ Demo video ============ */
 .demo {
   margin: 36px auto 0;
-  max-width: 800px;
+  max-width: 960px;
 }
 .demo-frame {
   position: relative;
@@ -583,6 +583,28 @@ section.tight { padding: 52px 0; }
   margin-top: 16px;
   font-size: 13.5px;
   color: var(--muted);
+}
+
+/* ============ Hotkeys table ============ */
+.hotkeys td:first-child {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
+.hotkeys td:last-child { text-align: start; color: var(--ink); }
+kbd {
+  display: inline-block;
+  font: 600 12.5px/1 ui-monospace, "Cascadia Code", "Consolas", "SF Mono", Menlo, monospace;
+  color: var(--ink);
+  background: linear-gradient(180deg, #FFFFFF 0%, #E6EDF5 100%);
+  border: 1px solid var(--card-bd);
+  border-bottom-color: var(--cyan);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  padding: 4px 7px;
+  margin: 0 2px;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset;
+  letter-spacing: 0.02em;
 }
 
 /* ============ About ============ */

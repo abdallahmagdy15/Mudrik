@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Mudrik · The owl that perceives your screen</title>
-  <meta name="description" content="Mudrik — open-source Windows AI assistant. Reads whatever UI element your cursor points at, and acts on it. Press Alt+Space anywhere on Windows." />
+  <title>Mudrik · The owl that's aware of your screen</title>
+  <meta name="description" content="Mudrik — open-source Windows AI assistant that sees what you see. Hover anywhere on Windows, ask anything, and it clicks, types, pastes, or just answers. Alt+Space on any element, or Ctrl+Space to capture a region." />
   <link rel="icon" type="image/png" href="assets/mascot.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -20,6 +20,7 @@
 
       <nav class="nav-links" aria-label="Primary">
         <a href="#install" data-en="Install" data-ar="التثبيت">Install</a>
+        <a href="#hotkeys" data-en="Hotkeys" data-ar="اختصارات">Hotkeys</a>
         <a href="#how" data-en="How it works" data-ar="كيف يعمل">How it works</a>
         <a href="#privacy" data-en="Privacy" data-ar="الخصوصية">Privacy</a>
         <a href="#about" data-en="About" data-ar="حول">About</a>
@@ -48,13 +49,13 @@
           <h1>
             <span class="wordmark wordmark-lg">Mudrik</span> <span class="ar" lang="ar">· مدرك</span>
           </h1>
-          <p class="sub" data-en="The owl that perceives your screen." data-ar="البومة التي تُدرك ما على شاشتك.">
-            The owl that perceives your screen.
+          <p class="sub" data-en="The owl that's aware of your screen." data-ar="البومة التي تُدرك ما على شاشتك.">
+            The owl that's aware of your screen.
           </p>
           <p class="body"
-             data-en="An open-source Windows AI assistant that reads whatever UI element your cursor is pointing at — and acts on it. Press Alt+Space anywhere on Windows."
-             data-ar="مساعد ذكاء اصطناعي مفتوح المصدر لويندوز يقرأ أي عنصر واجهة يشير إليه مؤشرك — ثم يتصرف بناءً عليه. اضغط Alt+Space في أي مكان على ويندوز.">
-            An open-source Windows AI assistant that reads whatever UI element your cursor is pointing at — and acts on it. Press Alt+Space anywhere on Windows.
+             data-en="An open-source Windows AI assistant that sees what you see. Hover anywhere on Windows — ask anything — and it clicks, types, pastes, or just answers."
+             data-ar="مساعد ذكاء اصطناعي مفتوح المصدر لويندوز يرى ما تراه. مرّر المؤشر فوق أي شيء — اطلب أي شيء — فيضغط أو يكتب أو يلصق أو يجيب.">
+            An open-source Windows AI assistant that sees what you see. Hover anywhere on Windows — ask anything — and it clicks, types, pastes, or just answers.
           </p>
 
           <div class="hero-ctas">
@@ -142,7 +143,7 @@
             </p>
             <div class="btn-download-row">
               <a class="btn btn-primary btn-sm" href="https://github.com/abdallahmagdy15/mudrik/releases/latest" target="_blank" rel="noopener">
-                <span data-en="Mudrik-Setup-0.9.0.exe" data-ar="Mudrik-Setup-0.9.0.exe">Mudrik-Setup-0.9.0.exe</span>
+                <span data-en="Latest installer (.exe)" data-ar="أحدث مثبّت (.exe)">Latest installer (.exe)</span>
               </a>
             </div>
           </div>
@@ -189,7 +190,89 @@
               Look up local docs and code without giving the AI free run of your disk. Reads stay scoped to the working directory.
             </p>
           </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🖼️</span>
+            <h3 data-en="Area capture" data-ar="التقاط منطقة">Area capture</h3>
+            <p data-en="Press Ctrl+Space and drag a rectangle. Mudrik grabs the pixels and scans the UI elements inside — perfect for charts, dialogs, or anything UIA misses."
+               data-ar="اضغط Ctrl+Space واسحب مستطيلاً. يلتقط Mudrik البكسلات ويفحص عناصر الواجهة بداخلها — مثالي للمخططات والنوافذ وأي شيء لا تصل إليه UIA.">
+              Press Ctrl+Space and drag a rectangle. Mudrik grabs the pixels and scans the UI elements inside — perfect for charts, dialogs, or anything UIA misses.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🔌</span>
+            <h3 data-en="Bring your own model" data-ar="اختر نموذجك">Bring your own model</h3>
+            <p data-en="Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter — paste your key in the settings panel. No terminal auth dance."
+               data-ar="Anthropic وOpenAI وGoogle وGroq وDeepSeek وOllama وZ.AI وOpenRouter — ألصق مفتاحك في لوحة الإعدادات. بدون أوامر طرفية.">
+              Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter — paste your key in the settings panel. No terminal auth dance.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🧊</span>
+            <h3 data-en="Frosted glass panel" data-ar="لوحة زجاجية شفافة">Frosted glass panel</h3>
+            <p data-en="Native Windows acrylic blur and DWM rounded corners — not a Chromium fake. Looks like it belongs on your desktop."
+               data-ar="ضبابية أكريليك أصلية لويندوز مع زوايا DWM مدوّرة — ليست محاكاة من Chromium. تبدو وكأنها جزء من سطح مكتبك.">
+              Native Windows acrylic blur and DWM rounded corners — not a Chromium fake. Looks like it belongs on your desktop.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🌐</span>
+            <h3 data-en="English + Arabic" data-ar="إنجليزية + عربية">English + Arabic</h3>
+            <p data-en="Full RTL when Arabic is selected — UI strings, prompts, and panel layout all flip. More languages welcome via PR."
+               data-ar="دعم كامل للاتجاه من اليمين لليسار عند اختيار العربية — النصوص والمطالبات وتخطيط اللوحة تنعكس بالكامل. المزيد من اللغات مرحّب به عبر PR.">
+              Full RTL when Arabic is selected — UI strings, prompts, and panel layout all flip. More languages welcome via PR.
+            </p>
+          </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ============ Hotkeys ============ -->
+    <section id="hotkeys" class="tight">
+      <div class="wrap">
+        <span class="section-eyebrow" data-en="Hotkeys" data-ar="اختصارات">Hotkeys</span>
+        <h2 class="section-title" data-en="Four keys, that's it." data-ar="أربعة مفاتيح فقط.">Four keys, that's it.</h2>
+
+        <table class="priv-table hotkeys">
+          <tbody>
+            <tr>
+              <td><kbd>Alt</kbd> + <kbd>Space</kbd></td>
+              <td data-en="Open panel at cursor — element under it becomes the context"
+                  data-ar="فتح اللوحة عند المؤشر — يصبح العنصر تحته هو السياق">
+                Open panel at cursor — element under it becomes the context
+              </td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+              <td data-en="Drag a rectangle — region is screenshot + UIA-scanned"
+                  data-ar="ارسم مستطيلاً — تُلتقط المنطقة وتُفحص عناصرها">
+                Drag a rectangle — region is screenshot + UIA-scanned
+              </td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td data-en="Stop the current response (first tap), close the panel (second tap)"
+                  data-ar="إيقاف الرد الحالي (الضغطة الأولى)، إغلاق اللوحة (الثانية)">
+                Stop the current response (first tap), close the panel (second tap)
+              </td>
+            </tr>
+            <tr>
+              <td><kbd>Enter</kbd></td>
+              <td data-en="Send — Shift+Enter for a newline"
+                  data-ar="إرسال — Shift+Enter لسطر جديد">
+                Send — <kbd>Shift</kbd>+<kbd>Enter</kbd> for a newline
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="install-foot"
+           data-en="Both global hotkeys are rebindable from the ⚙ menu."
+           data-ar="كلا الاختصارين العامّين قابل للتعديل من قائمة ⚙.">
+          Both global hotkeys are rebindable from the ⚙ menu.
+        </p>
       </div>
     </section>
 
@@ -275,10 +358,10 @@
     <section id="about" class="about">
       <div class="wrap">
         <span class="section-eyebrow" data-en="About" data-ar="حول">About</span>
-        <h2 class="section-title" data-en="Hi, I'm Abdallah." data-ar="مرحباً، أنا عبد الله.">Hi, I'm Abdallah.</h2>
-        <p data-en="A developer who got tired of pasting screenshots into chatbots — so I built Mudrik. It's open source; contributions and ideas are welcome."
-           data-ar="مطوّر سئم من لصق لقطات الشاشة في روبوتات الدردشة، فبنى Mudrik. إنه مفتوح المصدر — مساهماتكم وأفكاركم محلّ ترحيب.">
-          A developer who got tired of pasting screenshots into chatbots — so I built Mudrik. It's open source; contributions and ideas are welcome.
+        <h2 class="section-title" data-en="Hi, I'm Abdullah Magdy." data-ar="مرحباً، عبد الله مجدى.">Hi, I'm Abdullah Magdy.</h2>
+        <p data-en="A developer who got tired of pasting screenshots into ChatGPT — so I built Mudrik. It's open source; contributions and ideas are welcome 🤝"
+           data-ar="مطوّر سئم من لصق لقطات الشاشة في ChatGPT، فبنى Mudrik. إنه مفتوح المصدر — مساهماتكم وأفكاركم مرحّب بها 🤝">
+          A developer who got tired of pasting screenshots into ChatGPT — so I built Mudrik. It's open source; contributions and ideas are welcome 🤝
         </p>
         <div class="contact-row">
           <a href="https://github.com/abdallahmagdy15" target="_blank" rel="noopener" aria-label="GitHub">
@@ -308,7 +391,7 @@
     <div class="wrap">
       <div class="foot-brand">
         <img src="assets/mascot.png" alt="" />
-        <span><span class="wordmark">Mudrik</span> · <span lang="ar">مدرك</span> · <span data-en="the perceiver" data-ar="المُدرِك">the perceiver</span></span>
+        <span><span class="wordmark">Mudrik</span> · <span lang="ar">مدرك</span></span>
       </div>
       <div class="meta">
         © 2026 · <span data-en="MIT License" data-ar="رخصة MIT">MIT License</span> ·
