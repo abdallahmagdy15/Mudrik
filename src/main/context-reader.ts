@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v12.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v13.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -170,7 +170,7 @@ function getScriptContent(): string {
   lines.push('');
   lines.push('function CollectWindowTree($root, $depth, $maxDepth, $targetEl) {');
   lines.push('    if ($depth -gt $maxDepth) { return }');
-  lines.push('    if ($script:treeElements.Count -ge 200) { return }');
+  lines.push('    if ($script:treeElements.Count -ge 500) { return }');
   lines.push('    try {');
   lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
   lines.push('        foreach ($child in $children) {');
@@ -245,7 +245,7 @@ function getScriptContent(): string {
   lines.push('');
   lines.push('    $winEl = GetAncestorWindow $element');
   lines.push('    if ($winEl) {');
-  lines.push('        CollectWindowTree $winEl 0 3 $element');
+  lines.push('        CollectWindowTree $winEl 0 15 $element');
   lines.push('    }');
   lines.push('    $result["windowTree"] = $script:treeElements');
   lines.push('');
@@ -308,7 +308,7 @@ async function readElementAtPoint(x: number, y: number): Promise<{ element: UIEl
   const startTime = Date.now();
   try {
     const script = ensureScriptFile();
-    const { output, stderr, exitCode } = await runPowerShell(script, [String(x), String(y)], { timeout: 8000 });
+    const { output, stderr, exitCode } = await runPowerShell(script, [String(x), String(y)], { timeout: 15000 });
 
     const elapsed = Date.now() - startTime;
     log(`PowerShell completed in ${elapsed}ms, output length=${output.length}, exitCode=${exitCode}`);
