@@ -7,7 +7,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[AREA-SCANNER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-area-scan-v7.ps1";
+const SCRIPT_NAME = "hoverbuddy-area-scan-v8.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -170,7 +170,10 @@ function getScriptContent(): string {
   lines.push('    }');
   lines.push('');
   lines.push('    if ($final.Count -gt 60) {');
-  lines.push('        $final = $final | Sort-Object { $_.depth }, { $_.bounds.y }, { $_.bounds.x } | Select-Object -First 60');
+  lines.push('        $withContent = @($final | Where-Object { $_.name -or $_.value -or $_.autoId })');
+  lines.push('        $noContent = @($final | Where-Object { -not ($_.name -or $_.value -or $_.autoId) })');
+  lines.push('        $prioritized = @($withContent) + @($noContent)');
+  lines.push('        $final = @($prioritized[0..59])');
   lines.push('    }');
   lines.push('');
   lines.push('    @{ elements=$final; count=$final.Count; totalScanned=$script:allElements.Count; rect=@{ x1=$X1; y1=$Y1; x2=$X2; y2=$Y2 } } | ConvertTo-Json -Depth 4 -Compress | Out-File -FilePath $OutputFile -Encoding utf8');

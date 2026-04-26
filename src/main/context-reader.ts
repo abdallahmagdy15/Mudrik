@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v10.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v11.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -192,7 +192,12 @@ function getScriptContent(): string {
   lines.push('                } catch {}');
   lines.push('            }');
   lines.push('            $result = $result | Sort-Object { $_["distance"] }');
-  lines.push('            if ($result.Count -gt 50) { $result = $result[0..49] }');
+  lines.push('            if ($result.Count -gt 50) {');
+  lines.push('                $withContent = @($result | Where-Object { $_["name"] -or $_["value"] -or $_["autoId"] })');
+  lines.push('                $noContent = @($result | Where-Object { -not ($_["name"] -or $_["value"] -or $_["autoId"]) })');
+  lines.push('                $sorted = @($withContent) + @($noContent)');
+  lines.push('                $result = @($sorted[0..49])');
+  lines.push('            }');
   lines.push('        }');
   lines.push('    } catch {}');
   lines.push('    return $result');
@@ -224,7 +229,12 @@ function getScriptContent(): string {
   lines.push('        }');
   lines.push('    } catch {}');
   lines.push('    $result = $result | Sort-Object { $_["distance"] }');
-  lines.push('    if ($result.Count -gt 30) { $result = $result[0..29] }');
+  lines.push('    if ($result.Count -gt 30) {');
+  lines.push('        $withContent = @($result | Where-Object { $_["name"] -or $_["value"] -or $_["autoId"] })');
+  lines.push('        $noContent = @($result | Where-Object { -not ($_["name"] -or $_["value"] -or $_["autoId"]) })');
+  lines.push('        $sorted = @($withContent) + @($noContent)');
+  lines.push('        $result = @($sorted[0..29])');
+  lines.push('    }');
   lines.push('    $result');
   lines.push('}');
   lines.push('');
