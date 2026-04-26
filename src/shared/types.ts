@@ -16,6 +16,7 @@ export interface UIElement {
   _pctDist?: string;
   containerType?: string;
   containerName?: string;
+  isContained?: boolean;
 }
 
 export type ActionType =

@@ -7,7 +7,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[AREA-SCANNER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-area-scan-v3.ps1";
+const SCRIPT_NAME = "hoverbuddy-area-scan-v4.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -245,6 +245,7 @@ async function scanAreaUIA(
       automationId: e?.autoId || "",
       className: e?.className || "",
       isOffscreen: e?.isOffscreen || false,
+      isContained: e?.isContained === true,
     }));
 
     log(`Area scan found ${elements.length} elements (total scanned: ${parsed.totalScanned ?? "n/a"})`);

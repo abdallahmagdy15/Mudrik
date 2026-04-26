@@ -6,13 +6,21 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v6.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v9.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
   lines.push('param([int]$X, [int]$Y, [string]$OutputFile)');
   lines.push('Add-Type -AssemblyName PresentationCore');
   lines.push('Add-Type -AssemblyName UIAutomationClient');
+  lines.push('Add-Type -TypeDefinition @"');
+  lines.push('using System;');
+  lines.push('using System.Runtime.InteropServices;');
+  lines.push('public class DpiHelper {');
+  lines.push('    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();');
+  lines.push('}');
+  lines.push('"@');
+  lines.push('[DpiHelper]::SetProcessDPIAware() | Out-Null');
   lines.push('$ErrorActionPreference = "Stop"');
   lines.push('');
   lines.push('function ElementToDict($el) {');
@@ -23,18 +31,12 @@ function getScriptContent(): string {
   lines.push('        $val = $null');
   lines.push('        $ok = $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$val)');
   lines.push('        if ($ok -and $val) {');
-  lines.push('            $rawVal = $val.Current.Value');
-  lines.push('            if ($rawVal -and ($rawVal.StartsWith("http://") -or $rawVal.StartsWith("https://"))) {');
-  lines.push('                $dict["value"] = ""');
-  lines.push('                $dict["_isUrl"] = $true');
-  lines.push('            } else {');
-  lines.push('                $dict["value"] = $rawVal');
-  lines.push('            }');
+  lines.push('            $dict["value"] = $val.Current.Value');
   lines.push('        }');
   lines.push('        else {');
   lines.push('            $txt = $null');
   lines.push('            $ok2 = $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$txt)');
-  lines.push('            if ($ok2 -and $txt) { $dict["value"] = $txt.DocumentRange.GetText(-1) }');
+  lines.push('            if ($ok2 -and $txt) { try { $dict["value"] = $txt.DocumentRange.GetText(500) } catch { $dict["value"] = "" } }');
   lines.push('            else { $dict["value"] = "" }');
   lines.push('        }');
   lines.push('    } catch { $dict["value"] = "" }');
@@ -48,7 +50,7 @@ function getScriptContent(): string {
   lines.push('    $dict');
   lines.push('}');
   lines.push('');
-  lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom", "ControlType.Document", "ControlType.Tab")');
+  lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom")');
   lines.push('');
   lines.push('function IsBoringContainer($el) {');
   lines.push('    $type = ""');
@@ -63,11 +65,7 @@ function getScriptContent(): string {
   lines.push('        $vp = $null');
   lines.push('        $ok = $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
   lines.push('        if ($ok -and $vp) {');
-  lines.push('            $rawVal = $vp.Current.Value');
-  lines.push('            if ($rawVal -and ($rawVal.StartsWith("http://") -or $rawVal.StartsWith("https://"))) {');
-  lines.push('                return $true');
-  lines.push('            }');
-  lines.push('            $val = $rawVal');
+  lines.push('            $val = $vp.Current.Value');
   lines.push('        }');
   lines.push('    } catch {}');
   lines.push('    if ($name -or $val) { return $false }');
@@ -197,6 +195,35 @@ function getScriptContent(): string {
   lines.push('        }');
   lines.push('    } catch {}');
   lines.push('    return $result');
+  lines.push('}');
+  lines.push('');
+  lines.push('$script:screenElements = @()');
+  lines.push('');
+  lines.push('function CollectScreenElements($root, $target, $cursorX, $cursorY) {');
+  lines.push('    $result = @()');
+  lines.push('    try {');
+  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        foreach ($child in $children) {');
+  lines.push('            try {');
+  lines.push('                $r = $child.Current.BoundingRectangle');
+  lines.push('                if ($r.Width -le 0 -or $r.Height -le 0) { continue }');
+  lines.push('                $d = ElementToDict $child');
+  lines.push('                $dist = [Math]::Sqrt([Math]::Pow($r.X + $r.Width/2 - $cursorX, 2) + [Math]::Pow($r.Y + $r.Height/2 - $cursorY, 2))');
+  lines.push('                $d["distance"] = [int]$dist');
+  lines.push('                $d["direction"] = ""');
+  lines.push('                $cy = $r.Y + $r.Height/2; $cx = $r.X + $r.Width/2');
+  lines.push('                if ($cy -lt $cursorY -and [Math]::Abs($cx - $cursorX) -lt [Math]::Abs($cy - $cursorY)) { $d["direction"] = "above" }');
+  lines.push('                elseif ($cy -gt $cursorY -and [Math]::Abs($cx - $cursorX) -lt [Math]::Abs($cy - $cursorY)) { $d["direction"] = "below" }');
+  lines.push('                elseif ($cx -lt $cursorX) { $d["direction"] = "left" }');
+  lines.push('                else { $d["direction"] = "right" }');
+  lines.push('                $d["_relation"] = "screen"');
+  lines.push('                $result += $d');
+  lines.push('            } catch {}');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('    $result = $result | Sort-Object { $_["distance"] }');
+  lines.push('    if ($result.Count -gt 30) { $result = $result[0..29] }');
+  lines.push('    $result');
   lines.push('}');
   lines.push('');
   lines.push('');
@@ -415,7 +442,11 @@ async function readForegroundWindow(): Promise<{ title: string; processName: str
 
 function dotNetToUIElement(d: any): UIElement {
   const rawChildren = Array.isArray(d?.children) ? d.children : d?.children ? [d.children] : [];
-  const parentChain = Array.isArray(d?.parentChain) ? d.parentChain.map((p: any) => p?.name || "").filter(Boolean) : [];
+  const parentChain = Array.isArray(d?.parentChain) ? d.parentChain.map((p: any) => {
+    const name = (p?.name || "").trim();
+    const type = (p?.type || "").replace("ControlType.", "");
+    return name ? (type ? `${type}: ${name}` : name) : (type || "");
+  }).filter(Boolean) : [];
   return {
     name: d?.name || "",
     type: d?.type || "unknown",

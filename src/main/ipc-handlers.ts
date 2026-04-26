@@ -477,7 +477,7 @@ export function registerIpcHandlers(
         }
         contextBlock += `\nAREA SELECTION with ${areaElements.length} elements:`;
         for (const el of areaElements) {
-          const contained = (el as any).isContained !== false ? "inside" : "partial";
+          const contained = el.isContained === true ? "inside" : "partial";
           contextBlock += `\n[${el.type}] Name: "${el.name}"`;
           if (el.value) contextBlock += `\n  Value: "${el.value.slice(0, 100)}"`;
           if (el.automationId) contextBlock += `\n  AutomationId: ${el.automationId}`;
