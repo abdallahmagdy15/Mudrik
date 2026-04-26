@@ -586,12 +586,20 @@ section.tight { padding: 52px 0; }
 }
 
 /* ============ Hotkeys table ============ */
+.hotkeys { table-layout: auto; }
 .hotkeys td:first-child {
   width: 1%;
   white-space: nowrap;
   text-align: center;
+  vertical-align: middle;
 }
-.hotkeys td:last-child { text-align: start; color: var(--ink); }
+.hotkeys td:last-child {
+  text-align: start;
+  color: var(--ink);
+  white-space: normal;        /* override .priv-table nowrap so descriptions wrap */
+  font-size: 14.5px;
+  line-height: 1.5;
+}
 kbd {
   display: inline-block;
   font: 600 12.5px/1 ui-monospace, "Cascadia Code", "Consolas", "SF Mono", Menlo, monospace;
@@ -687,12 +695,37 @@ html[dir="rtl"] .play-btn::before {
   .demo { margin-top: 24px; }
   .play-btn { width: 60px; height: 60px; }
   .play-btn::before { border-left-width: 16px; border-top-width: 10px; border-bottom-width: 10px; }
+
+  .hotkeys td { padding: 11px 14px; }
+  .hotkeys td:first-child { padding-inline: 12px; }
 }
 
 @media (max-width: 520px) {
-  .wrap { padding: 0 18px; }
-  .site-header .wrap { gap: 10px; }
-  .brand { font-size: 16px; }
-  .header-actions .btn-sm.gh-star span { display: none; }
+  .wrap { padding: 0 16px; }
+  .site-header .wrap { gap: 8px; height: 56px; }
+  .brand { font-size: 15px; gap: 8px; }
+  .brand img { width: 26px; height: 26px; }
+  .lang-toggle { padding: 6px 9px; font-size: 12px; }
+
+  /* GH star button: keep the ★ glyph, hide only the text label */
+  .header-actions .btn-sm.gh-star { padding: 7px 10px; min-width: 0; }
+  .header-actions .btn-sm.gh-star span:not([aria-hidden="true"]) { display: none; }
+
   .hero h1 { font-size: 38px; }
+  .hero h1 .ar { display: block; margin: 4px 0 0; font-size: 0.6em; }
+
+  /* Hotkeys at very narrow widths — tighter padding, smaller kbd */
+  .hotkeys td { padding: 10px 10px; font-size: 13.5px; }
+  .hotkeys td:first-child { padding-inline: 8px; }
+  kbd { padding: 3px 5px; font-size: 11.5px; margin: 0 1px; }
+}
+
+@media (max-width: 380px) {
+  /* Stack hotkey rows vertically on phones — kbd above description */
+  .hotkeys, .hotkeys tbody, .hotkeys tr { display: block; }
+  .hotkeys tr + tr { border-top: 1px solid var(--line); }
+  .hotkeys tr + tr td { border-top: 0; }
+  .hotkeys td { display: block; padding: 6px 14px; }
+  .hotkeys td:first-child { padding-top: 12px; text-align: start; }
+  .hotkeys td:last-child { padding-bottom: 12px; }
 }

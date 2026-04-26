@@ -2,30 +2,31 @@
 
 <img src="assets/mascot.png" alt="Mudrik owl mascot" width="180" />
 
-# Mudrik &nbsp;·&nbsp; <span dir="rtl">مدرك</span>
+# Mudrik  ·  <span dir="rtl">مدرك</span>
 
-### *The owl that's aware of your screen.*
-##### *Arabic for "aware" · pronounced `MUD-rik`*
+### *The owl wants to help.*
+
+##### *Arabic for "aware" · pronounced* *`MUD-rik`*
 
 **An open-source Windows AI assistant that sees what you see. Hover anywhere on Windows — ask anything — and it clicks, types, pastes, or just answers.**
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0FA8C9?style=flat-square)](https://github.com/abdallahmagdy15/mudrik/releases)
 [![License](https://img.shields.io/badge/license-MIT-18BFE1?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/abdallahmagdy15/mudrik?style=flat-square&color=F2A93A&include_prereleases)](https://github.com/abdallahmagdy15/mudrik/releases)
+[![Release](https://img.shields.io/github/v/release/abdallahmagdy15/mudrik?style=flat-square\&color=F2A93A\&include_prereleases)](https://github.com/abdallahmagdy15/mudrik/releases)
 [![Preview](https://img.shields.io/badge/status-preview-F2A93A?style=flat-square)](CHANGELOG.md)
-[![Stars](https://img.shields.io/github/stars/abdallahmagdy15/mudrik?style=flat-square&color=FFC06A)](https://github.com/abdallahmagdy15/mudrik/stargazers)
+[![Stars](https://img.shields.io/github/stars/abdallahmagdy15/mudrik?style=flat-square\&color=FFC06A)](https://github.com/abdallahmagdy15/mudrik/stargazers)
 [![Website](https://img.shields.io/badge/website-mudrik-7499C2?style=flat-square)](https://abdallahmagdy15.github.io/Mudrik/)
 
 [Website](https://abdallahmagdy15.github.io/Mudrik/) · [Install](#-install) · [What it does](#-what-it-does) · [How it works](#-how-it-works) · [Security](#-privacy--security) · [Contribute](CONTRIBUTING.md) · [About](#-about)
 
 </div>
 
----
+***
 
-> [!NOTE]
+> \[!NOTE]
 > **🐣 v0.9.0 Preview.** Mudrik is stable for daily use, but internal APIs may change before v1.0. If anything breaks, [open an issue](https://github.com/abdallahmagdy15/mudrik/issues) to help shape v1.0. See [CHANGELOG](CHANGELOG.md) for details.
 
----
+***
 
 ## ✨ What it does
 
@@ -54,30 +55,30 @@ The AI sees your screen's *structure* (UIA), not pixels — unless you explicitl
 
 ## ⌨️ Hotkeys
 
-| Shortcut      | What happens                                                          |
-| ------------- | --------------------------------------------------------------------- |
-| `Alt+Space`   | Panel opens at the cursor with the UI element under it as context     |
-| `Ctrl+Space`  | Draw a rectangle — region is screenshot + UIA-scanned                 |
-| `Esc`         | Stop the current response (first tap), close the panel (second tap)   |
-| `Enter`       | Send — `Shift+Enter` for a newline                                    |
+| Shortcut     | What happens                                                        |
+| ------------ | ------------------------------------------------------------------- |
+| `Alt+Space`  | Panel opens at the cursor with the UI element under it as context   |
+| `Ctrl+Space` | Draw a rectangle — region is screenshot + UIA-scanned               |
+| `Esc`        | Stop the current response (first tap), close the panel (second tap) |
+| `Enter`      | Send — `Shift+Enter` for a newline                                  |
 
 Both hotkeys are rebindable from the ⚙ menu.
 
 ## 🛠 Features
 
-| | |
-|---|---|
-| 🎯 **Cursor-anchored** | Panel opens near what you're pointing at, not in the middle of your screen |
-| 🪟 **Reads any Windows app** | UI Automation picks up buttons, inputs, text, menus, lists — anywhere |
-| 🖼️ **Area capture** | Drag a rectangle — screenshot + UIA scan of that region |
-| ⚡ **Acts for you** | Types, pastes, clicks, invokes buttons, presses chords, guides your cursor |
-| 🔌 **Any LLM** | Bring your own provider via [OpenCode](https://opencode.ai) — Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter… |
-| 🔑 **Keys live in-app** | Add or replace an API key from the settings panel; no terminal auth dance |
-| 🧊 **Frosted glass panel** | Native Windows acrylic blur + DWM rounded corners — not a Chromium fake |
-| 🌐 **English + Arabic** | Full RTL when Arabic is selected; other languages land as contributors add them |
-| 🔒 **Sandbox first** | No shell, no network, no filesystem writes — only allow-listed UIA actions + read-only file lookups |
-| 💬 **Session continuity** | Conversation persists across panel opens; `+` starts fresh |
-| 📸 **Privacy-first vision** | AI only sees pixels when you manually attach a screenshot |
+| <br />                       | <br />                                                                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 🎯 **Cursor-anchored**       | Panel opens near what you're pointing at, not in the middle of your screen                                                         |
+| 🪟 **Reads any Windows app** | UI Automation picks up buttons, inputs, text, menus, lists — anywhere                                                              |
+| 🖼️ **Area capture**         | Drag a rectangle — screenshot + UIA scan of that region                                                                            |
+| ⚡ **Acts for you**           | Types, pastes, clicks, invokes buttons, presses chords, guides your cursor                                                         |
+| 🔌 **Any LLM**               | Bring your own provider via [OpenCode](https://opencode.ai) — Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter… |
+| 🔑 **Keys live in-app**      | Add or replace an API key from the settings panel; no terminal auth dance                                                          |
+| 🧊 **Frosted glass panel**   | Native Windows acrylic blur + DWM rounded corners — not a Chromium fake                                                            |
+| 🌐 **English + Arabic**      | Full RTL when Arabic is selected; other languages land as contributors add them                                                    |
+| 🔒 **Sandbox first**         | No shell, no network, no filesystem writes — only allow-listed UIA actions + read-only file lookups                                |
+| 💬 **Session continuity**    | Conversation persists across panel opens; `+` starts fresh                                                                         |
+| 📸 **Privacy-first vision**  | AI only sees pixels when you manually attach a screenshot                                                                          |
 
 ## 🧠 How it works
 
@@ -100,7 +101,6 @@ Mudrik deliberately splits its tool surface:
   Done. <!--ACTION:{"type":"paste_text","selector":"Body","text":"Hi Ahmed…"}-->
   ```
   The app extracts the marker, validates it against an allow-list, and dispatches it. This works with *any* model, makes side effects highly auditable, and avoids opaque tool payloads.
-
 - **File reading** (code, docs in working dir) **is** allowed via OpenCode's `read`, `grep`, and `glob` tools. A runtime kill-switch blocks heavier tools (`bash`, `write`, `websearch`).
 
 Full architecture in **[CLAUDE.md](CLAUDE.md)**.
@@ -109,16 +109,16 @@ Full architecture in **[CLAUDE.md](CLAUDE.md)**.
 
 Mudrik is designed for paranoid desktop use. The AI's capabilities are **deliberately narrow**:
 
-| Capability                  | Exposed to the model? |
-| --------------------------- | --------------------- |
-| Shell / PowerShell exec     | ❌ No                 |
-| Filesystem **write**        | ❌ No                 |
-| Network requests (fetch/search) | ❌ No             |
-| Filesystem **read** (`read`/`grep`/`glob`/`list`) | ✅ Yes (within working dir) |
-| Windows UI Automation       | ✅ Yes (allow-listed actions) |
-| Clipboard write             | ✅ Yes                |
-| Keyboard / mouse            | ✅ Yes (UIA fallback) |
-| Screen pixels               | 🖐️ Manual attach only |
+| Capability                                        | Exposed to the model?        |
+| ------------------------------------------------- | ---------------------------- |
+| Shell / PowerShell exec                           | ❌ No                         |
+| Filesystem **write**                              | ❌ No                         |
+| Network requests (fetch/search)                   | ❌ No                         |
+| Filesystem **read** (`read`/`grep`/`glob`/`list`) | ✅ Yes (within working dir)   |
+| Windows UI Automation                             | ✅ Yes (allow-listed actions) |
+| Clipboard write                                   | ✅ Yes                        |
+| Keyboard / mouse                                  | ✅ Yes (UIA fallback)         |
+| Screen pixels                                     | 🖐️ Manual attach only       |
 
 Enforced in four layers — sandboxed OpenCode agent, runtime kill-switch that `SIGKILL`s the subprocess on any disallowed tool, parse-time action allow-list, IPC schema validation. Full threat model + reporting in **[SECURITY.md](SECURITY.md)**.
 
@@ -148,8 +148,9 @@ PRs welcome! See **[CONTRIBUTING.md](CONTRIBUTING.md)** for setup, and please fo
 - **Avoid:** Shell execution features (see [SECURITY.md](SECURITY.md)), IPC bypasses, or large refactors without prior discussion.
 
 ## 👋 About
-Hi, I'm **Abdullah Magdy**. 
-A developer who got tired of pasting screenshots into ChatGPT — so I built Mudrik. 
+
+Hi, I'm **Abdullah Magdy**.
+A developer who got tired of pasting screenshots into ChatGPT — so I built Mudrik.
 
 If Mudrik saves you time — ⭐ the repo, open an issue, or say hi. All three make my day.
 
@@ -170,11 +171,11 @@ For security issues, please use the email above (or [SECURITY.md](SECURITY.md) o
 
 [MIT](LICENSE) — do what you want, just keep the notice.
 
----
+***
 
 <div align="center">
 
-**If Mudrik saves you time, star the repo. If it doesn't, [open an issue](https://github.com/abdallahmagdy15/mudrik/issues) — the owl wants to help.**
+**If Mudrik saves you time, star the repo. If it doesn't,** **[open an issue](https://github.com/abdallahmagdy15/mudrik/issues)** **— the owl wants to help.**
 
 <sub>Mudrik · <span dir="rtl">مدرك</span> · the aware</sub>
 
