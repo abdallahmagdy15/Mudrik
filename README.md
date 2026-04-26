@@ -159,10 +159,11 @@ If Mudrik saves you time — ⭐ the repo, open an issue, or say hi. All three m
 - 💼 LinkedIn — [abdallahmagdy15](https://www.linkedin.com/in/abdallahmagdy15/)
 - ✉️ Email — `abdallah.magdy1515@gmail.com`
 
-For security issues, please use the email above (or [SECURITY.md](SECURITY.md) once Private Vulnerability Reporting is enabled) — **not** public issues.
+For security issues, please use **[GitHub Private Vulnerability Reporting](https://github.com/abdallahmagdy15/mudrik/security/advisories/new)** (or the email above as a fallback) — see [SECURITY.md](SECURITY.md). **Not** public issues.
 
 ## 🙏 Acknowledgements
 
+- **Inspired by** **[Clicky](https://github.com/farzaa/clicky)** by [@FarzaTV](https://x.com/FarzaTV) — a voice-driven AI buddy on macOS that lives next to your cursor. Mudrik takes the same cursor-anchored idea to Windows.
 - **[OpenCode](https://opencode.ai)** — runs the LLM so Mudrik doesn't have to re-implement streaming, providers, or auth
 - **[Electron](https://electronjs.org)**, **[React](https://react.dev)**, **[robotjs](https://github.com/octalmage/robotjs)** — the desktop stack
 - **Windows UI Automation** — the accessibility layer that makes all of this possible
@@ -174,8 +175,6 @@ For security issues, please use the email above (or [SECURITY.md](SECURITY.md) o
 ***
 
 <div align="center">
-
-**If Mudrik saves you time, star the repo. If it doesn't,** **[open an issue](https://github.com/abdallahmagdy15/mudrik/issues)** **— the owl wants to help.**
 
 <sub>Mudrik · <span dir="rtl">مدرك</span> · the aware</sub>
 

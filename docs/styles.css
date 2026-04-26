@@ -641,6 +641,24 @@ kbd {
 }
 .contact-row svg { width: 15px; height: 15px; }
 
+/* ============ Inspired by ============ */
+.inspired-by {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px dashed var(--card-bd);
+  font-size: 13.5px;
+  color: var(--muted);
+  font-style: italic;
+  max-width: 60ch;
+  line-height: 1.6;
+}
+.inspired-by a {
+  color: var(--cyan-deep);
+  font-weight: 500;
+  font-style: normal;
+}
+.inspired-by a:hover { color: var(--cyan-link); }
+
 /* ============ Footer ============ */
 .site-footer {
   border-top: 1px solid var(--line);
