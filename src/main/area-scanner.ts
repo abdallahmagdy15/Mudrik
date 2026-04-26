@@ -7,7 +7,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[AREA-SCANNER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-area-scan-v6.ps1";
+const SCRIPT_NAME = "hoverbuddy-area-scan-v7.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -152,7 +152,7 @@ function getScriptContent(): string {
   lines.push('    $final = @()');
   lines.push('    foreach ($el in $sorted) {');
   lines.push('        $keep = $true');
-  lines.push('        if ((IsContainerType $el.type) -and $sorted.Count -gt 3) {');
+  lines.push('        if ((IsContainerType $el.type) -and $sorted.Count -gt 3 -and -not $el.name -and -not $el.value) {');
   lines.push('            $parentBounds = $el.bounds');
   lines.push('            $childCount = 0');
   lines.push('            foreach ($other in $sorted) {');
