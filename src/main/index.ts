@@ -5,7 +5,7 @@ import * as os from "os";
 import * as koffi from "koffi";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
-import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly } from "./ipc-handlers";
+import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly, attachAutoScreenshot } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener, applyHotkeys } from "./hotkey";
 import { loadConfig, saveConfig, isFirstRun, ensureAgentInWorkingDir, migrateLegacyConfig } from "./config-store";
 import { initUpdater, stopUpdater } from "./updater";
@@ -13,7 +13,7 @@ import { readContextAtPoint } from "./context-reader";
 import { startAreaSelection } from "./area-selector";
 import { scanArea } from "./area-scanner";
 import { showElementHighlight, showAreaHighlight } from "./highlight";
-import { cleanupImage } from "./vision";
+import { cleanupImage, captureAndOptimize } from "./vision";
 import { log } from "./logger";
 
 app.commandLine.appendSwitch("enable-features", "BackDropFilter");
@@ -314,21 +314,42 @@ function handlePointerActivate(cursorPos: { x: number; y: number }): void {
   log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y} (activation #${myActivation})`);
   lastCursorX = cursorPos.x;
   lastCursorY = cursorPos.y;
-  readContextAtPoint(cursorPos.x, cursorPos.y).then(
-    ({ element, surrounding, windowInfo }) => {
+
+  const contextPromise = readContextAtPoint(cursorPos.x, cursorPos.y);
+  // When autoAttachImage is on, capture a full-screen screenshot in parallel
+  // with the UIA context read. The panel isn't visible yet so the capture is
+  // clean. The screenshot will be attached to the first prompt in this session.
+  const imagePromise = config.autoAttachImage
+    ? ((): Promise<string | null> => {
+        const { screen: electronScreen } = require("electron") as typeof import("electron");
+        const display = electronScreen.getDisplayNearestPoint(cursorPos);
+        const sf = display.scaleFactor || 1;
+        const b = display.bounds;
+        return captureAndOptimize(
+          Math.round(b.x * sf),
+          Math.round(b.y * sf),
+          Math.round((b.x + b.width) * sf),
+          Math.round((b.y + b.height) * sf)
+        );
+      })()
+    : Promise.resolve(null);
+
+  Promise.all([contextPromise, imagePromise]).then(
+    ([{ element, surrounding, windowInfo }, imagePath]) => {
       if (myActivation !== activationSeq) {
         log(`Pointer activation #${myActivation} superseded by #${activationSeq} — discarding stale read`);
+        if (imagePath) cleanupImage(imagePath);
         return;
       }
       log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
       const context: ContextPayload = { element, surrounding, cursorPos, windowInfo };
+      if (imagePath) {
+        attachAutoScreenshot(imagePath);
+        context.hasScreenshot = true;
+      }
       setContext(context);
       showElementHighlight(element.bounds);
       showPanel(context);
-      // No automatic screenshot on pointer activation — the user has the
-      // "📸 Attach Screenshot" button for that. Auto-capturing on every
-      // Alt+Space was wasting tokens and attaching an image the user
-      // didn't ask for.
     }
   ).catch((err) => {
     log(`ERROR reading context: ${err.message}`);

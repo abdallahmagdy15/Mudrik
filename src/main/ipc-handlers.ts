@@ -140,6 +140,33 @@ export function getLastContext(): ContextPayload | null {
 }
 
 /**
+ * Attach an auto-captured screenshot to the current pointer context.
+ * Called from the main hotkey flow when `autoAttachImage` is enabled.
+ * Sets the imagePath on currentContext + arms the `attachScreenshotNext`
+ * flag so the next SEND_PROMPT includes the image.
+ */
+export function attachAutoScreenshot(imagePath: string): void {
+  if (currentContext) {
+    if (currentContext.imagePath && currentContext.imagePath !== imagePath) {
+      cleanupImage(currentContext.imagePath);
+    }
+    currentContext.imagePath = imagePath;
+    currentContext.hasScreenshot = true;
+  } else {
+    currentContext = {
+      element: { name: "Auto-attached screenshot", type: "screenshot", value: "", bounds: { x: 0, y: 0, width: 0, height: 0 }, children: [] },
+      surrounding: [],
+      cursorPos: { x: 0, y: 0 },
+      imagePath,
+      hasScreenshot: true,
+    };
+    lastContext = currentContext;
+  }
+  attachScreenshotNext = true;
+  log(`attachAutoScreenshot: image=${imagePath.slice(-40)}`);
+}
+
+/**
  * Returns the context that is *currently* active (i.e. the one most recently
  * set via setContext or setAreaContext). Used by deferred async work (like
  * pointer-flow image capture) to detect that the user has moved on to a
@@ -793,6 +820,29 @@ export function registerIpcHandlers(
     } catch (err: any) {
       log(`ATTACH_SCREENSHOT FAILED: ${err.message}`);
       sendStatus(false, false);
+    }
+  });
+
+  ipcMain.on(IPC.REMOVE_SCREENSHOT, () => {
+    log("REMOVE_SCREENSHOT — clearing attached image and resetting session");
+    // Delete the temp image file if it exists
+    if (currentContext?.imagePath) {
+      cleanupImage(currentContext.imagePath);
+      currentContext.imagePath = undefined;
+      currentContext.hasScreenshot = false;
+    }
+    if (areaImagePath) {
+      cleanupImage(areaImagePath);
+      areaImagePath = "";
+    }
+    attachScreenshotNext = false;
+    // Reset the session so the old image's context doesn't leak into the next send
+    client.resetSession();
+    contextNeedsSending = true;
+    hasSentFirstMessage = false;
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(IPC.SESSION_RESET, { hasImage: false });
     }
   });
 

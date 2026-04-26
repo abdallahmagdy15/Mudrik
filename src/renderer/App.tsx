@@ -25,6 +25,7 @@ declare global {
       newSession: () => void;
       onFocusInput: (cb: () => void) => void;
       attachScreenshot: () => void;
+      removeScreenshot: () => void;
       onScreenshotAttached: (cb: (data: { attached: boolean; hasImage: boolean }) => void) => void;
       getConfig: () => Promise<any>;
       setConfig: (config: any) => Promise<any>;
@@ -163,6 +164,7 @@ export function App() {
   }, [settingsOpen]);
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
+  const [autoAttachImage, setAutoAttachImage] = useState(false);
   const restoreSessionRef = useRef(true);
   const configLoadedRef = useRef(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
@@ -184,7 +186,7 @@ export function App() {
       setCurrentResponse("");
       setStreaming(false);
       setError(null);
-      setScreenshotAttached(false);
+      setScreenshotAttached(!!data.hasScreenshot);
       setSettingsOpen(false);
       setMessages((prev) => {
         if (!configLoadedRef.current) {
@@ -243,7 +245,7 @@ export function App() {
       setActionResults([]);
       // Keep the screenshot badge when the server still has an image armed
       // for the next send (NEW_SESSION preserves pointer/area screenshots).
-      if (!data?.hasImage) {
+if (!data?.hasImage) {
         setScreenshotAttached(false);
       }
     });
@@ -307,6 +309,7 @@ export function App() {
         setRestoreSessionOnActivate(cfg.restoreSessionOnActivate);
         restoreSessionRef.current = cfg.restoreSessionOnActivate;
       }
+      if (cfg?.autoAttachImage !== undefined) setAutoAttachImage(cfg.autoAttachImage);
       configLoadedRef.current = true;
     });
   }, []);
@@ -388,6 +391,17 @@ export function App() {
     window.hoverbuddy.attachScreenshot();
   }, []);
 
+  const handleRemoveScreenshot = useCallback(() => {
+    console.log("[RENDERER] Remove screenshot clicked");
+    window.hoverbuddy.removeScreenshot();
+    setScreenshotAttached(false);
+    setMessages([]);
+    setCurrentResponse("");
+    setError(null);
+    setActionResults([]);
+    setStreaming(false);
+  }, []);
+
   const handleStopResponse = useCallback(() => {
     console.log("[RENDERER] Stop response clicked");
     window.hoverbuddy.stopResponse();
@@ -447,6 +461,12 @@ export function App() {
     restoreSessionRef.current = newVal;
     window.hoverbuddy.setConfig({ restoreSessionOnActivate: newVal });
   }, [restoreSessionOnActivate]);
+
+  const handleToggleAutoAttachImage = useCallback(() => {
+    const newVal = !autoAttachImage;
+    setAutoAttachImage(newVal);
+    window.hoverbuddy.setConfig({ autoAttachImage: newVal });
+  }, [autoAttachImage]);
 
   const handleSetTheme = useCallback((newTheme: "system" | "light" | "dark") => {
     setTheme(newTheme);
@@ -837,6 +857,12 @@ export function App() {
                       <div className="toggle-knob" />
                     </div>
                   </label>
+                  <label className="settings-toggle" title={t("autoAttachImageHint")}>
+                    <span>{t("autoAttachImage")}</span>
+                    <div className={`toggle-switch ${autoAttachImage ? "on" : ""}`} onClick={handleToggleAutoAttachImage}>
+                      <div className="toggle-knob" />
+                    </div>
+                  </label>
                 </div>
               )}
             </div>
@@ -844,16 +870,16 @@ export function App() {
         )}
       </div>
 {/* Context preview hidden from end users — the LLM receives it
-          internally but the UI doesn't need to show the raw element data. */}
-      {/* Screenshot attachment is always available — even from a cold panel
-          opened via the tray, the user can attach a screenshot and chat. */}
-      {!screenshotAttached && (
+           internally but the UI doesn't need to show the raw element data. */}
+      {!screenshotAttached ? (
         <button className="btn-attach-screenshot" onClick={handleAttachScreenshot} disabled={streaming}>
           {t("attachScreenshot")}
         </button>
-      )}
-      {screenshotAttached && (
-        <div className="screenshot-badge">{t("screenshotAttached")}</div>
+      ) : (
+        <div className="screenshot-badge">
+          {t("screenshotAttached")}
+          <button className="screenshot-badge-x" onClick={handleRemoveScreenshot} title={t("removeScreenshot")}>×</button>
+        </div>
       )}
       <div className="messages">
         {restoringSession && (

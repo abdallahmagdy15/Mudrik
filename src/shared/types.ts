@@ -70,6 +70,8 @@ export interface Config {
   fontSize: number;
   /** When true, restores previous chat history on panel popup. When false, always starts fresh. */
   restoreSessionOnActivate: boolean;
+  /** When true, automatically captures and attaches a full-screen screenshot on Alt+Space (pointer) activation. Area selection always includes its screenshot regardless. */
+  autoAttachImage: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -88,6 +90,7 @@ export const DEFAULT_CONFIG: Config = {
   lang: "en",
   fontSize: 14,
   restoreSessionOnActivate: true,
+  autoAttachImage: false,
 };
 
 export interface WindowInfo {
@@ -132,4 +135,5 @@ export const IPC = {
   SAVE_API_KEY: "save-api-key",
   REMOVE_MODEL: "remove-model",
   CURSOR_POS: "cursor-pos",
+  REMOVE_SCREENSHOT: "remove-screenshot",
 } as const;

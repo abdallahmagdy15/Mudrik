@@ -66,6 +66,7 @@
 
   /* Brand gradient — owl body → beak */
   --gradient-accent: linear-gradient(135deg, var(--owl-cyan-500), var(--owl-cyan-300) 55%, var(--owl-orange-500));
+  --gradient-accent-faded: linear-gradient(135deg, rgba(24, 191, 225, 0.18), rgba(95, 216, 240, 0.14) 55%, rgba(242, 169, 58, 0.18));
   --gradient-green:  linear-gradient(135deg, var(--green), var(--owl-cyan-300));
 
   --radius: 8px;
@@ -85,7 +86,8 @@
 
   --btn-attach-bg: rgba(22, 54, 68, 0.75);
   --btn-attach-hover: var(--bg-elevated);
-  --btn-attach-text: rgba(255, 255, 255, 0.88);
+  --btn-attach-text: #FFFFFF;
+  --badge-muted-text: rgba(255, 255, 255, 0.6);
 
   /* Copy chips — neutral dark grey, intentionally not accented so
      they read as "copyable snippet" rather than a link/CTA. */
@@ -126,11 +128,13 @@
      --panel-paint:  rgba(252, 254, 255, 0.30);
      --panel-border: rgba(15, 168, 201, 0.32);
 
-     --app-gradient: none;
+--app-gradient: none;
+     --gradient-accent-faded: linear-gradient(135deg, rgba(15, 168, 201, 0.18), rgba(95, 216, 240, 0.14) 55%, rgba(242, 169, 58, 0.18));
 
-     --btn-attach-bg: rgba(230, 238, 242, 0.80);
-     --btn-attach-hover: var(--bg-elevated);
-     --btn-attach-text: #3A4750;
+--btn-attach-bg: rgba(230, 238, 242, 0.80);
+  --btn-attach-hover: var(--bg-elevated);
+  --btn-attach-text: #0C2530;
+  --badge-muted-text: rgba(0, 0, 0, 0.5);
 
     /* Light-mode chips: soft pebble grey on the pale chrome. */
     --chip-bg:     rgba(230, 234, 238, 0.85);
@@ -756,42 +760,66 @@ body {
 .btn-attach-screenshot {
   display: block;
   width: 100%;
-  background: var(--btn-attach-bg);
+  background: var(--gradient-accent-faded);
   color: var(--btn-attach-text);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius);
   padding: 7px 8px;
   cursor: pointer;
   font-size: 12px;
-  font-weight: 400;
+  font-weight: 600;
   text-align: center;
   transition: all 0.2s ease;
   flex-shrink: 0;
 }
 
 .btn-attach-screenshot:hover {
-  background: var(--btn-attach-hover);
+  filter: brightness(1.15);
   border-color: var(--accent);
   box-shadow: 0 0 12px rgba(24,191,225,0.18);
 }
 
 .btn-attach-screenshot:disabled {
-  opacity: 0.3;
+  opacity: 0.35;
   cursor: not-allowed;
   box-shadow: none;
+  filter: none;
 }
 
 .screenshot-badge {
-  background: var(--accent-glow);
-  color: var(--accent-bright);
+  background: var(--gradient-accent-faded);
+  color: var(--badge-muted-text);
   border: 1px solid var(--border-bright);
   border-radius: var(--radius-sm);
   padding: 5px 8px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
   text-align: center;
+  letter-spacing: 0.3px;
   animation: badgeIn 0.3s ease;
   flex-shrink: 0;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.screenshot-badge-x {
+  background: none;
+  border: none;
+  color: var(--badge-muted-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 0 0 2px;
+  opacity: 0.6;
+  transition: opacity 0.15s ease;
+}
+
+.screenshot-badge-x:hover {
+  opacity: 1;
 }
 
 @keyframes badgeIn {
