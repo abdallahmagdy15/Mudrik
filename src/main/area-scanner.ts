@@ -7,7 +7,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[AREA-SCANNER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-area-scan-v5.ps1";
+const SCRIPT_NAME = "hoverbuddy-area-scan-v6.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -98,6 +98,15 @@ function getScriptContent(): string {
   lines.push('                if (-not (RectsOverlap $r)) { continue }');
   lines.push('                try { if ($child.Current.IsOffscreen) { continue } } catch {}');
   lines.push('                if (IsTooBig $r) {');
+  lines.push('                    $bigName = ""');
+  lines.push('                    try { $bigName = $child.Current.Name } catch {}');
+  lines.push('                    $bigAutoId = ""');
+  lines.push('                    try { $bigAutoId = $child.Current.AutomationId } catch {}');
+  lines.push('                    if ($bigName -or $bigAutoId) {');
+  lines.push('                        $bd = ElementToDict $child');
+  lines.push('                        $bd["depth"] = $depth');
+  lines.push('                        $script:allElements += $bd');
+  lines.push('                    }');
   lines.push('                    ScanElements $child ($depth+1) $maxDepth');
   lines.push('                    continue');
   lines.push('                }');
