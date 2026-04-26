@@ -7,7 +7,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[AREA-SCANNER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-area-scan-v4.ps1";
+const SCRIPT_NAME = "hoverbuddy-area-scan-v5.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -96,6 +96,7 @@ function getScriptContent(): string {
   lines.push('            try {');
   lines.push('                $r = $child.Current.BoundingRectangle');
   lines.push('                if (-not (RectsOverlap $r)) { continue }');
+  lines.push('                try { if ($child.Current.IsOffscreen) { continue } } catch {}');
   lines.push('                if (IsTooBig $r) {');
   lines.push('                    ScanElements $child ($depth+1) $maxDepth');
   lines.push('                    continue');
@@ -246,7 +247,7 @@ async function scanAreaUIA(
       className: e?.className || "",
       isOffscreen: e?.isOffscreen || false,
       isContained: e?.isContained === true,
-    }));
+    })).filter((el: UIElement) => !el.isOffscreen);
 
     log(`Area scan found ${elements.length} elements (total scanned: ${parsed.totalScanned ?? "n/a"})`);
     for (let i = 0; i < Math.min(elements.length, 15); i++) {

@@ -6,8 +6,9 @@ import * as os from "os";
 const log = (msg: string) => console.log(`[VISION] ${msg}`);
 
 const CAPTURE_SCRIPT_NAME = "hoverbuddy-capture-v3.ps1";
-const RESIZE_SCRIPT_NAME = "hoverbuddy-resize-v2.ps1";
+const RESIZE_SCRIPT_NAME = "hoverbuddy-resize-v3.ps1";
 const MAX_IMAGE_BYTES = 200 * 1024;
+const HARD_IMAGE_CAP_BYTES = 1024 * 1024;
 
 function getCaptureScriptContent(): string {
   const lines: string[] = [];
@@ -102,7 +103,18 @@ function getResizeScriptContent(): string {
   lines.push("        $scale = [Math]::Max(0.25, $scale - 0.08)");
   lines.push("    }");
   lines.push("");
-  lines.push("    Copy-Item $InFile $OutFile -Force");
+  lines.push("    $fallbackW = [Math]::Max(200, [int]($img.Width * 0.2))");
+  lines.push("    $fallbackH = [Math]::Max(200, [int]($img.Height * 0.2))");
+  lines.push("    $fallbackImg = New-Object System.Drawing.Bitmap($fallbackW, $fallbackH)");
+  lines.push("    $fg = [System.Drawing.Graphics]::FromImage($fallbackImg)");
+  lines.push("    $fg.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic");
+  lines.push("    $fg.DrawImage($img, 0, 0, $fallbackW, $fallbackH)");
+  lines.push("    $fg.Dispose()");
+  lines.push("    $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)");
+  lines.push("    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]15)");
+  lines.push("    $jpgCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1");
+  lines.push("    $fallbackImg.Save($OutFile, $jpgCodec, $encParams)");
+  lines.push("    $fallbackImg.Dispose()");
   lines.push("    $img.Dispose()");
   lines.push("    Write-Output 'FALLBACK'");
   lines.push("} catch {");
@@ -179,8 +191,15 @@ async function optimizeImage(imagePath: string): Promise<string> {
     const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" "${imagePath}" "${outFile}" ${MAX_IMAGE_BYTES}`;
     exec(cmd, { timeout: 15000 }, (err: any, stdout: string, stderr: string) => {
       if (err) {
-        log(`Resize failed: ${err.message}, using original`);
-        resolve(imagePath);
+        log(`Resize failed: ${err.message}`);
+        const fsize = fs.existsSync(imagePath) ? fs.statSync(imagePath).size : 0;
+        if (fsize > HARD_IMAGE_CAP_BYTES) {
+          log(`Image too large after resize failure (${(fsize / 1024).toFixed(0)}kb), discarding`);
+          try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
+          resolve("");
+        } else {
+          resolve(imagePath);
+        }
         return;
       }
       if (fs.existsSync(outFile) && fs.statSync(outFile).size > 0) {
@@ -189,8 +208,15 @@ async function optimizeImage(imagePath: string): Promise<string> {
         try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
         resolve(outFile);
       } else {
-        log(`Resize output missing, using original`);
-        resolve(imagePath);
+        log(`Resize output missing`);
+        const fsize = fs.existsSync(imagePath) ? fs.statSync(imagePath).size : 0;
+        if (fsize > HARD_IMAGE_CAP_BYTES) {
+          log(`Image too large after resize output missing (${(fsize / 1024).toFixed(0)}kb), discarding`);
+          try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
+          resolve("");
+        } else {
+          resolve(imagePath);
+        }
       }
     });
   });
@@ -231,9 +257,20 @@ export async function captureAndOptimize(
     }
 
     try {
-      return await optimizeImage(imagePath);
+      const result = await optimizeImage(imagePath);
+      if (!result) {
+        log(`Image too large, discarded`);
+        return null;
+      }
+      return result;
     } catch (err: any) {
       log(`Image optimization failed: ${err.message}`);
+      const fsize = fs.statSync(imagePath).size;
+      if (fsize > HARD_IMAGE_CAP_BYTES) {
+        log(`Image too large after optimization failure (${(fsize / 1024).toFixed(0)}kb), discarding`);
+        try { fs.unlinkSync(imagePath); } catch { /* ignore */ }
+        return null;
+      }
       return imagePath;
     }
   } catch (err: any) {

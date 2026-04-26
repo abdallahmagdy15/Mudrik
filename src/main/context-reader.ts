@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v9.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v10.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -172,6 +172,7 @@ function getScriptContent(): string {
   lines.push('                    if ($sib -eq $target) { continue }');
   lines.push('                    $sr = $sib.Current.BoundingRectangle');
   lines.push('                    if ($sr.Width -le 0 -or $sr.Height -le 0) { continue }');
+  lines.push('                    try { if ($sib.Current.IsOffscreen) { continue } } catch {}');
   lines.push('                    $scx = $sr.X + $sr.Width / 2');
   lines.push('                    $scy = $sr.Y + $sr.Height / 2');
   lines.push('                    $dist = [Math]::Sqrt(([Math]::Pow($scx - $tcx, 2) + [Math]::Pow($scy - $tcy, 2)))');
@@ -207,6 +208,7 @@ function getScriptContent(): string {
   lines.push('            try {');
   lines.push('                $r = $child.Current.BoundingRectangle');
   lines.push('                if ($r.Width -le 0 -or $r.Height -le 0) { continue }');
+  lines.push('                try { if ($child.Current.IsOffscreen) { continue } } catch {}');
   lines.push('                $d = ElementToDict $child');
   lines.push('                $dist = [Math]::Sqrt([Math]::Pow($r.X + $r.Width/2 - $cursorX, 2) + [Math]::Pow($r.Y + $r.Height/2 - $cursorY, 2))');
   lines.push('                $d["distance"] = [int]$dist');
@@ -363,12 +365,12 @@ async function readElementAtPoint(x: number, y: number): Promise<{ element: UIEl
       : parsed.surrounding
         ? [parsed.surrounding]
         : [];
-    const surrounding: UIElement[] = rawSurrounding.map(
-      (s: any, i: number) => {
-        log(`  surrounding[${i}]: type=${s?.type} name="${s?.name}" dist=${s?.distance ?? "-"} dir=${s?.direction ?? "-"} relation=${s?._relation ?? "-"}`);
-        return dotNetToUIElement(s);
-      }
-    );
+const surrounding: UIElement[] = rawSurrounding.map(
+        (s: any, i: number) => {
+          log(`  surrounding[${i}]: type=${s?.type} name="${s?.name}" dist=${s?.distance ?? "-"} dir=${s?.direction ?? "-"} relation=${s?._relation ?? "-"}`);
+          return dotNetToUIElement(s);
+        }
+      ).filter((el: UIElement) => !el.isOffscreen);
 
     log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", drilled=${!!parsed.element?._drilledFromContainer}, ${surrounding.length} nearby siblings, automationId="${element.automationId || ""}", windowTitle="${element.windowTitle || ""}"`);
     return { element, surrounding };
