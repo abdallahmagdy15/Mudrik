@@ -335,14 +335,14 @@ function handlePointerActivate(cursorPos: { x: number; y: number }): void {
     : Promise.resolve(null);
 
   Promise.all([contextPromise, imagePromise]).then(
-    ([{ element, surrounding, windowInfo }, imagePath]) => {
+    ([{ element, surrounding, windowInfo, windowTree, visibleWindows }, imagePath]) => {
       if (myActivation !== activationSeq) {
         log(`Pointer activation #${myActivation} superseded by #${activationSeq} — discarding stale read`);
         if (imagePath) cleanupImage(imagePath);
         return;
       }
-      log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length} items, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
-      const context: ContextPayload = { element, surrounding, cursorPos, windowInfo };
+      log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length}, windowTree=${windowTree?.length || 0}, visibleWindows=${visibleWindows?.length || 0}, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
+      const context: ContextPayload = { element, surrounding, cursorPos, windowInfo, windowTree, visibleWindows };
       if (imagePath) {
         attachAutoScreenshot(imagePath);
         context.hasScreenshot = true;

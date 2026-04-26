@@ -1,12 +1,12 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { UIElement } from "../shared/types";
+import { UIElement, VisibleWindow } from "../shared/types";
 import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v11.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v12.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -23,7 +23,7 @@ function getScriptContent(): string {
   lines.push('[DpiHelper]::SetProcessDPIAware() | Out-Null');
   lines.push('$ErrorActionPreference = "Stop"');
   lines.push('');
-  lines.push('function ElementToDict($el) {');
+  lines.push('function ElDict($el) {');
   lines.push('    $dict = @{}');
   lines.push('    try { $dict["name"] = $el.Current.Name } catch { $dict["name"] = "" }');
   lines.push('    try { $dict["type"] = $el.Current.ControlType.ProgrammaticName } catch { $dict["type"] = "Unknown" }');
@@ -64,9 +64,7 @@ function getScriptContent(): string {
   lines.push('    try {');
   lines.push('        $vp = $null');
   lines.push('        $ok = $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
-  lines.push('        if ($ok -and $vp) {');
-  lines.push('            $val = $vp.Current.Value');
-  lines.push('        }');
+  lines.push('        if ($ok -and $vp) { $val = $vp.Current.Value }');
   lines.push('    } catch {}');
   lines.push('    if ($name -or $val) { return $false }');
   lines.push('    return $true');
@@ -154,59 +152,25 @@ function getScriptContent(): string {
   lines.push('    return ""');
   lines.push('}');
   lines.push('');
-  lines.push('function GetNearbySiblings($target, $x, $y) {');
-  lines.push('    $result = @()');
-  lines.push('    try {');
-  lines.push('        $parent = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($target)');
-  lines.push('        if ($parent) {');
-  lines.push('            $siblings = $parent.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
-  lines.push('            $tr = $target.Current.BoundingRectangle');
-  lines.push('            $tcx = $tr.X + $tr.Width / 2');
-  lines.push('            $tcy = $tr.Y + $tr.Height / 2');
-  lines.push('            $screenW = [System.Windows.SystemParameters]::PrimaryScreenWidth');
-  lines.push('            $screenH = [System.Windows.SystemParameters]::PrimaryScreenHeight');
-  lines.push('            $maxDist = [Math]::Sqrt([Math]::Pow($screenW, 2) + [Math]::Pow($screenH, 2)) * 0.8');
-  lines.push('            $diagScreen = [Math]::Sqrt([Math]::Pow($screenW, 2) + [Math]::Pow($screenH, 2))');
-  lines.push('            foreach ($sib in $siblings) {');
-  lines.push('                try {');
-  lines.push('                    if ($sib -eq $target) { continue }');
-  lines.push('                    $sr = $sib.Current.BoundingRectangle');
-  lines.push('                    if ($sr.Width -le 0 -or $sr.Height -le 0) { continue }');
-  lines.push('                    try { if ($sib.Current.IsOffscreen) { continue } } catch {}');
-  lines.push('                    $scx = $sr.X + $sr.Width / 2');
-  lines.push('                    $scy = $sr.Y + $sr.Height / 2');
-  lines.push('                    $dist = [Math]::Sqrt(([Math]::Pow($scx - $tcx, 2) + [Math]::Pow($scy - $tcy, 2)))');
-  lines.push('                    if ($dist -le $maxDist) {');
-  lines.push('                        $pctDist = [int](($dist / $diagScreen) * 100)');
-  lines.push('                        $d = ElementToDict $sib');
-  lines.push('                        $d["distance"] = [int]$dist');
-  lines.push('                        $d["_pctDist"] = "$pctDist%"');
-  lines.push('                        $d["direction"] = ""');
-  lines.push('                        if ($scy -lt $tcy -and [Math]::Abs($scx - $tcx) -lt [Math]::Abs($scy - $tcy)) { $d["direction"] = "above" }');
-  lines.push('                        elseif ($scy -gt $tcy -and [Math]::Abs($scx - $tcx) -lt [Math]::Abs($scy - $tcy)) { $d["direction"] = "below" }');
-  lines.push('                        elseif ($scx -lt $tcx) { $d["direction"] = "left" }');
-  lines.push('                        else { $d["direction"] = "right" }');
-  lines.push('                        $d["_relation"] = "nearby"');
-  lines.push('                        $result += $d');
-  lines.push('                    }');
-  lines.push('                } catch {}');
-  lines.push('            }');
-  lines.push('            $result = $result | Sort-Object { $_["distance"] }');
-  lines.push('            if ($result.Count -gt 50) {');
-  lines.push('                $withContent = @($result | Where-Object { $_["name"] -or $_["value"] -or $_["autoId"] })');
-  lines.push('                $noContent = @($result | Where-Object { -not ($_["name"] -or $_["value"] -or $_["autoId"]) })');
-  lines.push('                $sorted = @($withContent) + @($noContent)');
-  lines.push('                $result = @($sorted[0..49])');
-  lines.push('            }');
-  lines.push('        }');
-  lines.push('    } catch {}');
-  lines.push('    return $result');
+  lines.push('function GetAncestorWindow($el) {');
+  lines.push('    $current = $el');
+  lines.push('    for ($i = 0; $i -lt 20; $i++) {');
+  lines.push('        try {');
+  lines.push('            $type = $current.Current.ControlType.ProgrammaticName');
+  lines.push('            if ($type -eq "ControlType.Window") { return $current }');
+  lines.push('            $parent = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($current)');
+  lines.push('            if (-not $parent -or $parent -eq $current) { break }');
+  lines.push('            $current = $parent');
+  lines.push('        } catch { break }');
+  lines.push('    }');
+  lines.push('    return $null');
   lines.push('}');
   lines.push('');
-  lines.push('$script:screenElements = @()');
+  lines.push('$script:treeElements = @()');
   lines.push('');
-  lines.push('function CollectScreenElements($root, $target, $cursorX, $cursorY) {');
-  lines.push('    $result = @()');
+  lines.push('function CollectWindowTree($root, $depth, $maxDepth, $targetEl) {');
+  lines.push('    if ($depth -gt $maxDepth) { return }');
+  lines.push('    if ($script:treeElements.Count -ge 200) { return }');
   lines.push('    try {');
   lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
   lines.push('        foreach ($child in $children) {');
@@ -214,27 +178,48 @@ function getScriptContent(): string {
   lines.push('                $r = $child.Current.BoundingRectangle');
   lines.push('                if ($r.Width -le 0 -or $r.Height -le 0) { continue }');
   lines.push('                try { if ($child.Current.IsOffscreen) { continue } } catch {}');
-  lines.push('                $d = ElementToDict $child');
-  lines.push('                $dist = [Math]::Sqrt([Math]::Pow($r.X + $r.Width/2 - $cursorX, 2) + [Math]::Pow($r.Y + $r.Height/2 - $cursorY, 2))');
-  lines.push('                $d["distance"] = [int]$dist');
-  lines.push('                $d["direction"] = ""');
-  lines.push('                $cy = $r.Y + $r.Height/2; $cx = $r.X + $r.Width/2');
-  lines.push('                if ($cy -lt $cursorY -and [Math]::Abs($cx - $cursorX) -lt [Math]::Abs($cy - $cursorY)) { $d["direction"] = "above" }');
-  lines.push('                elseif ($cy -gt $cursorY -and [Math]::Abs($cx - $cursorX) -lt [Math]::Abs($cy - $cursorY)) { $d["direction"] = "below" }');
-  lines.push('                elseif ($cx -lt $cursorX) { $d["direction"] = "left" }');
-  lines.push('                else { $d["direction"] = "right" }');
-  lines.push('                $d["_relation"] = "screen"');
-  lines.push('                $result += $d');
+  lines.push('                $d = ElDict $child');
+  lines.push('                $d["depth"] = $depth');
+  lines.push('                if ($child -eq $targetEl) { $d["isTarget"] = $true }');
+  lines.push('                $script:treeElements += $d');
+  lines.push('                CollectWindowTree $child ($depth + 1) $maxDepth $targetEl');
   lines.push('            } catch {}');
   lines.push('        }');
   lines.push('    } catch {}');
-  lines.push('    $result = $result | Sort-Object { $_["distance"] }');
-  lines.push('    if ($result.Count -gt 30) {');
-  lines.push('        $withContent = @($result | Where-Object { $_["name"] -or $_["value"] -or $_["autoId"] })');
-  lines.push('        $noContent = @($result | Where-Object { -not ($_["name"] -or $_["value"] -or $_["autoId"]) })');
-  lines.push('        $sorted = @($withContent) + @($noContent)');
-  lines.push('        $result = @($sorted[0..29])');
-  lines.push('    }');
+  lines.push('}');
+  lines.push('');
+  lines.push('function GetVisibleWindows() {');
+  lines.push('    $result = @()');
+  lines.push('    try {');
+  lines.push('        $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        foreach ($win in $children) {');
+  lines.push('            try {');
+  lines.push('                $r = $win.Current.BoundingRectangle');
+  lines.push('                if ($r.Width -le 0 -or $r.Height -le 0) { continue }');
+  lines.push('                try { if ($win.Current.IsOffscreen) { continue } } catch {}');
+  lines.push('                $wType = ""');
+  lines.push('                try { $wType = $win.Current.ControlType.ProgrammaticName } catch {}');
+  lines.push('                if ($wType -ne "ControlType.Window") { continue }');
+  lines.push('                $wName = ""');
+  lines.push('                try { $wName = $win.Current.Name } catch {}');
+  lines.push('                $wAutoId = ""');
+  lines.push('                try { $wAutoId = $win.Current.AutomationId } catch {}');
+  lines.push('                $wClass = ""');
+  lines.push('                try { $wClass = $win.Current.ClassName } catch {}');
+  lines.push('                $isMin = $false');
+  lines.push('                try { $isMin = $win.Current.IsOffscreen } catch {}');
+  lines.push('                $wDict = @{}');
+  lines.push('                $wDict["name"] = $wName');
+  lines.push('                $wDict["type"] = $wType');
+  lines.push('                $wDict["bounds"] = @{ x = [int]$r.X; y = [int]$r.Y; width = [int]$r.Width; height = [int]$r.Height }');
+  lines.push('                $wDict["autoId"] = $wAutoId');
+  lines.push('                $wDict["className"] = $wClass');
+  lines.push('                $wDict["isOffscreen"] = $isMin');
+  lines.push('                $result += $wDict');
+  lines.push('            } catch {}');
+  lines.push('        }');
+  lines.push('    } catch {}');
   lines.push('    $result');
   lines.push('}');
   lines.push('');
@@ -244,11 +229,10 @@ function getScriptContent(): string {
   lines.push('    $element = FindDeepestElement $rawElement $X $Y 0');
   lines.push('');
   lines.push('    $result = @{}');
-  lines.push('    $result["element"] = ElementToDict $element');
+  lines.push('    $result["element"] = ElDict $element');
   lines.push('    if ($element -ne $rawElement) {');
   lines.push('        $result["element"]["_drilledFromContainer"] = $true');
-  lines.push('        $containerDict = ElementToDict $rawElement');
-  lines.push('        $containerDict["_relation"] = "container"');
+  lines.push('        $containerDict = ElDict $rawElement');
   lines.push('        $result["element"]["containerType"] = $containerDict["type"]');
   lines.push('        $result["element"]["containerName"] = $containerDict["name"]');
   lines.push('    }');
@@ -259,31 +243,14 @@ function getScriptContent(): string {
   lines.push('    $windowTitle = GetWindowTitle $element');
   lines.push('    $result["element"]["windowTitle"] = $windowTitle');
   lines.push('');
-  lines.push('    $surrounding = @()');
-  lines.push('    $surrounding += GetNearbySiblings $element $X $Y');
+  lines.push('    $winEl = GetAncestorWindow $element');
+  lines.push('    if ($winEl) {');
+  lines.push('        CollectWindowTree $winEl 0 3 $element');
+  lines.push('    }');
+  lines.push('    $result["windowTree"] = $script:treeElements');
   lines.push('');
-  lines.push('    try {');
-  lines.push('        $parent = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($element)');
-  lines.push('        if ($parent) {');
-  lines.push('            $parentDict = ElementToDict $parent');
-  lines.push('            $parentDict["_relation"] = "parent"');
-  lines.push('            $parentDict["parentChain"] = $parentChain');
-  lines.push('            $parentDict["windowTitle"] = $windowTitle');
-  lines.push('            if ($parentDict["name"] -or $parentDict["value"]) { $surrounding += $parentDict }');
-  lines.push('        }');
-  lines.push('    } catch {}');
+  lines.push('    $result["visibleWindows"] = GetVisibleWindows');
   lines.push('');
-  lines.push('    try {');
-  lines.push('        $rootEl = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($element)');
-  lines.push('        for ($i = 0; $i -lt 10 -and $rootEl; $i++) {');
-  lines.push('            $p = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetParent($rootEl)');
-  lines.push('            if (-not $p -or $p -eq $rootEl) { break }');
-  lines.push('            $rootEl = $p');
-  lines.push('        }');
-  lines.push('        if ($rootEl) { $surrounding += CollectScreenElements $rootEl $element $X $Y }');
-  lines.push('    } catch {}');
-  lines.push('');
-  lines.push('    $result["surrounding"] = $surrounding');
   lines.push('    $result | ConvertTo-Json -Depth 5 -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
   lines.push('} catch {');
   lines.push('    @{ error = $_.Exception.Message } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
@@ -318,7 +285,7 @@ export function getCursorPos(): { x: number; y: number } {
 export async function readContextAtPoint(
   x: number,
   y: number
-): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string } }> {
+): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string }; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
   log(`readContextAtPoint called: x=${x}, y=${y}`);
 
   try {
@@ -327,9 +294,9 @@ export async function readContextAtPoint(
       readForegroundWindow(),
     ]);
 
-    const { element, surrounding } = ctxResult;
+    const { element, surrounding, windowTree, visibleWindows } = ctxResult;
     log(`Context read: element type="${element.type}" name="${element.name}" process="${winResult?.processName || ""}" title="${winResult?.title || ""}"`);
-    return { element, surrounding, windowInfo: winResult || undefined };
+    return { element, surrounding, windowInfo: winResult || undefined, windowTree, visibleWindows };
   } catch (err: any) {
     log(`readContextAtPoint FAILED: ${err.message}`);
     const { element, surrounding } = makeError(x, y, err.message || String(err));
@@ -337,7 +304,7 @@ export async function readContextAtPoint(
   }
 }
 
-async function readElementAtPoint(x: number, y: number): Promise<{ element: UIElement; surrounding: UIElement[] }> {
+async function readElementAtPoint(x: number, y: number): Promise<{ element: UIElement; surrounding: UIElement[]; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
   const startTime = Date.now();
   try {
     const script = ensureScriptFile();
@@ -369,21 +336,28 @@ async function readElementAtPoint(x: number, y: number): Promise<{ element: UIEl
       return makeError(x, y, parsed.error);
     }
 
-    const element = dotNetToUIElement(parsed.element);
-    const rawSurrounding = Array.isArray(parsed.surrounding)
-      ? parsed.surrounding
-      : parsed.surrounding
-        ? [parsed.surrounding]
-        : [];
-const surrounding: UIElement[] = rawSurrounding.map(
-        (s: any, i: number) => {
-          log(`  surrounding[${i}]: type=${s?.type} name="${s?.name}" dist=${s?.distance ?? "-"} dir=${s?.direction ?? "-"} relation=${s?._relation ?? "-"}`);
-          return dotNetToUIElement(s);
-        }
-      ).filter((el: UIElement) => !el.isOffscreen);
+const element = dotNetToUIElement(parsed.element);
+    const rawSurrounding: any[] = [];
 
-    log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", drilled=${!!parsed.element?._drilledFromContainer}, ${surrounding.length} nearby siblings, automationId="${element.automationId || ""}", windowTitle="${element.windowTitle || ""}"`);
-    return { element, surrounding };
+    const windowTree: UIElement[] = Array.isArray(parsed.windowTree)
+      ? parsed.windowTree
+          .map((s: any) => dotNetToUIElement(s))
+          .filter((el: UIElement) => !el.isOffscreen)
+      : [];
+
+    const visibleWindows: VisibleWindow[] = Array.isArray(parsed.visibleWindows)
+      ? parsed.visibleWindows.map((w: any) => ({
+          name: w?.name || "",
+          type: w?.type || "",
+          bounds: w?.bounds || { x: 0, y: 0, width: 0, height: 0 },
+          processName: w?.processName || "",
+          isActive: w?.isActive || false,
+          isMinimized: w?.isMinimized || false,
+        })).filter((w: VisibleWindow) => !w.isMinimized && w.bounds.width > 0 && w.bounds.height > 0)
+      : [];
+
+    log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", drilled=${!!parsed.element?._drilledFromContainer}, windowTree=${windowTree.length} elements, visibleWindows=${visibleWindows.length}, automationId="${element.automationId || ""}", windowTitle="${element.windowTitle || ""}"`);
+    return { element, surrounding: rawSurrounding, windowTree, visibleWindows };
   } catch (err: any) {
     log(`readElementAtPoint FAILED: ${err.message}`);
     return makeError(x, y, err.message || String(err));
@@ -477,7 +451,7 @@ function makeError(
   x: number,
   y: number,
   msg: string
-): { element: UIElement; surrounding: UIElement[] } {
+): { element: UIElement; surrounding: UIElement[]; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] } {
   return {
     element: {
       name: "Error",

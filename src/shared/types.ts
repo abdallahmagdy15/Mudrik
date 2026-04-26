@@ -17,6 +17,17 @@ export interface UIElement {
   containerType?: string;
   containerName?: string;
   isContained?: boolean;
+  depth?: number;
+  isTarget?: boolean;
+}
+
+export interface VisibleWindow {
+  name: string;
+  type: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  processName: string;
+  isActive?: boolean;
+  isMinimized?: boolean;
 }
 
 export type ActionType =
@@ -107,6 +118,8 @@ export interface ContextPayload {
   imagePath?: string;
   hasScreenshot?: boolean;
   windowInfo?: WindowInfo;
+  windowTree?: UIElement[];
+  visibleWindows?: VisibleWindow[];
 }
 
 export const IPC = {

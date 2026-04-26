@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow } from "electron";
-import { Config, ContextPayload, IPC, Action } from "../shared/types";
+import { Config, ContextPayload, IPC, Action, VisibleWindow } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { SYSTEM_PROMPT } from "../shared/prompts";
 import { buildCleanOpenCodeEnv, providerFromModelId, OpenCodeAuthFile } from "../shared/providers";
@@ -237,6 +237,42 @@ export function patchConfigPersistOnly(patch: Partial<Config>): void {
   if (!appConfig) return;
   Object.assign(appConfig, patch);
   saveConfig(appConfig);
+}
+
+function formatElementType(type: string): string {
+  return type.replace("ControlType.", "");
+}
+
+function formatWindowTree(elements: { type: string; name: string; value: string; automationId?: string; bounds: { x: number; y: number; width: number; height: number }; depth?: number; isTarget?: boolean; isOffscreen?: boolean }[]): string {
+  if (!elements || elements.length === 0) return "";
+  const lines: string[] = [];
+  for (const el of elements) {
+    if (el.isOffscreen) continue;
+    const indent = "  ".repeat(Math.max(0, el.depth || 0));
+    const t = formatElementType(el.type);
+    let line = `${indent}${t}`;
+    if (el.name) line += ` "${el.name}"`;
+    if (el.automationId) line += ` [${el.automationId}]`;
+    if (el.value) {
+      const v = el.value.length > 60 ? el.value.slice(0, 60) + "..." : el.value;
+      line += `="${v}"`;
+    }
+    line += ` @(${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height})`;
+    if (el.isTarget) line += ` \u2190 YOU ARE HERE`;
+    lines.push(line);
+  }
+  return lines.join("\n");
+}
+
+function formatVisibleWindows(windows: VisibleWindow[], activeWindowTitle?: string): string {
+  if (!windows || windows.length === 0) return "";
+  const lines: string[] = [];
+  for (const w of windows) {
+    let line = `  ${formatElementType(w.type)} "${w.name}" @(${w.bounds.x},${w.bounds.y} ${w.bounds.width}x${w.bounds.height})`;
+    if (w.name && activeWindowTitle && w.name === activeWindowTitle) line += ` \u2190 ACTIVE`;
+    lines.push(line);
+  }
+  return lines.join("\n");
 }
 
 export function registerIpcHandlers(
@@ -477,11 +513,15 @@ export function registerIpcHandlers(
         }
         contextBlock += `\nAREA SELECTION with ${areaElements.length} elements:`;
         for (const el of areaElements) {
+          const indent = "  ".repeat(Math.max(0, (el as any).depth || 0));
           const contained = el.isContained === true ? "inside" : "partial";
-          contextBlock += `\n[${el.type}] Name: "${el.name}"`;
-          if (el.value) contextBlock += `\n  Value: "${el.value.slice(0, 100)}"`;
-          if (el.automationId) contextBlock += `\n  AutomationId: ${el.automationId}`;
-          contextBlock += `\n  Bounds: ${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height} [${contained}]`;
+          let line = `${indent}${formatElementType(el.type)}`;
+          if (el.name) line += ` "${el.name}"`;
+          if (el.automationId) line += ` [${el.automationId}]`;
+          if (el.value) line += `="${el.value.slice(0, 100)}"`;
+          line += ` @(${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height})`;
+          line += ` [${contained}]`;
+          contextBlock += `\n${line}`;
         }
         if (areaImagePath) {
           contextBlock += `\n\n[A screenshot of this area is attached as an image]`;
@@ -498,47 +538,37 @@ export function registerIpcHandlers(
             contextBlock += ` [${appBasename}]`;
           }
         }
-        contextBlock += `\nELEMENT YOU POINTED AT:`;
-        contextBlock += `\n  Type: ${el.type}`;
-        if (el.name) contextBlock += `\n  Name: "${el.name}"`;
+        contextBlock += `\nCURSOR: ${currentContext.cursorPos.x}, ${currentContext.cursorPos.y}`;
+        contextBlock += `\n\nYOU POINTED AT:`;
+        contextBlock += `\n  ${formatElementType(el.type)}`;
+        if (el.name) contextBlock += ` "${el.name}"`;
+        if (el.automationId) contextBlock += ` [${el.automationId}]`;
         if (el.value) {
           const valPreview = el.value.length > 200 ? el.value.slice(0, 200) + "..." : el.value;
-          contextBlock += `\n  Value: "${valPreview}"`;
+          contextBlock += `="${valPreview}"`;
         }
-        if (el.automationId) contextBlock += `\n  AutomationId: ${el.automationId}`;
-        if (el.className) contextBlock += `\n  Class: ${el.className}`;
-        contextBlock += `\n  Bounds: ${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height}`;
+        contextBlock += ` @(${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height})`;
+        if (el.className) contextBlock += `\n  class=${el.className}`;
         if (el._drilledFromContainer) {
-          contextBlock += `\n  Note: Found inside a ${el.containerType || "container"} wrapper`;
+          contextBlock += `\n  (found inside ${el.containerType || "container"} wrapper)`;
         }
         if (el.parentChain && el.parentChain.length > 0) {
-          contextBlock += `\n  Parent chain: ${el.parentChain.join(" > ")}`;
+          contextBlock += `\n  Hierarchy: ${el.parentChain.join(" > ")}`;
         }
         if (el.windowTitle) {
           contextBlock += `\n  Window: ${el.windowTitle}`;
         }
 
-        if (currentContext.surrounding && currentContext.surrounding.length > 0) {
-          contextBlock += `\n\nNEARBY & SCREEN ELEMENTS:`;
-          for (const sib of currentContext.surrounding.slice(0, 25)) {
-            contextBlock += `\n  - ${sib.type}`;
-            if (sib.name) contextBlock += ` "${sib.name}"`;
-            if (sib.value) {
-              const sv = sib.value.length > 80 ? sib.value.slice(0, 80) + "..." : sib.value;
-              contextBlock += ` value="${sv}"`;
-            }
-            if (sib.automationId) contextBlock += ` autoId=${sib.automationId}`;
-            if (sib.bounds) contextBlock += ` @(${sib.bounds.x},${sib.bounds.y} ${sib.bounds.width}x${sib.bounds.height})`;
-            if (sib._pctDist) {
-              contextBlock += ` [${sib._pctDist} ${sib.direction || ""}]`;
-            } else if (sib.distance !== undefined && sib.direction) {
-              contextBlock += ` (${sib.distance}px ${sib.direction})`;
-            }
-            if (sib._relation === "screen") contextBlock += ` (screen)`;
-          }
+        if (currentContext.visibleWindows && currentContext.visibleWindows.length > 0) {
+          contextBlock += `\n\nVISIBLE WINDOWS:`;
+          contextBlock += "\n" + formatVisibleWindows(currentContext.visibleWindows, currentContext.windowInfo?.title);
         }
 
-        contextBlock += `\n\nCURSOR POSITION: ${currentContext.cursorPos.x}, ${currentContext.cursorPos.y}`;
+        if (currentContext.windowTree && currentContext.windowTree.length > 0) {
+          contextBlock += `\n\nACTIVE WINDOW LAYOUT:`;
+          contextBlock += "\n" + formatWindowTree(currentContext.windowTree);
+        }
+
         if (attachScreenshotNext && (currentContext.imagePath || areaImagePath)) {
           contextBlock += `\n\n[A screenshot showing what you pointed at is attached as an image]`;
         }
