@@ -12,6 +12,7 @@ files:
   - dist/**/*
   - package.json
   - .opencode/agent/**
+  - assets/**
 extraResources:
   # Ship the sandboxed agent definition alongside the app so the OpenCode CLI
   # picks it up from the installed resources dir.
