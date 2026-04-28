@@ -6,8 +6,8 @@ import * as os from "os";
 import { Action, ActionType } from "../shared/types";
 import { runPowerShell } from "./powershell-runner";
 import { log } from "./logger";
-const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v3.ps1";
-const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v3.ps1";
+const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v4.ps1";
+const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v4.ps1";
 
 // Action types that actually drive the desktop (mouse, keyboard, UIA invoke).
 // Everything NOT in this set is considered "safe" in read-only mode —
@@ -277,6 +277,12 @@ function getFindScriptContent(): string {
   lines.push('Add-Type -AssemblyName PresentationCore');
   lines.push('Add-Type -AssemblyName UIAutomationClient');
   lines.push('$ErrorActionPreference = "Stop"');
+  lines.push('Add-Type @"');
+  lines.push('using System;');
+  lines.push('using System.Runtime.InteropServices;');
+  lines.push('public class Dpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }');
+  lines.push('"@');
+  lines.push('[Dpi]::SetProcessDPIAware() | Out-Null');
   lines.push('');
   lines.push('$raw = (Get-Content -Path $SelectorFile -Raw -Encoding utf8).Trim()');
   lines.push('$action = $raw | ConvertFrom-Json');
@@ -387,7 +393,19 @@ function getFindScriptContent(): string {
   lines.push('}');
   lines.push('');
   lines.push('try {');
-  lines.push('    $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('    # Scope search to the foreground window instead of the entire desktop.');
+  lines.push('    Add-Type @"');
+  lines.push('    using System;');
+  lines.push('    using System.Runtime.InteropServices;');
+  lines.push('    using System.Text;');
+  lines.push('    public class Win32Find { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }');
+  lines.push('    "@');
+  lines.push('    $fgHwnd = [Win32Find]::GetForegroundWindow()');
+  lines.push('    if ($fgHwnd -ne [IntPtr]::Zero) {');
+  lines.push('        $root = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd)');
+  lines.push('    } else {');
+  lines.push('        $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('    }');
   lines.push('    FindElement $root 0 20');
   lines.push('');
   lines.push('    if ($script:found.Count -eq 0) {');
@@ -475,6 +493,12 @@ function getUIAScriptContent(): string {
   lines.push('Add-Type -AssemblyName PresentationCore');
   lines.push('Add-Type -AssemblyName UIAutomationClient');
   lines.push('$ErrorActionPreference = "Stop"');
+  lines.push('Add-Type @"');
+  lines.push('using System;');
+  lines.push('using System.Runtime.InteropServices;');
+  lines.push('public class Dpi2 { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }');
+  lines.push('"@');
+  lines.push('[Dpi2]::SetProcessDPIAware() | Out-Null');
   lines.push('');
   lines.push('$action = (Get-Content -Path $ActionFile -Raw -Encoding utf8 | ConvertFrom-Json)');
   lines.push('$op = $action.op');
@@ -600,7 +624,18 @@ function getUIAScriptContent(): string {
   lines.push('    }');
   lines.push('');
   lines.push('    if (-not $foundByPoint) {');
-  lines.push('        $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('        # Scope to foreground window for accuracy, fallback to desktop root.');
+  lines.push('        Add-Type @"');
+  lines.push('        using System;');
+  lines.push('        using System.Runtime.InteropServices;');
+  lines.push('        public class Win32UIA { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }');
+  lines.push('        "@');
+  lines.push('        $fgHwnd = [Win32UIA]::GetForegroundWindow()');
+  lines.push('        if ($fgHwnd -ne [IntPtr]::Zero) {');
+  lines.push('            $root = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd)');
+  lines.push('        } else {');
+  lines.push('            $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('        }');
   lines.push('        FindTarget $root 0 20');
   lines.push('    }');
   lines.push('');
@@ -841,31 +876,33 @@ export async function executeAction(action: Action): Promise<ActionResult> {
         }
         return { success: false, error: "No selector and no stored bounds" };
 
-      case "paste_text":
-        if (!action.text) return { success: false, error: "No text provided" };
+      case "paste_text": {
+        // paste_text uses the clipboard + Ctrl+V, NOT ValuePattern.SetValue.
+        // This is critical for apps like Excel that interpret tab/newline in
+        // pasted plain text as cell separators. SetValue would dump everything
+        // into a single cell as raw text.
+        const textToPaste = action.text ?? "";
         if (action.selector) {
-          const result = await uiaAction("set_value", action.selector, action.text, autoId, boundsHint);
-          if (!result.success) {
-            if (storedBounds) await bringWindowToFront(storedBounds);
-            const clickResult = await clickElement(action.selector, autoId, boundsHint);
-            if (!clickResult.success) return clickResult;
-            await sleep(150);
-            const pasted = await pasteText(action.text);
-            return pasted
-              ? { success: true }
-              : { success: false, error: "Paste failed" };
-          }
-          return result;
+          // Focus the target element first, then paste via clipboard.
+          if (storedBounds) await bringWindowToFront(storedBounds);
+          const clickResult = await clickElement(action.selector, autoId, boundsHint);
+          if (!clickResult.success) return clickResult;
+          await sleep(150);
+          const pasted = await pasteText(textToPaste);
+          return pasted
+            ? { success: true }
+            : { success: false, error: "Paste failed" };
         } else if (storedBounds) {
           await bringWindowToFront(storedBounds);
           if (!clickAtBounds(storedBounds)) return { success: false, error: "Invalid stored bounds for click" };
           await sleep(150);
-          const pasted = await pasteText(action.text);
+          const pasted = await pasteText(textToPaste);
           return pasted
             ? { success: true }
             : { success: false, error: "Paste failed" };
         }
         return { success: false, error: "No selector and no stored bounds" };
+      }
 
       case "set_value": {
         if (!action.selector) return { success: false, error: "No selector" };
