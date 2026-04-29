@@ -4,8 +4,6 @@
 
 # Mudrik  ·  <span dir="rtl">مدرك</span>
 
-### *The owl wants to help.*
-
 ##### *Arabic for "aware" · pronounced* *`MUD-rik`*
 
 **An open-source Windows AI assistant that sees what you see. Hover anywhere on Windows — ask anything — and it clicks, types, pastes, or just answers.**
@@ -159,7 +157,7 @@ If Mudrik saves you time — ⭐ the repo, open an issue, or say hi. All three m
 - 💼 LinkedIn — [abdallahmagdy15](https://www.linkedin.com/in/abdallahmagdy15/)
 - ✉️ Email — `abdallah.magdy1515@gmail.com`
 
-For security issues, please use the email above (or [SECURITY.md](SECURITY.md) once Private Vulnerability Reporting is enabled) — **not** public issues.
+For security issues, please use **[GitHub Private Vulnerability Reporting](https://github.com/abdallahmagdy15/mudrik/security/advisories/new)** (or the email above as a fallback) — see [SECURITY.md](SECURITY.md). **Not** public issues.
 
 ## 🙏 Acknowledgements
 
@@ -174,8 +172,6 @@ For security issues, please use the email above (or [SECURITY.md](SECURITY.md) o
 ***
 
 <div align="center">
-
-**If Mudrik saves you time, star the repo. If it doesn't,** **[open an issue](https://github.com/abdallahmagdy15/mudrik/issues)** **— the owl wants to help.**
 
 <sub>Mudrik · <span dir="rtl">مدرك</span> · the aware</sub>
 

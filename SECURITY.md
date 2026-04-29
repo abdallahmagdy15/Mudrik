@@ -21,7 +21,13 @@ Out-of-scope (not defended against):
 
 ## Reporting a vulnerability
 
-Please **do not** open a public issue for security problems. Email the maintainer directly at **abdallah.magdy1515@gmail.com** with:
+Please **do not** open a public issue for security problems.
+
+**Preferred:** use [GitHub Private Vulnerability Reporting](https://github.com/abdallahmagdy15/mudrik/security/advisories/new) — it keeps the report private to the maintainer and makes it easy to coordinate a fix and CVE if needed.
+
+**Fallback:** email **abdallah.magdy1515@gmail.com**.
+
+Either way, please include:
 
 - A description of the issue and the impact.
 - Reproduction steps or a proof-of-concept.
