@@ -18,11 +18,6 @@
 
 ***
 
-> \[!NOTE]
-> **🐣 v0.9.0 Preview.** Stable for daily use, but internal APIs may change before v1.0. [Open an issue](https://github.com/abdallahmagdy15/mudrik/issues) if anything breaks. See [CHANGELOG](CHANGELOG.md).
-
-***
-
 ## ✨ What it does
 
 Hover anywhere on Windows and press **Alt+Space**. A quick floating panel slides in on the **opposite half** of your screen from your cursor — what you're pointing at stays in clear view, and Mudrik's actions land on the real element instead of the panel itself.
