@@ -399,7 +399,7 @@ function getFindScriptContent(): string {
   lines.push('    using System.Runtime.InteropServices;');
   lines.push('    using System.Text;');
   lines.push('    public class Win32Find { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }');
-  lines.push('    "@');
+  lines.push('"@');
   lines.push('    $fgHwnd = [Win32Find]::GetForegroundWindow()');
   lines.push('    if ($fgHwnd -ne [IntPtr]::Zero) {');
   lines.push('        $root = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd)');
@@ -629,7 +629,7 @@ function getUIAScriptContent(): string {
   lines.push('        using System;');
   lines.push('        using System.Runtime.InteropServices;');
   lines.push('        public class Win32UIA { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }');
-  lines.push('        "@');
+  lines.push('"@');
   lines.push('        $fgHwnd = [Win32UIA]::GetForegroundWindow()');
   lines.push('        if ($fgHwnd -ne [IntPtr]::Zero) {');
   lines.push('            $root = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd)');

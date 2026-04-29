@@ -50,11 +50,7 @@ function applyAcrylic(win: BrowserWindow): void {
   }
 }
 
-function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; y: number } {
-  // Panel always anchors to the cursor on activation. We used to support a
-  // "remember panel position" toggle, but it was removed — the panel is a
-  // cursor-first tool, not a fixed floating window.
-  // Use Electron's own cursor position (same coordinate space as window positioning)
+function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; y: number; width: number; height: number } {
   const electronCursor = screen.getCursorScreenPoint();
   log(`Cursor: robotjs=(${cursorX},${cursorY}) electron=(${electronCursor.x},${electronCursor.y})`);
 
@@ -64,32 +60,49 @@ function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; 
   const ly = electronCursor.y;
   const rightEdge = workArea.x + workArea.width;
   const bottomEdge = workArea.y + workArea.height;
-  const screenMiddle = workArea.x + workArea.width / 2;
 
-  const hGap = Math.round(workArea.width * 0.15);
-  const vGap = Math.round(workArea.height * 0.15);
+  // Panel size as percentage of display
+  const panelWidth = Math.round(workArea.width * 0.35);
+  const panelHeight = Math.round(workArea.height * 0.60);
+
+  const PADDING = 8;
+  const halfWidth = workArea.width / 2;
+
+  // Calculate available space on each side of cursor
+  const leftSpace = lx - workArea.x;
+  const rightSpace = rightEdge - lx;
+
+  // Bias toward left side (10% of screen width).
+  const BIAS = workArea.width * 0.1;
+
   let panelX: number;
-  let panelY: number;
-
-  if (lx < screenMiddle) {
-    panelX = lx + hGap;
+  if (leftSpace >= rightSpace + BIAS) {
+    // Cursor far to the right → place panel on LEFT half, centered within it
+    const leftHalfCenter = workArea.x + halfWidth / 2; // 25% across screen
+    panelX = Math.round(leftHalfCenter - panelWidth / 2);
+    log(`Panel placement: LEFT-HALF-CENTER (cursor-right, leftSpace=${Math.round(leftSpace)}, rightSpace=${Math.round(rightSpace)})`);
   } else {
-    panelX = lx - config.panelWidth - hGap;
+    // Cursor on left or middle → place panel on RIGHT half, centered within it
+    const rightHalfCenter = workArea.x + halfWidth + halfWidth / 2; // 75% across screen
+    panelX = Math.round(rightHalfCenter - panelWidth / 2);
+    log(`Panel placement: RIGHT-HALF-CENTER (cursor-left, leftSpace=${Math.round(leftSpace)}, rightSpace=${Math.round(rightSpace)})`);
   }
 
-  panelY = ly - vGap;
+  // Clamp horizontal so panel stays on screen
+  panelX = Math.max(workArea.x + PADDING, Math.min(panelX, rightEdge - panelWidth - PADDING));
 
-  panelX = Math.max(workArea.x + 4, Math.min(panelX, rightEdge - config.panelWidth - 4));
-  panelY = Math.max(workArea.y + 4, Math.min(panelY, bottomEdge - config.panelHeight - 4));
+  // Vertically center on screen (not relative to cursor)
+  let panelY = workArea.y + Math.round((workArea.height - panelHeight) / 2);
+  panelY = Math.max(workArea.y + PADDING, Math.min(panelY, bottomEdge - panelHeight - PADDING));
 
-  log(`Panel: x=${panelX} y=${panelY} | cursor=(${lx},${ly}) screenMid=${screenMiddle} ${lx < screenMiddle ? 'RIGHT' : 'LEFT'} of cursor`);
+  log(`Panel: x=${panelX} y=${panelY} width=${panelWidth} height=${panelHeight} | cursor=(${lx},${ly})`);
 
-  return { x: Math.round(panelX), y: Math.round(panelY) };
+  return { x: Math.round(panelX), y: Math.round(panelY), width: panelWidth, height: panelHeight };
 }
 
 function createWindow(cursorX: number, cursorY: number): BrowserWindow {
   const pos = calculatePanelPosition(cursorX, cursorY);
-  log(`Creating window at x=${pos.x}, y=${pos.y}, width=${config.panelWidth}, height=${config.panelHeight}`);
+  log(`Creating window at x=${pos.x}, y=${pos.y}, width=${pos.width}, height=${pos.height}`);
 
   // Resolve the owl icon for the BrowserWindow (Alt+Tab, taskbar if the
   // user ever un-sets skipTaskbar). Looked up relative to the built main
@@ -104,8 +117,8 @@ function createWindow(cursorX: number, cursorY: number): BrowserWindow {
   });
 
   const win = new BrowserWindow({
-    width: config.panelWidth,
-    height: config.panelHeight,
+    width: pos.width,
+    height: pos.height,
     x: pos.x,
     y: pos.y,
     frame: false,
@@ -226,8 +239,9 @@ function showPanel(context: ContextPayload): void {
     });
   } else {
     const pos = calculatePanelPosition(cursorX, cursorY);
-    log(`Repositioning existing window to x=${pos.x}, y=${pos.y}`);
+    log(`Repositioning existing window to x=${pos.x}, y=${pos.y}, size=${pos.width}x${pos.height}`);
     mainWindow.setPosition(pos.x, pos.y);
+    mainWindow.setSize(pos.width, pos.height);
   }
 
   const sendContext = () => {
@@ -288,6 +302,7 @@ function showExistingPanel(): void {
     lastCursorY ?? screen.getPrimaryDisplay().workAreaSize.height / 2
   );
   mainWindow.setPosition(pos.x, pos.y);
+  mainWindow.setSize(pos.width, pos.height);
   mainWindow.show();
   mainWindow.focus();
   mainWindow.moveTop();

@@ -727,9 +727,21 @@ export function registerIpcHandlers(
       return;
     }
     log(`EXECUTE_ACTION: type=${action.type}`);
+
+    // Hide panel before interactive actions so clicks/paste go to the target
+    // window, not the panel. The panel covers the target and steals focus.
+    if (win && isInteractiveAction(action.type)) {
+      log('Hiding panel before interactive action');
+      win.hide();
+      win.blur();
+      await new Promise((r) => setTimeout(r, 400)); // let target window regain focus
+    }
+
     const result = await executeAction(action);
     log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
-    if (win) {
+
+    if (win && !win.isDestroyed()) {
+      win.show();
       win.webContents.send(IPC.ACTION_RESULT, { action, result });
     }
   });
@@ -760,9 +772,20 @@ export function registerIpcHandlers(
       return;
     }
     log(`RETRY_ACTION: type=${action.type} selector=${action.selector || ""}`);
+
+    // Hide panel before interactive actions so clicks/paste go to the target
+    if (win && isInteractiveAction(action.type)) {
+      log('Hiding panel before retry action');
+      win.hide();
+      win.blur();
+      await new Promise((r) => setTimeout(r, 400));
+    }
+
     const result = await executeAction(action);
     log(`Retry result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
-    if (win) {
+
+    if (win && !win.isDestroyed()) {
+      win.show();
       win.webContents.send(IPC.ACTION_RESULT, { action, result });
     }
   });
