@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v13.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v14.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -48,6 +48,28 @@ function getScriptContent(): string {
   lines.push('    try { $dict["className"] = $el.Current.ClassName } catch { $dict["className"] = "" }');
   lines.push('    try { $dict["isOffscreen"] = $el.Current.IsOffscreen } catch { $dict["isOffscreen"] = $false }');
   lines.push('    $dict');
+  lines.push('}');
+  lines.push('');
+  lines.push('function GetDeepValue($el) {');
+  lines.push('    $deepVal = ""');
+  lines.push('    try {');
+  lines.push('        $vp = $null');
+  lines.push('        $ok = $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
+  lines.push('        if ($ok -and $vp) {');
+  lines.push('            $deepVal = $vp.Current.Value');
+  lines.push('            if ($deepVal.Length -gt 8000) { $deepVal = $deepVal.Substring(0, 8000) }');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('    if (-not $deepVal) {');
+  lines.push('        try {');
+  lines.push('            $tp = $null');
+  lines.push('            $ok2 = $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$tp)');
+  lines.push('            if ($ok2 -and $tp) {');
+  lines.push('                $deepVal = $tp.DocumentRange.GetText(8000)');
+  lines.push('            }');
+  lines.push('        } catch {}');
+  lines.push('    }');
+  lines.push('    return $deepVal');
   lines.push('}');
   lines.push('');
   lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom")');
@@ -230,6 +252,8 @@ function getScriptContent(): string {
   lines.push('');
   lines.push('    $result = @{}');
   lines.push('    $result["element"] = ElDict $element');
+  lines.push('    $deepValue = GetDeepValue $element');
+  lines.push('    if ($deepValue) { $result["element"]["value"] = $deepValue }');
   lines.push('    if ($element -ne $rawElement) {');
   lines.push('        $result["element"]["_drilledFromContainer"] = $true');
   lines.push('        $containerDict = ElDict $rawElement');

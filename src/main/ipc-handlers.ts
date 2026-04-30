@@ -540,17 +540,20 @@ export function registerIpcHandlers(
         }
         contextBlock += `\nCURSOR: ${currentContext.cursorPos.x}, ${currentContext.cursorPos.y}`;
         contextBlock += `\n\nYOU POINTED AT:`;
-        contextBlock += `\n  ${formatElementType(el.type)}`;
+contextBlock += `\n  ${formatElementType(el.type)}`;
         if (el.name) contextBlock += ` "${el.name}"`;
         if (el.automationId) contextBlock += ` [${el.automationId}]`;
-        if (el.value) {
-          const valPreview = el.value.length > 200 ? el.value.slice(0, 200) + "..." : el.value;
-          contextBlock += `="${valPreview}"`;
-        }
         contextBlock += ` @(${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height})`;
-        if (el.className) contextBlock += `\n  class=${el.className}`;
-        if (el._drilledFromContainer) {
-          contextBlock += `\n  (found inside ${el.containerType || "container"} wrapper)`;
+        if (el.value) {
+          const MAX_TARGET_VALUE = 8000;
+          const val = el.value.length > MAX_TARGET_VALUE ? el.value.slice(0, MAX_TARGET_VALUE) + `\n... (${el.value.length} chars total, showing first ${MAX_TARGET_VALUE})` : el.value;
+          if (val.includes("\n")) {
+            contextBlock += `\n  value:\n${val.split("\n").map((l: string) => `    ${l}`).join("\n")}`;
+          } else if (val.length > 200) {
+            contextBlock += `\n  value: ${val}`;
+          } else {
+            contextBlock += ` value="${val}"`;
+          }
         }
         if (el.parentChain && el.parentChain.length > 0) {
           contextBlock += `\n  Hierarchy: ${el.parentChain.join(" > ")}`;
@@ -572,7 +575,23 @@ export function registerIpcHandlers(
         if (attachScreenshotNext && (currentContext.imagePath || areaImagePath)) {
           contextBlock += `\n\n[A screenshot showing what you pointed at is attached as an image]`;
         }
-        contextBlock += `\n--- END CONTEXT ---\n`;
+contextBlock += `\n--- END CONTEXT ---\n`;
+      }
+
+      const MAX_CONTEXT_CHARS = 16000;
+      if (contextBlock.length > MAX_CONTEXT_CHARS) {
+        const targetSection = "YOU POINTED AT:";
+        const targetIdx = contextBlock.indexOf(targetSection);
+        if (targetIdx !== -1) {
+          const beforeTarget = contextBlock.substring(0, targetIdx);
+          const afterTarget = contextBlock.substring(targetIdx);
+          const afterTargetEnd = afterTarget.indexOf("\n\nVISIBLE WINDOWS:");
+          const afterTargetSection = afterTargetEnd !== -1 ? afterTarget.substring(0, afterTargetEnd) : afterTarget;
+          const tail = afterTargetEnd !== -1 ? afterTarget.substring(afterTargetEnd) : "";
+          const budget = MAX_CONTEXT_CHARS - beforeTarget.length - 200;
+          const trimmed = afterTargetSection.length > budget ? afterTargetSection.substring(0, budget) + `\n... (value truncated at ${budget} chars)` : afterTargetSection;
+          contextBlock = beforeTarget + trimmed + (tail ? "\n" + tail : "") + `\n--- END CONTEXT ---\n`;
+        }
       }
 
       const systemPrefix = `${SYSTEM_PROMPT}\n\n`;
