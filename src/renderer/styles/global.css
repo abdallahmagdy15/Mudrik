@@ -28,10 +28,11 @@
      Windows acrylic (it dims on blur) nor CSS backdrop-filter
      (doesn't sample the desktop through Electron's transparent
      window). These values trade the glass fantasy for readability. */
-  --bg-surface:  rgba(14, 34, 44, 0.92);
-  --bg-overlay:  rgba(14, 34, 44, 0.96);
-  --bg-inset:    rgba(8, 22, 30, 0.85);
-  --bg-elevated: rgba(22, 54, 68, 0.90);
+--bg-surface:  rgba(14, 34, 44, 0.92);
+   --bg-overlay:  rgba(14, 34, 44, 0.96);
+   --bg-inset:    rgba(8, 22, 30, 0.85);
+   --bg-elevated: rgba(22, 54, 68, 0.90);
+   --msg-fade:    rgba(14, 34, 44, 0.95);
 
   /* Text */
   --text:        var(--owl-sky-100);
@@ -101,10 +102,11 @@
 /* ── Light palette (system theme switch) ── */
 @media (prefers-color-scheme: light) {
   :root {
-    --bg-surface:  rgba(255, 255, 255, 0.92);
-    --bg-overlay:  rgba(250, 252, 253, 0.96);
-    --bg-inset:    rgba(240, 248, 251, 0.90);
-    --bg-elevated: rgba(255, 255, 255, 0.94);
+--bg-surface:  rgba(255, 255, 255, 0.92);
+     --bg-overlay:  rgba(250, 252, 253, 0.96);
+     --bg-inset:    rgba(240, 248, 251, 0.90);
+     --bg-elevated: rgba(255, 255, 255, 0.94);
+     --msg-fade:    rgba(245, 247, 249, 0.95);
 
     --text:        #0C2530;
     --text-subtle: #3B6070;
@@ -838,6 +840,19 @@ body {
   border-radius: var(--radius);
   scroll-behavior: smooth;
   position: relative;
+}
+.messages::before {
+  content: '';
+  position: sticky;
+  top: -8px;
+  left: 0;
+  right: 0;
+  display: block;
+  height: 24px;
+  margin: -8px -8px 0 -8px;
+  background: linear-gradient(to bottom, var(--msg-fade), transparent);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .new-conversation-hint {
