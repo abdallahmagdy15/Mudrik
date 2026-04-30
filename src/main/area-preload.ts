@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 contextBridge.exposeInMainWorld("areaSelection", {
-  complete: (x1: number, y1: number, x2: number, y2: number) =>
-    ipcRenderer.send("area-selection-complete", x1, y1, x2, y2),
   cancel: () =>
     ipcRenderer.send("area-selection-cancel"),
+  on: (channel: string, ...args: any[]) =>
+    ipcRenderer.on(channel, (_event, ...a: any[]) => args[0](...a)),
 });
+
+ipcRenderer.send("area-selection-ready");

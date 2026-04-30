@@ -50,6 +50,8 @@ const en = {
   somethingWentWrong: "Something went wrong",
   errorDescription: "Mudrik hit an unexpected error. Try reopening the panel or restarting the app.",
   restart: "Restart",
+  areaHint: "Click and drag to select area",
+  areaEsc: "Esc to cancel",
 };
 
 const ar: Record<Key, string> = {
@@ -101,6 +103,8 @@ const ar: Record<Key, string> = {
   somethingWentWrong: "حدث خطأ ما",
   errorDescription: "واجه مدرك خطأ غير متوقع. حاول إعادة فتح اللوحة أو إعادة تشغيل التطبيق.",
   restart: "إعادة تشغيل",
+  areaHint: "انقر واسحب لتحديد المنطقة",
+  areaEsc: "Esc للإلغاء",
 };
 
 const strings: Record<Lang, Record<Key, string>> = { en, ar };

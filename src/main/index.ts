@@ -377,24 +377,16 @@ function handleAreaActivate(): void {
   hidePanel();
   startAreaSelection((rect) => {
     if (myActivation !== activationSeq) {
-      log(`Area activation #${myActivation} superseded by #${activationSeq} — discarding selection`);
+      log(`Area activation #${myActivation} superseded by #${activationSeq}`);
       return;
     }
-    log(`Area selected (DIP): (${rect.x1},${rect.y1}) to (${rect.x2},${rect.y2})`);
-    // The overlay reports coordinates in DIPs (CSS pixels). PowerShell runs
-    // with SetProcessDPIAware, so both the CopyFromScreen capture AND the
-    // UIA scan expect PHYSICAL pixels. On a 150%-scaled monitor the two
-    // coordinate spaces differ by 1.5×, which was producing screenshots of
-    // a completely different region than what the user dragged over.
-    const midX = (rect.x1 + rect.x2) / 2;
-    const midY = (rect.y1 + rect.y2) / 2;
-    const display = screen.getDisplayNearestPoint({ x: Math.round(midX), y: Math.round(midY) });
-    const sf = display.scaleFactor || 1;
-    const px1 = Math.round(rect.x1 * sf);
-    const py1 = Math.round(rect.y1 * sf);
-    const px2 = Math.round(rect.x2 * sf);
-    const py2 = Math.round(rect.y2 * sf);
-    log(`Area in physical px (sf=${sf}): (${px1},${py1}) to (${px2},${py2})`);
+    log(`Area selected (physical): (${rect.x1},${rect.y1}) to (${rect.x2},${rect.y2})`);
+    const px1 = rect.x1;
+    const py1 = rect.y1;
+    const px2 = rect.x2;
+    const py2 = rect.y2;
+    const midX = (px1 + px2) / 2;
+    const midY = (py1 + py2) / 2;
     const cursorPos = { x: Math.round(midX), y: Math.round(midY) };
     // Capture/scan BEFORE showing the highlight — otherwise the glowing
     // border window is drawn on top of the region and gets baked into the
