@@ -421,6 +421,7 @@ function applyLoginItemSetting(launchOnStartup: boolean): void {
     app.setLoginItemSettings({
       openAtLogin: launchOnStartup,
       openAsHidden: true,
+      args: launchOnStartup ? ["--hidden"] : [],
     });
     log(`setLoginItemSettings: openAtLogin=${launchOnStartup}`);
   } catch (e: any) {
@@ -453,6 +454,8 @@ async function maybeShowWelcome(): Promise<void> {
 app.whenReady().then(async () => {
   log("App ready, initializing...");
 
+  const startedHidden = process.argv.includes("--hidden");
+
   // One-shot: carry the user's config over from %APPDATA%\hoverbuddy\ if it
   // was installed pre-rebrand. Must run BEFORE isFirstRun/loadConfig so the
   // first-run flow doesn't trigger for people who already had config.
@@ -471,7 +474,9 @@ app.whenReady().then(async () => {
   applyTheme(config.theme);
   applyLoginItemSetting(config.launchOnStartup);
 
-  await maybeShowWelcome();
+  if (!startedHidden) {
+    await maybeShowWelcome();
+  }
 
   createTrayWithShow(
     () => {
