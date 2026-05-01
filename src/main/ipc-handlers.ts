@@ -1025,8 +1025,8 @@ function filterToolArtifactLines(text: string): string {
     if (!trimmed) return true;
     if (/^⚙\s/.test(trimmed)) return false;
     if (/^(Thinking|Thought|Action|Observation)\s*:/i.test(trimmed)) return false;
-    if (/^playwright_|^browser_|^web_search|^mcp__|^skill\b|^tool_/.test(trimmed)) return false;
-    if (/^\[[\w_]+\]/.test(trimmed) && /playwright|browser|tool|search|skill/i.test(trimmed)) return false;
+    if (/^playwright_|^browser_|^mcp__|^skill\b|^tool_/.test(trimmed)) return false;
+    if (/^\[[\w_]+\]/.test(trimmed) && /playwright|browser|tool|skill/i.test(trimmed)) return false;
     if (/operational mode has changed/i.test(trimmed)) return false;
     if (/no longer in read-only mode/i.test(trimmed)) return false;
     if (/permitted to make file changes/i.test(trimmed)) return false;

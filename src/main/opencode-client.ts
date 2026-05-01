@@ -45,8 +45,6 @@ const DISALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "bash",
   "edit",
   "write",
-  "webfetch",
-  "websearch",
   "task",
   "todowrite",
   "skill",
