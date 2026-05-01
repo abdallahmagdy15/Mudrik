@@ -6,7 +6,7 @@ import * as os from "os";
 import { Action, ActionType } from "../shared/types";
 import { runPowerShell } from "./powershell-runner";
 import { log } from "./logger";
-const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v4.ps1";
+const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v5.ps1";
 const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v4.ps1";
 
 // Action types that actually drive the desktop (mouse, keyboard, UIA invoke).
@@ -359,10 +359,12 @@ function getFindScriptContent(): string {
   lines.push('                $score = 0');
   lines.push('                $nameLower = if ($name) { $name.ToLower() } else { "" }');
   lines.push('');
+  lines.push('                # Exact-match-only for AutomationId. Substring matching used to');
+  lines.push('                # bite hard on cell-grid IDs ("A1" silently matched A10..A19).');
+  lines.push('                # If the AI gives an automationId, it must hit exactly or fall');
+  lines.push('                # through to name matching at lower scores.');
   lines.push('                if ($automationId -and $autoId -eq $automationId) {');
   lines.push('                    $score = 200');
-  lines.push('                } elseif ($automationId -and $autoId -and $autoId.ToLower().Contains($automationId.ToLower())) {');
-  lines.push('                    $score = 150');
   lines.push('                }');
   lines.push('');
   lines.push('                if ($score -eq 0) {');
@@ -392,6 +394,48 @@ function getFindScriptContent(): string {
   lines.push('    } catch {}');
   lines.push('}');
   lines.push('');
+  // Virtualized-item realize pass. Excel (and any large grid/list using UIA
+  // virtualization) only enumerates cells in the visible viewport. If the
+  // target scrolled offscreen between context capture and action execution,
+  // a plain FindAll-based traversal won't see it. ItemContainerPattern +
+  // VirtualizedItemPattern is the supported way to materialize an item by
+  // AutomationId — once Realized, it shows up in the tree and FindElement
+  // can score it normally.
+  lines.push('$script:realized = $false');
+  lines.push('');
+  lines.push('function TryRealizeVirtualized($node, $autoIdToFind, $depth, $maxDepth) {');
+  lines.push('    if ($script:realized) { return }');
+  lines.push('    if (-not $autoIdToFind -or $depth -gt $maxDepth) { return }');
+  lines.push('    try {');
+  lines.push('        $icPattern = $null');
+  lines.push('        $hasIC = $false');
+  lines.push('        try {');
+  lines.push('            $hasIC = $node.TryGetCurrentPattern([System.Windows.Automation.ItemContainerPattern]::Pattern, [ref]$icPattern)');
+  lines.push('        } catch {}');
+  lines.push('        if ($hasIC -and $icPattern) {');
+  lines.push('            try {');
+  lines.push('                $item = $icPattern.FindItemByProperty($null, [System.Windows.Automation.AutomationElement]::AutomationIdProperty, $autoIdToFind)');
+  lines.push('                if ($item) {');
+  lines.push('                    $vip = $null');
+  lines.push('                    try {');
+  lines.push('                        $hasVip = $item.TryGetCurrentPattern([System.Windows.Automation.VirtualizedItemPattern]::Pattern, [ref]$vip)');
+  lines.push('                        if ($hasVip -and $vip) { $vip.Realize() }');
+  lines.push('                    } catch {}');
+  lines.push('                    $script:realized = $true');
+  lines.push('                    return');
+  lines.push('                }');
+  lines.push('            } catch {}');
+  lines.push('        }');
+  lines.push('        try {');
+  lines.push('            $children = $node.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('            foreach ($c in $children) {');
+  lines.push('                if ($script:realized) { return }');
+  lines.push('                TryRealizeVirtualized $c $autoIdToFind ($depth+1) $maxDepth');
+  lines.push('            }');
+  lines.push('        } catch {}');
+  lines.push('    } catch {}');
+  lines.push('}');
+  lines.push('');
   lines.push('try {');
   lines.push('    # Scope search to the foreground window instead of the entire desktop.');
   lines.push('    Add-Type @"');
@@ -406,6 +450,15 @@ function getFindScriptContent(): string {
   lines.push('    } else {');
   lines.push('        $root = [System.Windows.Automation.AutomationElement]::RootElement');
   lines.push('    }');
+  lines.push('');
+  lines.push('    # Try to materialize a virtualized item (e.g. an Excel cell scrolled out');
+  lines.push('    # of view) BEFORE walking the tree. If found, give Excel a moment to');
+  lines.push('    # update its UIA tree before FindElement enumerates.');
+  lines.push('    if ($automationId) {');
+  lines.push('        TryRealizeVirtualized $root $automationId 0 8');
+  lines.push('        if ($script:realized) { Start-Sleep -Milliseconds 150 }');
+  lines.push('    }');
+  lines.push('');
   lines.push('    FindElement $root 0 20');
   lines.push('');
   lines.push('    if ($script:found.Count -eq 0) {');
