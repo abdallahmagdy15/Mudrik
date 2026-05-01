@@ -64,9 +64,20 @@ Two layers limit what the LLM subprocess can do:
 
 A second IPC-level guard (`validateAction` in `action-executor.ts`) defends against a compromised renderer sending a forged action payload. Never wire a new IPC handler that forwards renderer-supplied actions to an executor without going through `validateAction`.
 
-### Action gating via session snapshot
+### Action gating is live (no snapshot)
 
-`Config.actionsEnabled` is the user's master switch for desktop-interactive actions (everything except `copy_to_clipboard`). It is **snapshotted at session start** into `sessionActionsEnabled` in `ipc-handlers.ts` — toggling it mid-conversation does NOT change runtime behaviour. Three runtime guards (auto-execute loop, `EXECUTE_ACTION`, `RETRY_ACTION`) all consult the snapshot, and the system prompt instructs the AI to advise the user to start a new conversation for the change to take effect cleanly. Don't refactor the snapshot away unless you also rewrite the prompt's user-facing copy.
+`Config.actionsEnabled` is the user's master switch for desktop-interactive actions (everything except `copy_to_clipboard`). It is read **live** in two places, never cached:
+
+1. **Runtime action guards** — auto-execute loop, `EXECUTE_ACTION`, `RETRY_ACTION` all read `config.actionsEnabled` directly at execution time. Toggling the setting in ⚙ blocks (or unblocks) the very next action attempt, even mid-stream.
+2. **System-prompt actionsBlock** — built fresh on every non-followup send (i.e. every Alt+Space / Ctrl+Space that captures new context, since `setContext` / `setAreaContext` flip `contextNeedsSending = true`). The block reads `config.actionsEnabled` at that moment.
+
+What this means for the user-facing model:
+
+- Mid-conversation toggles do **not** auto-trigger a re-send. A follow-up message after a toggle still goes out as a follow-up (no system prompt) — the model continues to believe whatever the most recent system block told it.
+- The new setting lands on the **next context capture** (Alt+Space / Ctrl+Space), which is when the system prompt is rebuilt anyway.
+- Earlier turns of the conversation may carry the opposite `actionsEnabled` instruction in their history; the actionsBlock explicitly tells the model to trust the latest block over older ones.
+
+This matches the user's mental model: "what's been sent is done; the next snapshot of context picks up my latest settings." If you add another setting that the model must see, build it into the same actionsBlock-style block so it refreshes naturally on every non-followup send.
 
 ### PowerShell is the UIA bridge
 

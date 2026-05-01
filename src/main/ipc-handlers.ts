@@ -94,12 +94,6 @@ let areaImagePath: string = "";
 let lastContextHash: string = "";
 let contextNeedsSending: boolean = false;
 let hasSentFirstMessage: boolean = false;
-// The "Allow desktop actions" setting is snapshotted at the moment each
-// session starts and held for the life of the session. Toggling it mid-
-// conversation no longer changes behaviour — the user has to start a new
-// session (+) for the change to take effect. This prevents the AI from
-// seeing contradictory instructions across turns in the same conversation.
-let sessionActionsEnabled: boolean = true;
 let attachScreenshotNext: boolean = false;
 
 export function setContext(context: ContextPayload): void {
@@ -485,15 +479,7 @@ export function registerIpcHandlers(
 
     const isFollowUp = hasSentFirstMessage && !contextNeedsSending;
     log(`isFollowUp=${isFollowUp} (hasSent=${hasSentFirstMessage}, needsSend=${contextNeedsSending})`);
-
-    // Snapshot the actions-allowed setting on the FIRST send of every new
-    // session. All subsequent turns (+ runtime guards) in this conversation
-    // use the snapshot regardless of what the user toggles in settings, so
-    // the AI never sees the rule change mid-conversation.
-    if (!hasSentFirstMessage) {
-      sessionActionsEnabled = config.actionsEnabled;
-      log(`Session actions snapshot: actionsEnabled=${sessionActionsEnabled}`);
-    }
+    log(`actionsEnabled=${config.actionsEnabled} (live — not snapshotted)`);
     let fullPrompt: string;
 
     if (isFollowUp) {
@@ -595,16 +581,15 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       }
 
       const systemPrefix = `${SYSTEM_PROMPT}\n\n`;
-      // Tell the AI about the current actions permission. This setting is
-      // SNAPSHOTTED at the moment each message fires — the Allow Desktop
-      // Actions toggle takes effect on the NEXT send, never mid-response.
-      // Crucially, if the user toggles mid-conversation, the AI must tell
-      // them to start a new conversation (+ button) for the new mode to
-      // take full effect end-to-end; otherwise the old conversation can
-      // contain contradictory instructions and the model will be confused.
-      const actionsBlock = sessionActionsEnabled
-        ? `\n--- USER SETTING ---\nactionsEnabled: true — you MAY emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to). If the user asks to go read-only, tell them: "Toggle 'Allow desktop actions' off in settings, then start a new conversation (+ button) so the change applies cleanly."\n--- END SETTING ---\n`
-        : `\n--- USER SETTING ---\nactionsEnabled: false — READ-ONLY MODE. Do NOT emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to) — they will be blocked and the user will see a "blocked" error. You MAY still emit copy_to_clipboard markers and COPY chips so the user can paste content themselves.\n\nIf the user asks you to perform an action, or wants to re-enable actions: gently tell them "I'm in read-only mode for this session. To re-enable desktop actions, toggle 'Allow desktop actions' in ⚙ settings AND start a new conversation (+ button) — the setting is locked in at the start of each session."\n--- END SETTING ---\n`;
+      // Tell the AI about the current actions permission. The toggle is
+      // LIVE — when the user flips it in settings, contextNeedsSending is
+      // forced true so the very next message rebuilds this block with the
+      // new value. Earlier turns of the same conversation may carry the
+      // opposite instruction in their history; the model must trust THIS
+      // block (the most recent system instruction) over older ones.
+      const actionsBlock = config.actionsEnabled
+        ? `\n--- USER SETTING ---\nactionsEnabled: true — you MAY emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to). This is the live, current setting; if earlier in this conversation you said you were in read-only mode, that instruction is now superseded.\n--- END SETTING ---\n`
+        : `\n--- USER SETTING ---\nactionsEnabled: false — READ-ONLY MODE. Do NOT emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to) — they will be blocked and the user will see a "blocked" error. You MAY still emit copy_to_clipboard markers and COPY chips so the user can paste content themselves. This is the live, current setting; if earlier in this conversation you said actions were enabled, that instruction is now superseded. If the user wants to re-enable actions: tell them to toggle 'Allow desktop actions' in ⚙ settings — the change takes effect on their next message.\n--- END SETTING ---\n`;
       fullPrompt = systemPrefix + contextBlock + actionsBlock + `\n--- USER MESSAGE ---\n${prompt}\n--- END MESSAGE ---\n`;
     }
 
@@ -688,7 +673,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
         for (const action of actions) {
           // Read-only mode guard. Interactive actions are blocked with a clear
           // reason; copy_to_clipboard still passes through.
-          if (!sessionActionsEnabled && isInteractiveAction(action.type)) {
+          if (!config.actionsEnabled && isInteractiveAction(action.type)) {
             log(`BLOCKED (read-only): ${action.type}`);
             win.webContents.send(IPC.ACTION_RESULT, {
               action,
@@ -735,7 +720,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       return;
     }
     const action = v.action;
-    if (!sessionActionsEnabled && isInteractiveAction(action.type)) {
+    if (!config.actionsEnabled && isInteractiveAction(action.type)) {
       log(`EXECUTE_ACTION BLOCKED (read-only): ${action.type}`);
       if (win) {
         win.webContents.send(IPC.ACTION_RESULT, {
@@ -780,7 +765,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       return;
     }
     const action = v.action;
-    if (!sessionActionsEnabled && isInteractiveAction(action.type)) {
+    if (!config.actionsEnabled && isInteractiveAction(action.type)) {
       log(`RETRY_ACTION BLOCKED (read-only): ${action.type}`);
       if (win) {
         win.webContents.send(IPC.ACTION_RESULT, {
