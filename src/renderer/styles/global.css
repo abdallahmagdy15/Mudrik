@@ -15,7 +15,7 @@
   --owl-cyan-300: #5FD8F0;
   --owl-cyan-500: #18BFE1;
   --owl-cyan-700: #0FA8C9;
-  --owl-teal-ink: #0C2530;
+--owl-teal-ink: #081A22;
   --owl-orange-500: #F2A93A;
   --owl-orange-300: #FFC06A;
   --owl-ink: #1C1C1C;
@@ -24,50 +24,47 @@
   --owl-sky-300: #8FBFCD;
   --owl-sky-500: #556A77;
 
-  /* Semantic surfaces — solid teal-ink tints. We are not using
-     Windows acrylic (it dims on blur) nor CSS backdrop-filter
-     (doesn't sample the desktop through Electron's transparent
-     window). These values trade the glass fantasy for readability. */
---bg-surface:  rgba(14, 34, 44, 0.92);
-   --bg-overlay:  rgba(14, 34, 44, 0.96);
-   --bg-inset:    rgba(8, 22, 30, 0.85);
-   --bg-elevated: rgba(22, 54, 68, 0.90);
-   --msg-fade:    rgba(14, 34, 44, 0.95);
+  /* Semantic surfaces — deep dark teal, near-black with a cool undertone.
+     Not using Windows acrylic (dims on blur) nor CSS backdrop-filter
+     (can't sample desktop through Electron's transparent window). */
+--bg-surface:  rgba(8, 18, 28, 0.94);
+    --bg-overlay:  rgba(6, 14, 24, 0.97);
+    --bg-inset:    rgba(4, 10, 18, 0.88);
+    --bg-elevated: rgba(14, 36, 50, 0.92);
+    --msg-fade:    rgba(8, 18, 28, 0.96);
 
   /* Text */
   --text:        var(--owl-sky-100);
   --text-subtle: var(--owl-sky-300);
   --text-muted:  var(--owl-sky-500);
-  /* Header icon tone — darker than --text-muted so gear/+/-/× read
-     clearly on the tinted panel (dark theme). */
-  --icon-fg:     rgba(143, 191, 205, 0.78);
+  --icon-fg:     rgba(120, 175, 195, 0.75);
 
   /* Accent family — cyan */
   --accent:        var(--owl-cyan-500);
   --accent-bright: var(--owl-cyan-300);
   --accent-deep:   var(--owl-cyan-700);
-  --accent-glow:        rgba(24, 191, 225, 0.14);
-  --accent-glow-strong: rgba(24, 191, 225, 0.28);
+  --accent-glow:        rgba(24, 191, 225, 0.10);
+  --accent-glow-strong: rgba(24, 191, 225, 0.22);
 
   /* Warm family — orange (beak / feet) */
   --warm:       var(--owl-orange-500);
   --warm-bright: var(--owl-orange-300);
-  --warm-glow:  rgba(242, 169, 58, 0.16);
+  --warm-glow:  rgba(242, 169, 58, 0.14);
 
   /* Status */
   --green: #6EE7B7;
-  --green-glow: rgba(110, 231, 183, 0.12);
+  --green-glow: rgba(110, 231, 183, 0.10);
   --red:   #FB7185;
-  --red-glow: rgba(251, 113, 133, 0.12);
+  --red-glow: rgba(251, 113, 133, 0.10);
   --yellow: var(--owl-orange-500);
 
   /* Borders */
-  --border:        rgba(95, 216, 240, 0.14);
-  --border-bright: rgba(24, 191, 225, 0.38);
+  --border:        rgba(95, 216, 240, 0.10);
+  --border-bright: rgba(24, 191, 225, 0.32);
 
   /* Brand gradient — owl body → beak */
   --gradient-accent: linear-gradient(135deg, var(--owl-cyan-500), var(--owl-cyan-300) 55%, var(--owl-orange-500));
-  --gradient-accent-faded: linear-gradient(135deg, rgba(24, 191, 225, 0.18), rgba(95, 216, 240, 0.14) 55%, rgba(242, 169, 58, 0.18));
+  --gradient-accent-faded: linear-gradient(135deg, rgba(24, 191, 225, 0.14), rgba(95, 216, 240, 0.10) 55%, rgba(242, 169, 58, 0.14));
   --gradient-green:  linear-gradient(135deg, var(--green), var(--owl-cyan-300));
 
   --radius: 8px;
@@ -80,23 +77,22 @@
 
   /* Panel chrome tint — translucent so Windows acrylic blur shows through.
      Acrylic provides the desktop blur; this is the tint layer on top. */
-  --panel-paint:  rgba(14, 34, 44, 0.30);
-  --panel-border: rgba(95, 216, 240, 0.28);
+  --panel-paint:  rgba(6, 14, 24, 0.35);
+  --panel-border: rgba(95, 216, 240, 0.22);
 
   --app-gradient: none;
 
-  --btn-attach-bg: rgba(22, 54, 68, 0.75);
+  --btn-attach-bg: rgba(14, 36, 50, 0.78);
   --btn-attach-hover: var(--bg-elevated);
   --btn-attach-text: #FFFFFF;
-  --badge-muted-text: rgba(255, 255, 255, 0.6);
+  --badge-muted-text: rgba(255, 255, 255, 0.55);
 
-  /* Copy chips — neutral dark grey, intentionally not accented so
-     they read as "copyable snippet" rather than a link/CTA. */
-  --chip-bg:     rgba(40, 48, 54, 0.55);
+  /* Copy chips — neutral dark grey */
+  --chip-bg:     rgba(28, 36, 44, 0.60);
   --chip-fg:     rgba(210, 218, 224, 0.92);
-  --chip-border: rgba(120, 132, 140, 0.35);
-  --chip-bg-hover:     rgba(50, 60, 68, 0.72);
-  --chip-border-hover: rgba(150, 162, 170, 0.55);
+  --chip-border: rgba(120, 132, 140, 0.30);
+  --chip-bg-hover:     rgba(36, 46, 56, 0.75);
+  --chip-border-hover: rgba(150, 162, 170, 0.50);
 }
 
 /* ── Light palette (system theme switch) ── */
@@ -171,8 +167,8 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(24,191,225,0.25); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(24,191,225,0.45); }
+::-webkit-scrollbar-thumb { background: rgba(24,191,225,0.20); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(24,191,225,0.38); }
 
 .app {
   display: flex;
@@ -297,7 +293,7 @@ body {
      + gap (6px) + small buffer (6px) = ~76px. Dropdown scrolls when taller. */
   max-height: calc(100vh - 76px);
   overflow-y: auto;
-  box-shadow: 0 12px 32px rgba(12, 37, 48, 0.45);
+  box-shadow: 0 12px 32px rgba(6, 14, 24, 0.55);
   -webkit-app-region: no-drag;
   animation: msgSlide 0.15s ease;
 }
