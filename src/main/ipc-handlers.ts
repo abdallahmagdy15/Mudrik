@@ -616,30 +616,42 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     let receivedAnyText = false;
     let timeoutFired = false;
 
+    // Idle-based timeout: fires only after 5 minutes of *silence* from
+    // OpenCode. Every event (step_start, tool_use, text, step_finish) resets
+    // the timer — so heavy reasoning / slow-first-token models don't trip it
+    // as long as they're making any progress. Once sendPromise resolves the
+    // subprocess is done, we cancel the timer entirely so action execution
+    // (which can take 30+ seconds for a chain of UIA paste/click ops) never
+    // fires this error.
+    const IDLE_TIMEOUT_MS = 300000; // 5 min
+    let idleTimer: NodeJS.Timeout | null = null;
+    const armIdleTimer = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        timeoutFired = true;
+        log(`TIMEOUT: No AI activity for ${IDLE_TIMEOUT_MS / 60000} minutes — killing process`);
+        client.kill();
+        win.webContents.send(IPC.STREAM_ERROR, "AI took too long to respond. Please try again.");
+      }, IDLE_TIMEOUT_MS);
+    };
+    const stopIdleTimer = () => {
+      if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+    };
+
     try {
-      const sendPromise = client.sendMessage(fullPrompt, (event: OpenCodeEvent) => {
+      armIdleTimer();
+      await client.sendMessage(fullPrompt, (event: OpenCodeEvent) => {
         if (timeoutFired) return;
+        armIdleTimer(); // reset on every event — AI is still making progress
         if (event.type === "text" && event.part?.text) {
           receivedAnyText = true;
         }
         handleOpenCodeEvent(event, win);
       }, imageFiles.length > 0 ? imageFiles : undefined);
 
-      const timeoutPromise = new Promise<void>((resolve) => {
-        setTimeout(() => {
-          if (!receivedAnyText) {
-            log("TIMEOUT: No response after 2 minutes — killing process");
-            timeoutFired = true;
-            client.kill();
-            win.webContents.send(IPC.STREAM_ERROR, "AI took too long to respond. Please try again.");
-            resolve();
-          } else {
-            resolve();
-          }
-        }, 120000);
-      });
-
-      await Promise.race([sendPromise, timeoutPromise]);
+      // Subprocess is done. Action execution that follows can take as long
+      // as it needs — no more idle timeout from this point on.
+      stopIdleTimer();
       if (timeoutFired) return;
       log("OpenCode session completed");
 
@@ -694,6 +706,10 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       }
       win.webContents.send(IPC.STREAM_DONE);
     } catch (err: any) {
+      stopIdleTimer();
+      // If the timeout already surfaced an error to the user, swallow the
+      // resulting "kill" rejection so we don't double-error.
+      if (timeoutFired) return;
       const msg = err?.message || String(err);
       log(`ERROR from OpenCode: ${msg}`);
       if (msg.startsWith("exit:")) {
