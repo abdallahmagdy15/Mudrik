@@ -18,11 +18,19 @@
 
 ***
 
+## 🎬 Demo
+
+[**Watch the demo →**](https://abdallahmagdy15.github.io/Mudrik/)
+
+<div align="center"><em>Alt+Space → ask → Mudrik acts on your desktop</em></div>
+
+***
+
 ## ✨ What it does
 
 Hover anywhere on Windows and press **Alt+Space**. A quick floating panel slides in on the **opposite half** of your screen from your cursor — what you're pointing at stays in clear view, and Mudrik's actions land on the real element instead of the panel itself.
 
-The UI element under your cursor (name, label, text, parent window, nearby labels) is preloaded as context — no screenshot needed. From there: ask, translate, fix, summarize — or tell it to *act*: type, paste, click, press a chord, guide your cursor. The AI sees your screen's *structure*, not pixels (unless you attach a screenshot via the 📸 button).
+Mudrik reads your **whole active window** — every visible button, field, label, value, and the list of other open windows — with the element under your cursor marked as the focal anchor. All of it is preloaded as context — no screenshot needed. From there: ask, translate, fix, summarize — or tell it to *act*: type, paste, click, press a chord, guide your cursor. The AI sees your screen's *structure*, not pixels (unless you attach a screenshot via the 📸 button).
 
 ## 🚀 Install
 
@@ -44,7 +52,7 @@ Two global hotkeys put Mudrik in front of you. Both are rebindable from the ⚙ 
 
 | Shortcut     | What happens                                                                                                                                                                                                                   |
 | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `Alt+Space`  | Panel slides in on the opposite side of your cursor. The UI element under your cursor — its name, label, text content, parent window, nearby labels — is preloaded as context. The AI is now aware of what you're pointing at. |
+| `Alt+Space`  | Panel slides in on the opposite side of your cursor. Mudrik scans the active window's full UI tree — every visible button, field, label, and value — and the list of other open windows, with your cursor element marked as the focal anchor. The AI is now aware of your screen, with your cursor showing where to focus. |
 | `Ctrl+Space` | Switches to area-select. Drag a rectangle — the region is screenshotted *and* any UIA elements inside are scanned. Use this when the target is a chart, image, or custom canvas that UIA alone can't read.                     |
 | `Esc`        | Cancels whatever's currently happening: stops a streaming response, exits area-select mode, or closes the panel. Your prompt and chat history are preserved.                                                                   |
 | `Enter`      | Sends your prompt. `Shift+Enter` inserts a newline for multi-line prompts.                                                                                                                                                     |
