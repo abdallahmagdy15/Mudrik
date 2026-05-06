@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mudrik · Windows AI Assistant</title>
+  <meta name="description" content="Stop pasting screenshots into AI chats. Mudrik is an open-source Windows AI assistant that sees what you see — and answers, types, pastes, or clicks for you." />
+  <link rel="icon" type="image/png" href="assets/mascot.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ============ Header ============ -->
+  <header class="site-header">
+    <div class="wrap">
+      <a href="#top" class="brand" aria-label="Mudrik home">
+        <img src="assets/mascot.png" alt="" />
+        <span class="wordmark">Mudrik</span>
+      </a>
+
+      <nav class="nav-links" aria-label="Primary">
+        <a href="#install" data-en="Install" data-ar="التثبيت">Install</a>
+        <a href="#hotkeys" data-en="Hotkeys" data-ar="الاختصارات">Hotkeys</a>
+        <a href="#how" data-en="How it works" data-ar="آلية العمل">How it works</a>
+        <a href="#privacy" data-en="Privacy" data-ar="الخصوصية">Privacy</a>
+        <a href="#about" data-en="About" data-ar="نبذة">About</a>
+      </nav>
+
+      <div class="header-actions">
+        <button class="lang-toggle" id="langToggle" type="button" aria-label="Switch language">
+          <span class="en on">EN</span>
+          <span> | </span>
+          <span class="ar">AR</span>
+        </button>
+        <a class="btn btn-outline btn-sm gh-star" href="https://github.com/abdallahmagdy15/mudrik" target="_blank" rel="noopener">
+          <span aria-hidden="true">★</span><span data-en="Star on GitHub" data-ar="ضع نجمة على GitHub">Star on GitHub</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+
+    <!-- ============ Hero ============ -->
+    <section class="hero">
+      <div class="wrap hero-grid">
+        <img class="hero-mascot" src="assets/mascot.png" alt="Mudrik mascot — a friendly cyan owl" />
+        <div class="hero-copy">
+          <h1>
+            <span class="wordmark wordmark-lg">Mudrik</span> <span class="ar" lang="ar">· مدرك</span>
+          </h1>
+          <p class="body"
+             data-en="Stop pasting screenshots into AI chats. Mudrik is an open-source Windows AI assistant that sees what you see — and answers, types, pastes, or clicks for you."
+             data-ar="وداعاً للنسخ واللصق المتكرر للقطات الشاشة في محادثات الذكاء الاصطناعي. مُدرِك (Mudrik) هو مساعد ذكي مفتوح المصدر لنظام ويندوز، يرى ما تراه — ويجيبك، أو يكتب، أو يلصق، أو حتى ينقر نيابةً عنك.">
+            Stop pasting screenshots into AI chats. Mudrik is an open-source Windows AI assistant that sees what you see — and answers, types, pastes, or clicks for you.
+          </p>
+
+          <div class="hero-ctas">
+            <a class="btn btn-primary" href="https://github.com/abdallahmagdy15/mudrik/releases/latest" target="_blank" rel="noopener">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3v12m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span data-en="Download for Windows" data-ar="تنزيل لنظام ويندوز">Download for Windows</span>
+            </a>
+            <a class="btn btn-outline" href="https://github.com/abdallahmagdy15/mudrik" target="_blank" rel="noopener">
+              <span aria-hidden="true">★</span>
+              <span data-en="Star on GitHub" data-ar="ضع نجمة على GitHub">Star on GitHub</span>
+            </a>
+          </div>
+
+          <div class="hero-badges">
+            <span data-en="Windows 10/11" data-ar="ويندوز 10/11">Windows 10/11</span>
+            <span class="dot" aria-hidden="true"></span>
+            <span data-en="MIT License" data-ar="بترخيص MIT">MIT License</span>
+            <span class="dot" aria-hidden="true"></span>
+            <span data-en="v0.9.0 Preview" data-ar="إصدار 0.9.0 (معاينة)">v0.9.0 Preview</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Demo Video (just below hero, full width container) ============ -->
+    <section class="tight" style="padding-top:0;">
+      <div class="wrap">
+        <div class="demo">
+          <div class="demo-frame" id="demoFrame" data-video-url="assets/Mudrik_demo.mp4" role="button" tabindex="0" aria-label="Play demo video">
+            <div class="poster" aria-hidden="true">
+              <img src="assets/mascot.png" alt="" />
+            </div>
+            <button class="play-btn" type="button" aria-label="Play video"></button>
+          </div>
+          <p class="demo-caption" data-en="Watch the 10-second demo" data-ar="شاهد العرض التوضيحي (10 ثوانٍ)">Watch the 10-second demo</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Install ============ -->
+    <section id="install">
+      <div class="wrap">
+        <span class="section-eyebrow" data-en="Get started" data-ar="خطوات البدء">Get started</span>
+        <h2 class="section-title" data-en="Install in 30 seconds" data-ar="تثبيت في 30 ثانية">Install in 30 seconds</h2>
+
+        <div class="install-grid">
+          <div class="card install-card">
+            <span class="step-num">1</span>
+            <h3 data-en="Install Node.js ≥ 20" data-ar="تثبيت Node.js ≥ 20">Install Node.js ≥ 20</h3>
+            <p class="grow"
+               data-en="The runtime Mudrik depends on. Get the LTS installer."
+               data-ar="بيئة التشغيل التي يعتمد عليها مُدرِك. قم بتنزيل إصدار الدعم طويل الأمد (LTS).">
+              The runtime Mudrik depends on. Get the LTS installer.
+            </p>
+            <div>
+              <a class="btn btn-outline btn-sm" href="https://nodejs.org/" target="_blank" rel="noopener">
+                <span data-en="nodejs.org →" data-ar="nodejs.org ←">nodejs.org →</span>
+              </a>
+            </div>
+          </div>
+
+          <div class="card install-card">
+            <span class="step-num">2</span>
+            <h3 data-en="Install the AI runtime" data-ar="تثبيت محرك الذكاء الاصطناعي">Install the AI runtime</h3>
+            <p
+               data-en="One global npm package. Open PowerShell and run:"
+               data-ar="حزمة npm عالمية واحدة. افتح PowerShell ونفّذ الأمر التالي:">
+              One global npm package. Open PowerShell and run:
+            </p>
+            <div class="code-wrap grow">
+              <pre class="code"><code><span class="tok-c">$</span> npm i -g <span class="tok-s">opencode-ai</span></code></pre>
+              <button class="copy-btn" type="button" data-copy="npm i -g opencode-ai" data-en="Copy" data-ar="نسخ">Copy</button>
+            </div>
+          </div>
+
+          <div class="card install-card">
+            <span class="step-num">3</span>
+            <h3 data-en="Run the Mudrik installer" data-ar="تشغيل مثبّت Mudrik">Run the Mudrik installer</h3>
+            <p class="grow"
+               data-en="Download the signed installer and double-click."
+               data-ar="قم بتنزيل المثبّت الموقّع وانقر نقراً مزدوجاً لتشغيله.">
+              Download the signed installer and double-click.
+            </p>
+            <div class="btn-download-row">
+              <a class="btn btn-primary btn-sm" href="https://github.com/abdallahmagdy15/mudrik/releases/latest" target="_blank" rel="noopener">
+                <span data-en="Latest installer (.exe)" data-ar="أحدث إصدار للمثبّت (.exe)">Latest installer (.exe)</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <p class="install-foot"
+           data-en="First launch triggers Windows SmartScreen — More info → Run anyway. Code signing on the roadmap."
+           data-ar="التشغيل الأول سيُظهر تحذير Windows SmartScreen — انقر على «مزيد من المعلومات» ← «تشغيل على أي حال». التوقيع الرقمي للتعليمات البرمجية قادم قريباً.">
+          First launch triggers Windows SmartScreen — <em>More info → Run anyway</em>. Code signing on the roadmap.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ What it does ============ -->
+    <section id="features" class="tight">
+      <div class="wrap">
+        <span class="section-eyebrow" data-en="What it does" data-ar="المميزات">What it does</span>
+        <h2 class="section-title" data-en="Built for the cursor, not the chat window." data-ar="مصمّم ليتتبع مؤشر الماوس، وليس حبيس نافذة المحادثة.">Built for the cursor, not the chat window.</h2>
+
+        <div class="features">
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🎯</span>
+            <h3 data-en="Cursor-anchored" data-ar="مثبّت عند مؤشر الماوس">Cursor-anchored</h3>
+            <p data-en="The panel pops up on click alt+space — your target stays in clear view. No more switching to a separate AI chat app or browser tab."
+               data-ar="تنبثق اللوحة عند الضغط على alt+space — ليبقى سياق عملك أمام عينيك. لا مزيد من التبديل بين نوافذ المحادثة أو علامات تبويب المتصفح.">
+              The panel pops up on click alt+space — your target stays in clear view. No more switching to a separate AI chat app or browser tab.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">⚡</span>
+            <h3 data-en="Acts on any Windows app" data-ar="يعمل مع أي تطبيق ويندوز">Acts on any Windows app</h3>
+            <p data-en="Drives buttons, inputs, and menus through Windows UI Automation. Anywhere accessibility reaches, Mudrik reaches."
+               data-ar="يتحكم بالأزرار، وحقول الإدخال، والقوائم عبر تقنية Windows UI Automation. أي مكان تدعمه ميزات سهولة الوصول، يمكن لـ Mudrik الوصول إليه.">
+              Drives buttons, inputs, and menus through Windows UI Automation. Anywhere accessibility reaches, Mudrik reaches.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">📚</span>
+            <h3 data-en="Reads your files when asked" data-ar="يقرأ ملفاتك عند الطلب">Reads your files when asked</h3>
+            <p data-en="Look up local docs and code without giving the AI free run of your disk. Reads stay scoped to the working directory."
+               data-ar="يبحث في مستنداتك وأكوادك المحلية دون منح الذكاء الاصطناعي وصولاً مفتوحاً لقرصك الصلب. عمليات القراءة مقتصرة على مجلد العمل الحالي.">
+              Look up local docs and code without giving the AI free run of your disk. Reads stay scoped to the working directory.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🖼️</span>
+            <h3 data-en="Area capture" data-ar="تحديد مساحة من الشاشة">Area capture</h3>
+            <p data-en="Press Ctrl+Space and drag a rectangle. Mudrik grabs the pixels and scans the UI elements inside — perfect for charts, dialogs, or anything UIA misses."
+               data-ar="اضغط Ctrl+Space واسحب لرسم مستطيل. سيلتقط Mudrik الصورة ويفحص عناصر واجهة المستخدم بداخلها — مثالي للمخططات البيانية، والنوافذ الحوارية، وأي عنصر لا يمكن لـ UIA التعرف عليه.">
+              Press Ctrl+Space and drag a rectangle. Mudrik grabs the pixels and scans the UI elements inside — perfect for charts, dialogs, or anything UIA misses.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🔌</span>
+            <h3 data-en="Bring your own model" data-ar="استخدم نموذج الذكاء الاصطناعي المفضل لديك">Bring your own model</h3>
+            <p data-en="Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter — paste your key in the settings panel. No terminal auth dance."
+               data-ar="Anthropic، وOpenAI، وGoogle، وGroq، وDeepSeek، وOllama، وZ.AI، وOpenRouter — فقط ألصق مفتاح الـ API الخاص بك في لوحة الإعدادات. لا حاجة لتعقيدات سطر الأوامر.">
+              Anthropic, OpenAI, Google, Groq, DeepSeek, Ollama, Z.AI, OpenRouter — paste your key in the settings panel. No terminal auth dance.
+            </p>
+          </div>
+
+          <div class="card feature">
+            <span class="glyph" aria-hidden="true">🌐</span>
+            <h3 data-en="English + Arabic" data-ar="دعم اللغتين الإنجليزية والعربية">English + Arabic</h3>
+            <p data-en="Full RTL when Arabic is selected — UI strings, prompts, and panel layout all flip. More languages welcome via PR."
+               data-ar="دعم كامل للاتجاه من اليمين إلى اليسار (RTL) عند اختيار العربية — تنعكس نصوص الواجهة، والأوامر، وتخطيط اللوحة بالكامل. نرحب بإضافة المزيد من اللغات عبر طلبات السحب (PRs).">
+              Full RTL when Arabic is selected — UI strings, prompts, and panel layout all flip. More languages welcome via PR.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Hotkeys ============ -->
+    <section id="hotkeys" class="tight">
+      <div class="wrap">
+        <span class="section-eyebrow" data-en="Hotkeys" data-ar="اختصارات لوحة المفاتيح">Hotkeys</span>
+        <h2 class="section-title" data-en="Four keys, that's it." data-ar="أربعة مفاتيح هي كل ما تحتاجه.">Four keys, that's it.</h2>
+
+        <table class="priv-table hotkeys">
+          <tbody>
+            <tr>
+              <td><kbd>Alt</kbd> + <kbd>Space</kbd></td>
+              <td data-en="Panel slides in on the opposite side of your cursor. Mudrik scans the whole active window — every visible button, field, label, and value — with the cursor element as the focal anchor. All preloaded as context, no screenshot needed."
+                  data-ar="تنبثق اللوحة في الجانب المقابل لمؤشر الماوس. مدرك يقرأ النافذة النشطة بأكملها — كل زر وحقل ونص وقيمة ظاهرة — والعنصر تحت مؤشرك يكون نقطة التركيز. كل ذلك جاهز كسياق، بدون لقطة شاشة.">
+                Panel slides in on the opposite side of your cursor. Mudrik scans the whole active window — every visible button, field, label, and value — with the cursor element as the focal anchor. All preloaded as context, no screenshot needed.
+              </td>
+            </tr>
+            <tr>
+              <td><kbd>Ctrl</kbd> + <kbd>Space</kbd></td>
+              <td data-en="Area select: drag a rectangle. The region is screenshotted and UIA elements inside are scanned."
+                  data-ar="تحديد مساحة من الشاشة: اسحب لرسم مستطيل. يتم التقاط صورة للمنطقة المحددة وفحص عناصر واجهة المستخدم بداخلها.">
+                Area select: drag a rectangle. The region is screenshotted and UIA elements inside are scanned.
+              </td>
+            </tr>
+            <tr>
+              <td><kbd>Esc</kbd></td>
+              <td data-en="Cancels whatever's happening: stops a response, exits area-select, or closes the panel. Your chat history is preserved."
+                  data-ar="إلغاء أي إجراء حالي: إيقاف الرد، أو الخروج من وضع تحديد المنطقة، أو إغلاق اللوحة. سِجل محادثاتك يظل محفوظاً.">
+                Cancels whatever's happening: stops a response, exits area-select, or closes the panel. Your chat history is preserved.
+              </td>
+            </tr>
+            <tr>
+              <td><kbd>Enter</kbd></td>
+              <td data-en="Send — Shift+Enter for a newline"
+                  data-ar="إرسال — اضغط Shift+Enter لإضافة سطر جديد">
+                Send — <kbd>Shift</kbd>+<kbd>Enter</kbd> for a newline
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="install-foot"
+           data-en="Both global hotkeys are rebindable from the ⚙ menu."
+           data-ar="كلا الاختصارين العامين يمكن تخصيصهما وتعديلهما من قائمة ⚙.">
+          Both global hotkeys are rebindable from the ⚙ menu.
+        </p>
+      </div>
+    </section>
+
+    <!-- ============ How it works ============ -->
+    <section id="how">
+      <div class="wrap how">
+        <div>
+          <span class="section-eyebrow" data-en="How it works" data-ar="آلية العمل">How it works</span>
+          <h2 class="section-title" data-en="Actions are text, not tool calls." data-ar="الإجراءات تُنفذ كنصوص عادية، وليس كاستدعاءات برمجية للأدوات.">Actions are text, not tool calls.</h2>
+          <p data-en="Mudrik asks the model to write its actions inline as plain HTML comments — action markers. The host parses them out, runs them through a sandbox, and shows the natural-language reply. No JSON-mode juggling. No vendor-locked tool API."
+             data-ar="يطلب Mudrik من نموذج الذكاء الاصطناعي كتابة أوامره ضمن الرد كتعليقات HTML بسيطة — لتكون «علامات للأوامر». يقوم التطبيق باستخراجها، وتمريرها عبر بيئة آمنة (Sandbox)، ثم يعرض الرد باللغة الطبيعية. وداعاً لتعقيدات JSON وواجهات برمجة التطبيقات (APIs) المغلقة.">
+            Mudrik asks the model to write its actions inline as plain HTML comments — action markers. The host parses them out, runs them through a sandbox, and shows the natural-language reply. No JSON-mode juggling. No vendor-locked tool API.
+          </p>
+          <p class="closing" data-en="Works with any model — pick your provider:" data-ar="يعمل مع أي نموذج ذكاء اصطناعي — اختر المزوّد الذي تفضله:">Works with any model — pick your provider:</p>
+          <div class="providers" aria-label="Supported providers">
+            <span>Anthropic</span><span>OpenAI</span><span>Google</span><span>Groq</span><span>DeepSeek</span><span>Ollama</span><span>OpenRouter</span><span>Z.AI</span>
+          </div>
+        </div>
+
+        <div class="code-wrap">
+          <pre class="code" dir="ltr"><code><span class="tok-k">Done.</span> <span class="tok-c">&lt;!--ACTION:{</span><span class="tok-s">"type"</span><span class="tok-c">:</span><span class="tok-s">"paste_text"</span><span class="tok-c">,</span>
+        <span class="tok-s">"selector"</span><span class="tok-c">:</span><span class="tok-s">"Body"</span><span class="tok-c">,</span>
+        <span class="tok-s">"text"</span><span class="tok-c">:</span><span class="tok-s">"Hi Ahmed…"</span><span class="tok-c">}--&gt;</span></code></pre>
+          <button class="copy-btn" type="button"
+            data-copy='Done. <!--ACTION:{"type":"paste_text","selector":"Body","text":"Hi Ahmed…"}-->'
+            data-en="Copy" data-ar="نسخ">Copy</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ Privacy ============ -->
+    <section id="privacy" class="tight">
+      <div class="wrap privacy">
+        <div>
+          <span class="section-eyebrow" data-en="Privacy & Security" data-ar="الخصوصية والأمان">Privacy & Security</span>
+          <h2 class="section-title" data-en="Sandbox first." data-ar="بيئة معزولة وآمنة (Sandbox) أولاً.">Sandbox first.</h2>
+          <p style="color:var(--muted); font-size:16px; max-width:42ch;"
+             data-en="Mudrik defaults closed. Dangerous capabilities are off, accessibility-style automation is allow-listed, and screen capture only happens when you explicitly attach a region."
+             data-ar="يأتي Mudrik بإعدادات مغلقة وآمنة افتراضياً. الإمكانيات التي قد تشكل خطراً تكون معطلة، وأدوات أتمتة الوصول مُدرجة في قائمة سماح صارمة، ولا يتم التقاط الشاشة إلا عندما تقوم بتحديد وإرفاق منطقة بنفسك.">
+            Mudrik defaults closed. Dangerous capabilities are off, accessibility-style automation is allow-listed, and screen capture only happens when you explicitly attach a region.
+          </p>
+          <p class="priv-foot">
+            <a href="https://github.com/abdallahmagdy15/mudrik/blob/main/SECURITY.md" target="_blank" rel="noopener"
+               data-en="Read the full threat model in SECURITY.md →"
+               data-ar="اطلع على نموذج التهديدات الأمني بالكامل في ملف SECURITY.md ←">
+              Read the full threat model in SECURITY.md →
+            </a>
+          </p>
+        </div>
+
+        <table class="priv-table">
+          <tbody>
+            <tr>
+              <td data-en="Shell / PowerShell exec" data-ar="تنفيذ أوامر Shell / PowerShell">Shell / PowerShell exec</td>
+              <td><span class="no">✕</span> <span data-en="Off" data-ar="معطّل">Off</span></td>
+            </tr>
+            <tr>
+              <td data-en="Filesystem write" data-ar="الكتابة على نظام الملفات">Filesystem write</td>
+              <td><span class="no">✕</span> <span data-en="Off" data-ar="معطّل">Off</span></td>
+            </tr>
+            <tr>
+              <td data-en="Windows UI Automation" data-ar="أتمتة واجهة ويندوز (Windows UI Automation)">Windows UI Automation</td>
+              <td><span class="yes">✓</span> <span data-en="Allow-listed" data-ar="ضمن قائمة السماح">Allow-listed</span></td>
+            </tr>
+            <tr>
+              <td data-en="Filesystem read" data-ar="القراءة من نظام الملفات">Filesystem read</td>
+              <td><span class="yes">✓</span> <span data-en="Working dir only" data-ar="مقتصرة على مجلد العمل فقط">Working dir only</span></td>
+            </tr>
+            <tr>
+              <td data-en="Screen pixels" data-ar="قراءة بكسلات الشاشة">Screen pixels</td>
+              <td><span class="manual">✋</span> <span data-en="Manual attach only" data-ar="بالإرفاق اليدوي فقط">Manual attach only</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ About ============ -->
+    <section id="about" class="about">
+      <div class="wrap">
+        <span class="section-eyebrow" data-en="About" data-ar="نبذة عن التطبيق">About</span>
+        <h2 class="section-title" data-en="Hi, I'm Abdullah Magdy." data-ar="أهلاً، أنا عبد الله مجدي.">Hi, I'm Abdullah Magdy.</h2>
+        <p data-en="A dev who got tired of pasting screenshots into AI Chats — so I built Mudrik on nights and weekends. It's open source; contributions and ideas are welcome 🤝"
+           data-ar="أنا مطوّر سئم من النسخ واللصق المتكرر للقطات الشاشة في محادثات الذكاء الاصطناعي — لذا قمت بتطوير Mudrik في أوقات فراغي. المشروع مفتوح المصدر، ونُرحب بمساهماتكم وأفكاركم 🤝">
+          A dev who got tired of pasting screenshots into AI Chats — so I built Mudrik on nights and weekends. It's open source; contributions and ideas are welcome 🤝
+        </p>
+        <div class="contact-row">
+          <a href="https://github.com/abdallahmagdy15" target="_blank" rel="noopener" aria-label="GitHub">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.55v-2.06c-3.2.7-3.87-1.36-3.87-1.36-.52-1.32-1.27-1.67-1.27-1.67-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.95.1-.74.4-1.25.72-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.76.11 3.05.74.8 1.18 1.83 1.18 3.09 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.66.8.55C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/></svg>
+            <span>@abdallahmagdy15</span>
+          </a>
+          <a href="https://x.com/AbdallahMagdyy" target="_blank" rel="noopener" aria-label="X / Twitter">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77z"/></svg>
+            <span>@AbdallahMagdyy</span>
+          </a>
+          <a href="https://www.linkedin.com/in/abdallahmagdy15/" target="_blank" rel="noopener" aria-label="LinkedIn">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.45 20.45h-3.55v-5.57c0-1.33-.02-3.04-1.85-3.04-1.85 0-2.13 1.45-2.13 2.94v5.67H9.36V9h3.41v1.56h.05c.48-.9 1.64-1.85 3.37-1.85 3.6 0 4.27 2.37 4.27 5.45v6.29zM5.34 7.43a2.06 2.06 0 1 1 0-4.12 2.06 2.06 0 0 1 0 4.12zm1.78 13.02H3.56V9h3.56v11.45zM22.22 0H1.77C.79 0 0 .77 0 1.72v20.56C0 23.23.79 24 1.77 24h20.45c.98 0 1.78-.77 1.78-1.72V1.72C24 .77 23.2 0 22.22 0z"/></svg>
+            <span>LinkedIn</span>
+          </a>
+          <a href="mailto:abdallah.magdy1515@gmail.com" aria-label="Email">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
+            <span>abdallah.magdy1515@gmail.com</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ Footer ============ -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="foot-brand">
+        <img src="assets/mascot.png" alt="" />
+        <span><span class="wordmark">Mudrik</span> · <span lang="ar">مدرك</span></span>
+      </div>
+      <div class="meta">
+        © 2026 · <span data-en="MIT License" data-ar="بترخيص MIT">MIT License</span> ·
+        <a href="https://github.com/abdallahmagdy15/mudrik" target="_blank" rel="noopener" data-en="Source on GitHub" data-ar="الكود المصدري على GitHub">Source on GitHub</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
