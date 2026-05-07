@@ -6,6 +6,8 @@ import { ResponseView } from "./components/ResponseView";
 import { ContextPayload, Action } from "@shared/types";
 import { t as translate, Lang } from "@shared/i18n";
 
+const ChatInputOptions = React.lazy(() => import("./components/ChatInputOptions"));
+
 declare global {
   interface Window {
     hoverbuddy: {
@@ -168,6 +170,7 @@ export function App() {
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const [autoAttachImage, setAutoAttachImage] = useState(false);
   const [autoGuideEnabled, setAutoGuideEnabled] = useState(false);
+  const [guideState, setGuideState] = useState<any | null>(null);
   const restoreSessionRef = useRef(true);
   const configLoadedRef = useRef(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
@@ -273,6 +276,11 @@ if (!data?.hasImage) {
           return [...mapped, ...prev];
         });
       }
+    });
+
+    window.hoverbuddy.onGuideStateUpdate((state: any) => {
+      if (!state || state.phase === "idle") setGuideState(null);
+      else setGuideState(state);
     });
 
     // Focus the chat input only when the user doesn't already have focus
@@ -948,7 +956,19 @@ if (!data?.hasImage) {
         )}
         <div ref={messagesEndRef} />
       </div>
-      <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} lang={lang} />
+      {guideState && guideState.options ? (
+        <React.Suspense fallback={null}>
+          <ChatInputOptions
+            caption={guideState.caption}
+            stepIndex={guideState.stepIndex}
+            estStepsLeft={guideState.estStepsLeft}
+            options={guideState.options}
+            onChoose={(opt) => window.hoverbuddy.guideUserChoice(opt)}
+          />
+        </React.Suspense>
+      ) : (
+        <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} lang={lang} />
+      )}
     </div>
   );
 }
