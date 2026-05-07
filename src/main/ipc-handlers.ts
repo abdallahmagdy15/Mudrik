@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow } from "electron";
 import { Config, ContextPayload, IPC, Action, VisibleWindow } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
-import { SYSTEM_PROMPT } from "../shared/prompts";
+import { buildSystemPrompt } from "../shared/prompts";
 import { buildCleanOpenCodeEnv, providerFromModelId, OpenCodeAuthFile } from "../shared/providers";
 
 /**
@@ -580,7 +580,10 @@ contextBlock += `\n--- END CONTEXT ---\n`;
         }
       }
 
-      const systemPrefix = `${SYSTEM_PROMPT}\n\n`;
+      const systemPrefix = `${buildSystemPrompt({
+        actionsEnabled: config.actionsEnabled,
+        autoGuideEnabled: false, // wired in Task 3.2
+      })}\n\n`;
       // Tell the AI about the current actions permission. The toggle is
       // LIVE — when the user flips it in settings, contextNeedsSending is
       // forced true so the very next message rebuilds this block with the
