@@ -84,6 +84,10 @@ export interface Config {
   restoreSessionOnActivate: boolean;
   /** When true, automatically captures and attaches a full-screen screenshot on Alt+Space (pointer) activation. Area selection always includes its screenshot regardless. */
   autoAttachImage: boolean;
+  /** When true, enables Auto-Guide mode (step-by-step walkthroughs of
+   *  multi-step tasks). Adds ~700 tokens to every system prompt — opt-in
+   *  to keep prompts lean. Lazy-loads the guide module on first use. */
+  autoGuideEnabled: boolean;
 }
 
 export const DEFAULT_CONFIG: Config = {
@@ -103,6 +107,7 @@ export const DEFAULT_CONFIG: Config = {
   fontSize: 14,
   restoreSessionOnActivate: true,
   autoAttachImage: false,
+  autoGuideEnabled: false,
 };
 
 export interface WindowInfo {

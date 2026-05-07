@@ -165,6 +165,7 @@ export function App() {
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const [autoAttachImage, setAutoAttachImage] = useState(false);
+  const [autoGuideEnabled, setAutoGuideEnabled] = useState(false);
   const restoreSessionRef = useRef(true);
   const configLoadedRef = useRef(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
@@ -310,6 +311,7 @@ if (!data?.hasImage) {
         restoreSessionRef.current = cfg.restoreSessionOnActivate;
       }
       if (cfg?.autoAttachImage !== undefined) setAutoAttachImage(cfg.autoAttachImage);
+      if (cfg?.autoGuideEnabled !== undefined) setAutoGuideEnabled(cfg.autoGuideEnabled);
       configLoadedRef.current = true;
     });
   }, []);
@@ -467,6 +469,12 @@ if (!data?.hasImage) {
     setAutoAttachImage(newVal);
     window.hoverbuddy.setConfig({ autoAttachImage: newVal });
   }, [autoAttachImage]);
+
+  const handleToggleAutoGuideEnabled = useCallback(() => {
+    const newVal = !autoGuideEnabled;
+    setAutoGuideEnabled(newVal);
+    window.hoverbuddy.setConfig({ autoGuideEnabled: newVal });
+  }, [autoGuideEnabled]);
 
   const handleSetTheme = useCallback((newTheme: "system" | "light" | "dark") => {
     setTheme(newTheme);
@@ -839,9 +847,15 @@ if (!data?.hasImage) {
               </button>
               {openSections.behavior && (
                 <div className="settings-section-body">
-                  <label className="settings-toggle" title="When off, Mudrik runs in read-only mode: it can answer and copy content to the clipboard, but cannot click, type, paste, press keys, or move your cursor.">
+                  <label className="settings-toggle" title={t("allowDesktopActionsHint")}>
                     <span>{t("allowDesktopActions")}</span>
                     <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
+                      <div className="toggle-knob" />
+                    </div>
+                  </label>
+                  <label className="settings-toggle" title={t("enableAutoGuideHint")}>
+                    <span>{t("enableAutoGuide")}</span>
+                    <div className={`toggle-switch ${autoGuideEnabled ? "on" : ""}`} onClick={handleToggleAutoGuideEnabled}>
                       <div className="toggle-knob" />
                     </div>
                   </label>
