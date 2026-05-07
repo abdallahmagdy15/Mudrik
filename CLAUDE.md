@@ -105,7 +105,7 @@ Opt-in feature, off by default (toggle in ⚙ → "Enable Auto-Guide"). When on,
 
 `src/main/guide/mouse-hook.ts` uses a Windows global low-level mouse hook (WH_MOUSE_LL) via PowerShell + C# `Add-Type`. It runs **only** during the `STEP_ACTIVE` phase of a guide session — started in `handleStep`, stopped on every transition out of STEP_ACTIVE. Scoped to the foreground HWND so panel clicks don't trigger it.
 
-Full design rationale, state machine, prompt content, and edge cases live in `D:\SandBoX\Mudrik-Plan\docs\specs\2026-05-03-auto-guide-design.md`.
+Full design rationale, state machine, prompt content, and edge cases live in `Mudrik-Plan/docs/specs/2026-05-03-auto-guide-design.md`.
 
 ### PowerShell is the UIA bridge
 
