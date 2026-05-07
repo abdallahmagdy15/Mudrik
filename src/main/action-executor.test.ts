@@ -70,12 +70,46 @@ describe("validateAction — guide markers", () => {
       {
         type: "guide_step",
         caption: "Click Save",
-        target: { selector: "Save", automationId: "saveBtn" },
+        target: { selector: "Save", automationId: "saveBtn", boundsHint: { x: 100, y: 200, width: 80, height: 24 } },
         options: ["Cancel", "I did it"],
         trackable: true,
         waitMs: 800,
         stepIndex: 1,
         estStepsLeft: 3,
+      },
+      cfg(true)
+    );
+    expect("action" in r).toBe(true);
+  });
+
+  it("rejects trackable=true without target.boundsHint (would arm hook globally)", () => {
+    const r = validateAction(
+      {
+        type: "guide_step",
+        caption: "Click Save",
+        target: null,
+        options: ["Cancel", "I did it"],
+        trackable: true,
+        waitMs: 800,
+        stepIndex: 1,
+        estStepsLeft: 3,
+      },
+      cfg(true)
+    );
+    expect("error" in r && r.error).toMatch(/boundsHint/i);
+  });
+
+  it("accepts trackable=false without boundsHint (typing/scrolling steps)", () => {
+    const r = validateAction(
+      {
+        type: "guide_step",
+        caption: "Type your filename",
+        target: null,
+        options: ["Cancel", "I see the dialog", "Nothing happened"],
+        trackable: false,
+        waitMs: 800,
+        stepIndex: 2,
+        estStepsLeft: 2,
       },
       cfg(true)
     );

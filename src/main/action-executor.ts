@@ -206,6 +206,17 @@ function validateGuideAction(p: Record<string, unknown>): { action: Action } | {
         return { error: "guide_step.stepIndex must be a positive integer" };
       if (typeof p.estStepsLeft !== "number" || p.estStepsLeft < 0)
         return { error: "guide_step.estStepsLeft must be a non-negative integer" };
+      // trackable=true means "auto-advance on the user's click on this target".
+      // Without a target+boundsHint the mouse hook would arm globally with no
+      // overlay, intercepting the next click anywhere on the desktop.
+      if (p.trackable === true) {
+        const t = p.target as { boundsHint?: { x: number; y: number; width: number; height: number } } | null | undefined;
+        const b = t?.boundsHint;
+        if (!b || typeof b.x !== "number" || typeof b.y !== "number" ||
+            typeof b.width !== "number" || typeof b.height !== "number") {
+          return { error: "guide_step.target.boundsHint is required when trackable=true" };
+        }
+      }
       return { action: p as unknown as Action };
     }
     case "guide_complete": {

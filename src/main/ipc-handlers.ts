@@ -325,8 +325,22 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       }
     },
     buildFollowUpPrompt: async (actionDesc) => {
-      // Minimal initial prompt — Task 6.2 manual testing will refine wording.
-      const ctx = currentContext;
+      // Recapture screen state at the user's current focal point so the AI
+      // sees the post-action UI (e.g. the dialog that just opened), not the
+      // pre-Alt+Space snapshot. Click events know exactly where; option
+      // choices fall back to the live cursor position.
+      const ctxReader = await import("./context-reader");
+      const point =
+        actionDesc.kind === "click"
+          ? { x: actionDesc.x, y: actionDesc.y }
+          : ctxReader.getCursorPos();
+      let fresh: { element: any; windowInfo?: { title: string } } | null = null;
+      try {
+        fresh = await ctxReader.readContextAtPoint(point.x, point.y);
+      } catch (err: any) {
+        log(`buildFollowUpPrompt: recapture failed (${err?.message || err}) — falling back to cached context`);
+      }
+      const ctx = fresh || currentContext;
       const desc =
         actionDesc.kind === "click"
           ? `User clicked at (${actionDesc.x}, ${actionDesc.y}).`
