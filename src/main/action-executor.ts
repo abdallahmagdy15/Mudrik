@@ -70,18 +70,34 @@ async function executeCopyClipboard(action: Action): Promise<ActionResult> {
 }
 
 /** Execute an action. Inline path for `copy_to_clipboard` (always allowed,
- *  works in read-only mode). Lazy-imports the heavy chunk for everything
- *  else, gated on `actionsEnabled`.
+ *  works in read-only mode). `guide_*` markers are dispatched to the guide
+ *  controller via lazy import — they are gated by `autoGuideEnabled`, NOT
+ *  `actionsEnabled` (the guide doesn't drive the desktop directly; it just
+ *  shows the user where to click). Lazy-imports the heavy chunk for
+ *  everything else, gated on `actionsEnabled`.
  *
  *  Do NOT introduce a top-level `import { executeHeavyAction } from
  *  "./actions/action-executor-heavy"` — that would defeat the lazy-loading
- *  purpose. The dynamic `await import(...)` is what splits the bundle. */
+ *  purpose. Same goes for the guide modules — only `await import(...)`. */
 export async function executeAction(
   action: Action,
-  cfg: { actionsEnabled: boolean }
+  cfg: { actionsEnabled: boolean; autoGuideEnabled: boolean }
 ): Promise<ActionResult> {
   if (action.type === "copy_to_clipboard") {
     return executeCopyClipboard(action);
+  }
+  if (GUIDE_ACTION_TYPES.has(action.type)) {
+    if (!cfg.autoGuideEnabled) {
+      return { success: false, error: "Auto-Guide is disabled in settings" };
+    }
+    const m = await import("./guide/guide-controller");
+    try {
+      await m.getController().handleAction(action);
+      return { success: true };
+    } catch (err: any) {
+      log(`guide controller threw on ${action.type}: ${err?.message || err}`);
+      return { success: false, error: err?.message || String(err) };
+    }
   }
   if (!cfg.actionsEnabled) {
     return {

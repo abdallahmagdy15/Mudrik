@@ -258,6 +258,94 @@ function formatWindowTree(elements: { type: string; name: string; value: string;
   return lines.join("\n");
 }
 
+/**
+ * Lazy initializer for the auto-guide controller. Called when
+ * `autoGuideEnabled` is true (at startup or when SET_CONFIG flips it).
+ *
+ * All `./guide/*` modules are loaded via `await import(...)` to keep them
+ * out of the main bundle's startup cost — webpack splits them into a
+ * separate chunk that's only fetched when the user enables Auto-Guide.
+ */
+async function initGuideControllerIfNeeded(): Promise<void> {
+  if (!appConfig?.autoGuideEnabled) return;
+  const ctrlMod = await import("./guide/guide-controller");
+  if (ctrlMod.isControllerInitialized()) return; // already wired
+  const overlayMod = await import("./guide/guide-overlay");
+  const hookMod = await import("./guide/mouse-hook");
+  const winMod = await import("./guide/active-window");
+  const { getCursorPos } = await import("./context-reader");
+
+  ctrlMod.getController({
+    overlay: {
+      show: overlayMod.showOverlay,
+      hide: overlayMod.hideOverlay,
+    },
+    mouseHook: {
+      start: hookMod.startMouseHook,
+      stop: hookMod.stopMouseHook,
+    },
+    getActiveHwnd: winMod.getActiveHwnd,
+    getCursorPos,
+    sendFollowUp: async (prompt: string) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) return;
+      // Send the follow-up through the existing OpenCode flow. The auto-execute
+      // loop in SEND_PROMPT is NOT triggered here — guide_* markers in the
+      // AI's response come back through handleOpenCodeEvent → text events
+      // streamed to the renderer, then the main SEND_PROMPT path's
+      // parseActionsFromResponse → executeAction → controller.handleAction.
+      // For follow-ups initiated by the controller we mirror that pattern in
+      // a slimmed-down form: stream tokens to the renderer for visibility,
+      // accumulate the response text, and parse + dispatch guide markers.
+      let buffer = "";
+      await client.sendMessage(prompt, (event) => {
+        handleOpenCodeEvent(event, win);
+        if (event.type === "text" && event.part?.text) {
+          buffer += event.part.text;
+        }
+      });
+      try {
+        const { actions } = parseActionsFromResponse(buffer);
+        for (const action of actions) {
+          if ((["guide_offer","guide_step","guide_complete","guide_abort"] as string[]).includes(action.type)) {
+            const result = await executeAction(action, {
+              actionsEnabled: appConfig.actionsEnabled,
+              autoGuideEnabled: appConfig.autoGuideEnabled,
+            });
+            if (win && !win.isDestroyed()) {
+              win.webContents.send(IPC.ACTION_RESULT, { action, result });
+            }
+          }
+        }
+      } catch (err: any) {
+        log(`guide follow-up dispatch failed: ${err?.message || err}`);
+      }
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC.STREAM_DONE);
+      }
+    },
+    buildFollowUpPrompt: async (actionDesc) => {
+      // Minimal initial prompt — Task 6.2 manual testing will refine wording.
+      const ctx = currentContext;
+      const desc =
+        actionDesc.kind === "click"
+          ? `User clicked at (${actionDesc.x}, ${actionDesc.y}).`
+          : `User chose option: "${actionDesc.choice}".`;
+      const screen = ctx
+        ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
+        : "No screen context captured.";
+      return `${desc}\n\n${screen}\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+    },
+    onStateUpdate: (state) => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (win && !win.isDestroyed()) {
+        win.webContents.send(IPC.GUIDE_STATE_UPDATE, state);
+      }
+    },
+  });
+  log("Guide controller initialized");
+}
+
 function formatVisibleWindows(windows: VisibleWindow[], activeWindowTitle?: string): string {
   if (!windows || windows.length === 0) return "";
   const lines: string[] = [];
@@ -324,6 +412,14 @@ export function registerIpcHandlers(
     if (configChangeListener) {
       try { configChangeListener(config, prev); }
       catch (e: any) { log(`Config change listener threw: ${e.message}`); }
+    }
+    // Initialize the auto-guide controller on the first false→true flip of
+    // autoGuideEnabled. We don't tear down on the reverse flip — the
+    // controller stays loaded but inactive. action-executor.ts gates guide
+    // markers on the live cfg.autoGuideEnabled, so disabling the flag stops
+    // new sessions immediately. Full teardown can be a future task.
+    if (newConfig.autoGuideEnabled === true && !prev.autoGuideEnabled) {
+      void initGuideControllerIfNeeded();
     }
     return config;
   });
@@ -697,7 +793,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
             continue;
           }
           log(`Executing action: type=${action.type} selector=${action.selector || ""}`);
-          const result: ActionResult = await executeAction(action, { actionsEnabled: config.actionsEnabled });
+          const result: ActionResult = await executeAction(action, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
           log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
           win.webContents.send(IPC.ACTION_RESULT, { action, result });
@@ -760,7 +856,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       await new Promise((r) => setTimeout(r, 400)); // let target window regain focus
     }
 
-    const result = await executeAction(action, { actionsEnabled: config.actionsEnabled });
+    const result = await executeAction(action, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
     log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
     if (win && !win.isDestroyed()) {
@@ -804,7 +900,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       await new Promise((r) => setTimeout(r, 400));
     }
 
-    const result = await executeAction(action, { actionsEnabled: config.actionsEnabled });
+    const result = await executeAction(action, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
     log(`Retry result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
     if (win && !win.isDestroyed()) {
@@ -974,6 +1070,11 @@ contextBlock += `\n--- END CONTEXT ---\n`;
   });
 
   log("All IPC handlers registered");
+
+  // Spin up the guide controller singleton if Auto-Guide is already on at
+  // launch. Fire-and-forget — the dynamic imports resolve well before the
+  // user can trigger a guide session.
+  void initGuideControllerIfNeeded();
 
   cleanupOldSessions();
 }
