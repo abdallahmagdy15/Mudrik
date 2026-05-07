@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Documentation rules
+
+After any feature ships, bug is fixed, or design decision is made — **after the user has reviewed it and the commit has landed** — update the relevant **internal** docs to match reality. That includes this `CLAUDE.md`, design specs, system architecture notes, and any in-repo planning files (e.g., `docs/superpowers/specs/*`, `Mudrik-Plan/`).
+
+**Internal docs auto-update.** Don't ask permission for these — keep them in sync as part of the same task.
+
+**Public / user-facing docs require user permission first.** Never edit `README.md`, the published landing page (`docs/index.html`), `SECURITY.md`, `CONTRIBUTING.md`, release notes, or anything else a public reader might see — without first proposing the change and getting explicit approval. Suggest the edit, show what would change, wait for "yes."
+
+The split exists because internal docs are tools for the dev (drift = future bugs) while public docs are part of the product surface (drift = trust + brand risk).
+
 ## Commands
 
 - `npm run build` — bundles all four webpack targets into `dist/` (main, preload, area-preload, renderer).
