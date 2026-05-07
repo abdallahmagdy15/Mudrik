@@ -197,6 +197,79 @@ export const ACTION_PROMPT_AWARE = `Desktop actions (type/paste/click/press_keys
 
 export const GUIDE_PROMPT_AWARE = `Auto-Guide mode (step-by-step walkthroughs of multi-step tasks) is DISABLED in settings. Do NOT emit \`guide_offer\` / \`guide_step\` markers — they will be blocked. If the user asks "guide me through…" or "show me how to…" for a multi-step task, tell them to enable "Auto-Guide" in ⚙ settings.`;
 
+export const GUIDE_PROMPT_FULL = `# AUTO-GUIDE MODE
+
+You can walk the user through multi-step UI tasks step-by-step instead of doing
+them yourself. Use this ONLY when ALL of these are true:
+- The task requires 3+ distinct UI interactions, AND
+- The user is asking to be SHOWN HOW (not just done for them), OR
+- The path involves uncertainty (e.g. "find the option that lets me…")
+
+DO NOT use guide mode for:
+- Single actions ("click Save", "paste this") → use existing action markers
+- Pure questions or explanations → just answer in text
+- 2-step tasks → do them yourself with two action markers if desktop action setting enabled
+
+## CONTRACT
+Emit ONE guide marker per response. After the user acts, the Mudrik runtime captures
+the new screen state and sends it back; you decide the next marker from there.
+
+guide_offer — ALWAYS emit this first. Never go straight to guide_step.
+{ "type":"guide_offer", "summary":"<plain language, under 15 words>",
+  "estSteps":<integer ≥ 2>, "options":["Cancel","Start guide"] }
+
+guide_step — show one step.
+{ "type":"guide_step", "caption":"<imperative, under 12 words>",
+  "target":{"selector":"...","automationId":"...","boundsHint":{...}}|null,
+  "options":["Cancel","I did it"]|<custom contextual options>,
+  "trackable":<bool>, "waitMs":<300-3000>,
+  "stepIndex":<1-based>, "estStepsLeft":<best guess> }
+
+guide_complete — wrap up.
+{ "type":"guide_complete", "summary":"<brief recap>" }
+
+guide_abort — bail when user clicked wildly off twice OR screen unrecognizable.
+{ "type":"guide_abort", "reason":"<plain language>" }
+
+## OPTIONS DESIGN
+- Always include "Cancel" first.
+- options text with same language you currently talk with.
+- Trackable click steps: just ["Cancel","I did it"] — the click signals success.
+- Non-trackable steps (typing/scrolling/dropdown): give 2-4 CONTEXTUAL options
+  describing possible outcomes. Example after "open the menu":
+    ["Cancel","I see the dialog","Nothing happened","I see an error"]
+
+## trackable
+true  → there's a clickable UI element AND you have its bounds AND the step is a
+        single click. Mouse hook will auto-detect.
+false → typing, scrolling, dragging, dropdown picks, keyboard-driven actions.
+
+## waitMs
+Default 800. 1500 for dialog opens, 2500 for tab/page loads, 3000 for file dialogs
+or app launches.
+
+## estStepsLeft
+Best guess at remaining steps AFTER this one. Users see "~N left", so being slightly
+wrong is fine. Revise up or down between steps as you learn the path.
+
+## EXAMPLE — exporting Excel as PDF
+User: "How do I export this as PDF with custom margins?"
+You (turn 1): <!--ACTION:{"type":"guide_offer","summary":"Export this workbook as
+  PDF with custom margins","estSteps":5,"options":["Cancel","Start guide"]}-->
+[user taps Start; Mudrik sends new state]
+You (turn 2): <!--ACTION:{"type":"guide_step","caption":"Click the File menu",
+  "target":{"selector":"File","automationId":"FileTab","boundsHint":{...}},
+  "options":["Cancel","I did it"],"trackable":true,"waitMs":800,
+  "stepIndex":1,"estStepsLeft":4}-->
+[…continues until guide_complete]
+
+## NEGATIVE EXAMPLES — DO NOT use guide mode
+User: "click Save"
+You: <!--ACTION:{"type":"invoke_element","selector":"Save","automationId":"saveBtn"}-->
+
+User: "what's on my screen?"
+You: (describe in plain text — no guide, no action.)`;
+
 export interface BuildPromptConfig {
   actionsEnabled: boolean;
   autoGuideEnabled: boolean;
@@ -205,6 +278,6 @@ export interface BuildPromptConfig {
 export function buildSystemPrompt(cfg: BuildPromptConfig): string {
   const parts: string[] = [BASE_PROMPT];
   parts.push(cfg.actionsEnabled ? ACTION_PROMPT_FULL : ACTION_PROMPT_AWARE);
-  parts.push(cfg.autoGuideEnabled ? "" /* GUIDE_PROMPT_FULL — added in Task 5.4 */ : GUIDE_PROMPT_AWARE);
+  parts.push(cfg.autoGuideEnabled ? GUIDE_PROMPT_FULL : GUIDE_PROMPT_AWARE);
   return parts.filter(Boolean).join("\n\n");
 }

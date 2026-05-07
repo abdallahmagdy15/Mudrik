@@ -6,6 +6,7 @@ import {
   SYSTEM_PROMPT,
   buildSystemPrompt,
   GUIDE_PROMPT_AWARE,
+  GUIDE_PROMPT_FULL,
 } from "./prompts";
 
 describe("prompts split", () => {
@@ -89,9 +90,37 @@ describe("buildSystemPrompt — guide block AWARE", () => {
   });
 
   it("with autoGuideEnabled=true, does NOT include GUIDE_PROMPT_AWARE", () => {
-    // No GUIDE_PROMPT_FULL yet (added in Task 5.4) — this just confirms AWARE
-    // is excluded when guide is enabled.
     const out = buildSystemPrompt({ actionsEnabled: true, autoGuideEnabled: true });
+    expect(out).not.toContain(GUIDE_PROMPT_AWARE);
+  });
+});
+
+describe("GUIDE_PROMPT_FULL", () => {
+  it("documents all four marker types", () => {
+    expect(GUIDE_PROMPT_FULL).toContain("guide_offer");
+    expect(GUIDE_PROMPT_FULL).toContain("guide_step");
+    expect(GUIDE_PROMPT_FULL).toContain("guide_complete");
+    expect(GUIDE_PROMPT_FULL).toContain("guide_abort");
+  });
+
+  it("has strict 'when not to use' rules", () => {
+    expect(GUIDE_PROMPT_FULL).toContain("DO NOT use guide mode");
+    expect(GUIDE_PROMPT_FULL).toContain("Single actions");
+  });
+
+  it("includes a positive example with guide_offer first", () => {
+    expect(GUIDE_PROMPT_FULL).toContain("ALWAYS emit this first");
+  });
+
+  it("includes a negative example showing single-action fallback", () => {
+    expect(GUIDE_PROMPT_FULL).toContain("invoke_element");
+  });
+});
+
+describe("buildSystemPrompt — guide block FULL", () => {
+  it("with autoGuideEnabled=true, includes GUIDE_PROMPT_FULL not AWARE", () => {
+    const out = buildSystemPrompt({ actionsEnabled: true, autoGuideEnabled: true });
+    expect(out).toContain(GUIDE_PROMPT_FULL);
     expect(out).not.toContain(GUIDE_PROMPT_AWARE);
   });
 });
