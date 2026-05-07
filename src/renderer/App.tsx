@@ -344,12 +344,18 @@ if (!data?.hasImage) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, currentResponse, actionResults]);
 
-  // Escape dismisses the panel. Captured at the window so it works regardless
-  // of which element has focus. If the model is still streaming, the first
-  // Escape stops the response; a second Escape hides the panel.
+  // Escape, captured at the window so focus state doesn't matter. Priority:
+  //   1. Active guide (UI visible)  → cancel the guide
+  //   2. Model still streaming      → stop the response
+  //   3. Otherwise                  → dismiss the panel
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (guideState && guideState.options) {
+        window.hoverbuddy.guideUserChoice("Cancel");
+        e.preventDefault();
+        return;
+      }
       if (streaming) {
         window.hoverbuddy.stopResponse();
         e.preventDefault();
@@ -359,7 +365,7 @@ if (!data?.hasImage) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [streaming]);
+  }, [streaming, guideState]);
 
   const handleSubmit = useCallback((prompt: string) => {
     console.log(`[RENDERER] Submit prompt: "${prompt}"`);

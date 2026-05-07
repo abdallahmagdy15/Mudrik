@@ -89,6 +89,24 @@ What this means for the user-facing model:
 
 This matches the user's mental model: "what's been sent is done; the next snapshot of context picks up my latest settings." If you add another setting that the model must see, build it into the same actionsBlock-style block so it refreshes naturally on every non-followup send.
 
+### Auto-Guide mode (multi-step UI walkthroughs)
+
+Opt-in feature, off by default (toggle in ⚙ → "Enable Auto-Guide"). When on, the AI walks the user through 3+ step UI tasks instead of doing them itself: shows an owl-wing pointer over each target, waits for the user to click, then captures the new screen state and decides the next step.
+
+`src/main/guide/` is **entirely lazy-loaded** via dynamic `import()` — nothing in this directory is statically referenced anywhere; the modules don't enter the runtime graph until the user toggles the feature on AND the AI emits a `guide_*` marker. Same pattern as `src/main/actions/action-executor-heavy.ts` (lazy-loaded for read-only mode). Keep it that way: a static import here would pull `mouse-hook` + the overlay window into the cold-start path for users who never use the feature.
+
+`buildSystemPrompt({ actionsEnabled, autoGuideEnabled })` in `src/shared/prompts.ts` composes three blocks: `BASE_PROMPT` (always) + `ACTION_PROMPT_FULL`/`ACTION_PROMPT_AWARE` + `GUIDE_PROMPT_FULL`/`GUIDE_PROMPT_AWARE`. The AWARE stubs (~50 words each) keep the model capability-aware when a feature is OFF — it knows the feature exists and can suggest enabling it, without spending tokens on the full instructions. When ON, the model gets the full constitution.
+
+`Config.autoGuideEnabled` is read live at three layers, never cached:
+
+1. `buildSystemPrompt` reads it on every non-followup send (same lifecycle as `actionsEnabled` above).
+2. `validateAction` in `action-executor.ts` blocks `guide_*` markers if false — the IPC-level guard against a forged renderer payload.
+3. `executeAction` reads it from caller-supplied `cfg`, so toggling false mid-stream blocks the next guide marker even after the prompt was built with it true.
+
+`src/main/guide/mouse-hook.ts` uses a Windows global low-level mouse hook (WH_MOUSE_LL) via PowerShell + C# `Add-Type`. It runs **only** during the `STEP_ACTIVE` phase of a guide session — started in `handleStep`, stopped on every transition out of STEP_ACTIVE. Scoped to the foreground HWND so panel clicks don't trigger it.
+
+Full design rationale, state machine, prompt content, and edge cases live in `D:\SandBoX\Mudrik-Plan\docs\specs\2026-05-03-auto-guide-design.md`.
+
 ### PowerShell is the UIA bridge
 
 `context-reader.ts`, `area-scanner.ts`, `vision.ts`, and `action-executor.ts` all embed PowerShell scripts as string literals and write them to `%TEMP%/hoverbuddy/` on first use (see `powershell-runner.ts`). They use `System.Windows.Automation` (UIA) and GDI+ for screen capture. Script file names are versioned (`-v3`, `-v6`) — bumping the version string forces a rewrite of the cached `.ps1`, which is the mechanism to deploy PowerShell changes to already-installed users.
