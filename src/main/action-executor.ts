@@ -271,6 +271,17 @@ export function parseActionsFromResponse(text: string): ParsedActions {
         continue;
       }
 
+      // Guide markers carry payload fields the standard rebuild strips
+      // (summary/options/estSteps for offer; caption/target/trackable/waitMs/
+      // stepIndex/estStepsLeft for step; reason for abort). Pass the parsed
+      // object through whole — the controller reads the typed Guide*Payload
+      // shape directly, and unknown fields are ignored downstream.
+      if (GUIDE_ACTION_TYPES.has(parsed.type as ActionType)) {
+        actions.push(parsed as unknown as Action);
+        log(`Parsed guide marker: type=${parsed.type} options=${JSON.stringify(parsed.options || [])}`);
+        continue;
+      }
+
       const action: Action = {
         type: parsed.type as ActionType,
         text: parsed.text,

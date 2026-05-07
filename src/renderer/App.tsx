@@ -279,6 +279,7 @@ if (!data?.hasImage) {
     });
 
     window.hoverbuddy.onGuideStateUpdate((state: any) => {
+      console.log(`[RENDERER] guide state: phase=${state?.phase} options=${JSON.stringify(state?.options || [])}`);
       if (!state || state.phase === "idle") setGuideState(null);
       else setGuideState(state);
     });
@@ -965,7 +966,7 @@ if (!data?.hasImage) {
       {guideState && guideState.options ? (
         <React.Suspense fallback={null}>
           <ChatInputOptions
-            caption={guideState.caption}
+            caption={guideState.caption || guideState.summary}
             stepIndex={guideState.stepIndex}
             estStepsLeft={guideState.estStepsLeft}
             options={guideState.options}

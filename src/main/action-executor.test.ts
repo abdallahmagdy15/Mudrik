@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateAction } from "./action-executor";
+import { validateAction, parseActionsFromResponse } from "./action-executor";
 
 const cfg = (autoGuideEnabled: boolean, actionsEnabled = true) => ({
   actionsEnabled,
@@ -134,5 +134,50 @@ describe("validateAction — existing types unaffected", () => {
   it("still rejects unknown action types (regression)", () => {
     const r = validateAction({ type: "run_command", command: "rm -rf /" }, cfg(true));
     expect("error" in r).toBe(true);
+  });
+});
+
+describe("parseActionsFromResponse — guide marker payloads", () => {
+  it("preserves guide_offer payload fields (summary/estSteps/options) — regression for stripped-fields bug", () => {
+    const text = `Sure, I'll guide you. <!--ACTION:{"type":"guide_offer","summary":"Open game from Library","estSteps":4,"options":["Cancel","Start guide"]}-->`;
+    const { actions } = parseActionsFromResponse(text);
+    expect(actions).toHaveLength(1);
+    const a = actions[0] as any;
+    expect(a.type).toBe("guide_offer");
+    expect(a.summary).toBe("Open game from Library");
+    expect(a.estSteps).toBe(4);
+    expect(a.options).toEqual(["Cancel", "Start guide"]);
+  });
+
+  it("preserves guide_step payload fields (caption/target/trackable/waitMs/stepIndex/estStepsLeft)", () => {
+    const text = `<!--ACTION:{"type":"guide_step","caption":"Click Library","target":{"selector":"Library","automationId":"libBtn","boundsHint":{"x":10,"y":20,"width":80,"height":24}},"options":["Cancel","I did it"],"trackable":true,"waitMs":800,"stepIndex":1,"estStepsLeft":3}-->`;
+    const { actions } = parseActionsFromResponse(text);
+    expect(actions).toHaveLength(1);
+    const a = actions[0] as any;
+    expect(a.type).toBe("guide_step");
+    expect(a.caption).toBe("Click Library");
+    expect(a.target?.boundsHint).toEqual({ x: 10, y: 20, width: 80, height: 24 });
+    expect(a.options).toEqual(["Cancel", "I did it"]);
+    expect(a.trackable).toBe(true);
+    expect(a.waitMs).toBe(800);
+    expect(a.stepIndex).toBe(1);
+    expect(a.estStepsLeft).toBe(3);
+  });
+
+  it("preserves guide_abort.reason and guide_complete.summary", () => {
+    const text = `<!--ACTION:{"type":"guide_abort","reason":"Screen unrecognizable"}--><!--ACTION:{"type":"guide_complete","summary":"Done — you opened the library."}-->`;
+    const { actions } = parseActionsFromResponse(text);
+    expect(actions).toHaveLength(2);
+    expect((actions[0] as any).reason).toBe("Screen unrecognizable");
+    expect((actions[1] as any).summary).toBe("Done — you opened the library.");
+  });
+
+  it("still strips unknown fields on non-guide markers (regression)", () => {
+    const text = `<!--ACTION:{"type":"paste_text","selector":"Body","text":"hi","unknownField":"should be dropped"}-->`;
+    const { actions } = parseActionsFromResponse(text);
+    expect(actions).toHaveLength(1);
+    expect((actions[0] as any).unknownField).toBeUndefined();
+    expect(actions[0].type).toBe("paste_text");
+    expect(actions[0].text).toBe("hi");
   });
 });

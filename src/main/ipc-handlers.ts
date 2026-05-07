@@ -351,6 +351,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       return `${desc}\n\n${screen}\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
     },
     onStateUpdate: (state) => {
+      log(`GUIDE_STATE_UPDATE phase=${state.phase} options=${JSON.stringify(state.options || [])} caption=${state.caption ? "yes" : "no"} summary=${state.summary ? "yes" : "no"}`);
       const win = BrowserWindow.getAllWindows()[0];
       if (win && !win.isDestroyed()) {
         win.webContents.send(IPC.GUIDE_STATE_UPDATE, state);
