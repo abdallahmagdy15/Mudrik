@@ -25,17 +25,20 @@ const r3 = parseActionsFromResponse('<!--ACTION:{"type":"type_text","selector":"
 assert(r3.actions.length === 1 && r3.actions[0].type === "type_text", "type_text parsed");
 assert(r3.blocked.length === 0, "no blocked for allowed type");
 
+// validateAction now takes a cfg with actionsEnabled + autoGuideEnabled.
+const cfg = { actionsEnabled: true, autoGuideEnabled: false };
+
 // 4. IPC validator rejects run_command
-const v1 = validateAction({ type: "run_command", command: "bad" });
+const v1 = validateAction({ type: "run_command", command: "bad" }, cfg);
 assert("error" in v1, "validateAction rejects run_command");
 
 // 5. Non-object rejected
-assert("error" in validateAction("hello"), "validateAction rejects string");
-assert("error" in validateAction(null), "validateAction rejects null");
-assert("error" in validateAction(undefined), "validateAction rejects undefined");
+assert("error" in validateAction("hello", cfg), "validateAction rejects string");
+assert("error" in validateAction(null, cfg), "validateAction rejects null");
+assert("error" in validateAction(undefined, cfg), "validateAction rejects undefined");
 
 // 6. Allowed action coerced; unknown fields dropped
-const v2 = validateAction({ type: "guide_to", selector: "Save", autoClick: false, extraBad: "nope" });
+const v2 = validateAction({ type: "guide_to", selector: "Save", autoClick: false, extraBad: "nope" }, cfg);
 assert("action" in v2, "validateAction accepts guide_to");
 if ("action" in v2) {
   assert(v2.action.selector === "Save", "selector preserved");
@@ -44,7 +47,7 @@ if ("action" in v2) {
 }
 
 // 7. Wrong-type fields dropped
-const v3 = validateAction({ type: "type_text", text: 123 });
+const v3 = validateAction({ type: "type_text", text: 123 }, cfg);
 assert("action" in v3 && (v3 as any).action.text === undefined, "non-string text dropped");
 
 // 8. Allowlist contents

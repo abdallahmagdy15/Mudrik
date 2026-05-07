@@ -38,7 +38,12 @@ export type ActionType =
   | "invoke_element"
   | "copy_to_clipboard"
   | "press_keys"
-  | "guide_to";
+  | "guide_to"
+  // new (Auto-Guide mode)
+  | "guide_offer"
+  | "guide_step"
+  | "guide_complete"
+  | "guide_abort";
 
 export interface Action {
   type: ActionType;
@@ -50,6 +55,45 @@ export interface Action {
   parentChain?: string[];
   autoClick?: boolean;
 }
+
+export interface GuideOfferPayload {
+  type: "guide_offer";
+  summary: string;
+  estSteps: number;
+  options: string[];
+}
+
+export interface GuideStepPayload {
+  type: "guide_step";
+  caption: string;
+  target: {
+    selector: string;
+    automationId?: string;
+    boundsHint?: { x: number; y: number; width: number; height: number };
+  } | null;
+  options: string[];
+  trackable: boolean;
+  waitMs: number;
+  stepIndex: number;
+  estStepsLeft: number;
+}
+
+export interface GuideCompletePayload {
+  type: "guide_complete";
+  summary: string;
+}
+
+export interface GuideAbortPayload {
+  type: "guide_abort";
+  reason: string;
+}
+
+/** The four marker types that drive Auto-Guide mode. Used by validateAction
+ *  and by action-executor to decide whether to dispatch through the guide
+ *  controller path. */
+export const GUIDE_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>([
+  "guide_offer", "guide_step", "guide_complete", "guide_abort",
+]);
 
 export interface Config {
   model: string;

@@ -15,7 +15,7 @@
 // used by the IPC layer, and the per-context "last hovered element"
 // cache that the dispatcher forwards to the heavy module.
 
-import { Action, ActionType } from "../shared/types";
+import { Action, ActionType, GUIDE_ACTION_TYPES } from "../shared/types";
 import { log } from "./logger";
 
 export interface ActionResult {
@@ -102,17 +102,44 @@ export const ALLOWED_ACTION_TYPES: ReadonlySet<ActionType> = new Set<ActionType>
   "copy_to_clipboard",
   "press_keys",
   "guide_to",
+  // Auto-Guide markers — recognized so parseActionsFromResponse can extract
+  // them from AI responses. The guide controller (Task 6.1) routes these
+  // through its own dispatcher; the validation gate (autoGuideEnabled) lives
+  // below in validateAction.
+  "guide_offer",
+  "guide_step",
+  "guide_complete",
+  "guide_abort",
 ]);
+
+interface ValidationConfig {
+  actionsEnabled: boolean;
+  autoGuideEnabled: boolean;
+}
 
 /**
  * Coerce an untrusted IPC payload to a clean `Action`. Returns the sanitized
  * action, or `{ error }` if the payload is not a safe allowed-type action.
  * Called at every IPC boundary that reaches `executeAction`.
+ *
+ * `cfg.autoGuideEnabled` gates the four guide_* marker types; without it the
+ * guide payloads must not reach the controller.
  */
-export function validateAction(payload: unknown): { action: Action } | { error: string } {
+export function validateAction(
+  payload: unknown,
+  cfg: ValidationConfig
+): { action: Action } | { error: string } {
   if (!payload || typeof payload !== "object") return { error: "Action payload is not an object" };
   const p = payload as Record<string, unknown>;
   if (typeof p.type !== "string") return { error: "Action.type must be a string" };
+
+  // Route guide markers to the dedicated schema validator. Auto-Guide must
+  // be enabled in settings for these to pass.
+  if (GUIDE_ACTION_TYPES.has(p.type as ActionType)) {
+    if (!cfg.autoGuideEnabled) return { error: "Auto-Guide is disabled in settings" };
+    return validateGuideAction(p);
+  }
+
   if (!ALLOWED_ACTION_TYPES.has(p.type as ActionType)) {
     return { error: `Action.type "${p.type}" is not allowed` };
   }
@@ -135,6 +162,47 @@ export function validateAction(payload: unknown): { action: Action } | { error: 
     action.parentChain = p.parentChain as string[];
   }
   return { action };
+}
+
+/** Strict schema check for the four guide_* marker payloads. The Action
+ *  interface is intentionally narrow (it's the runtime executor's contract),
+ *  so we cast through `unknown` — the controller (Task 4.3 / 6.1) consumes
+ *  the typed `Guide*Payload` interfaces from shared/types via narrowing. */
+function validateGuideAction(p: Record<string, unknown>): { action: Action } | { error: string } {
+  switch (p.type) {
+    case "guide_offer": {
+      if (typeof p.summary !== "string") return { error: "guide_offer.summary must be string" };
+      if (typeof p.estSteps !== "number" || !Number.isInteger(p.estSteps))
+        return { error: "guide_offer.estSteps must be an integer" };
+      if (p.estSteps < 2)
+        return { error: "guide_offer.estSteps must be at least 2 (use a single action for one step)" };
+      if (!Array.isArray(p.options)) return { error: "guide_offer.options must be an array" };
+      return { action: p as unknown as Action };
+    }
+    case "guide_step": {
+      if (typeof p.caption !== "string") return { error: "guide_step.caption must be string" };
+      if (!Array.isArray(p.options) || !p.options.includes("Cancel"))
+        return { error: 'guide_step.options must include "Cancel"' };
+      if (typeof p.trackable !== "boolean") return { error: "guide_step.trackable must be boolean" };
+      if (typeof p.waitMs !== "number" || p.waitMs < 100 || p.waitMs > 10000)
+        return { error: "guide_step.waitMs must be a number between 100 and 10000" };
+      if (typeof p.stepIndex !== "number" || p.stepIndex < 1)
+        return { error: "guide_step.stepIndex must be a positive integer" };
+      if (typeof p.estStepsLeft !== "number" || p.estStepsLeft < 0)
+        return { error: "guide_step.estStepsLeft must be a non-negative integer" };
+      return { action: p as unknown as Action };
+    }
+    case "guide_complete": {
+      if (typeof p.summary !== "string") return { error: "guide_complete.summary must be string" };
+      return { action: p as unknown as Action };
+    }
+    case "guide_abort": {
+      if (typeof p.reason !== "string") return { error: "guide_abort.reason must be string" };
+      return { action: p as unknown as Action };
+    }
+    default:
+      return { error: `unknown guide marker type: ${String(p.type)}` };
+  }
 }
 
 export interface ParsedActions {

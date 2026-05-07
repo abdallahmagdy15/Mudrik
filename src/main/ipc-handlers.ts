@@ -726,7 +726,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
 
   ipcMain.on(IPC.EXECUTE_ACTION, async (_e, payload: unknown) => {
     const win = BrowserWindow.getAllWindows()[0];
-    const v = validateAction(payload);
+    const v = validateAction(payload, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
     if ("error" in v) {
       log(`EXECUTE_ACTION REJECTED: ${v.error}`);
       if (win) {
@@ -771,7 +771,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
 
   ipcMain.on(IPC.RETRY_ACTION, async (_e, payload: unknown) => {
     const win = BrowserWindow.getAllWindows()[0];
-    const v = validateAction(payload);
+    const v = validateAction(payload, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
     if ("error" in v) {
       log(`RETRY_ACTION REJECTED: ${v.error}`);
       if (win) {
