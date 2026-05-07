@@ -697,7 +697,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
             continue;
           }
           log(`Executing action: type=${action.type} selector=${action.selector || ""}`);
-          const result: ActionResult = await executeAction(action);
+          const result: ActionResult = await executeAction(action, { actionsEnabled: config.actionsEnabled });
           log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
           win.webContents.send(IPC.ACTION_RESULT, { action, result });
@@ -760,7 +760,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       await new Promise((r) => setTimeout(r, 400)); // let target window regain focus
     }
 
-    const result = await executeAction(action);
+    const result = await executeAction(action, { actionsEnabled: config.actionsEnabled });
     log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
     if (win && !win.isDestroyed()) {
@@ -804,7 +804,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       await new Promise((r) => setTimeout(r, 400));
     }
 
-    const result = await executeAction(action);
+    const result = await executeAction(action, { actionsEnabled: config.actionsEnabled });
     log(`Retry result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
     if (win && !win.isDestroyed()) {
