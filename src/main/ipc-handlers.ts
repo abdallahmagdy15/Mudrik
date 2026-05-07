@@ -922,6 +922,11 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     }
   });
 
+  ipcMain.on(IPC.GUIDE_USER_CHOICE, async (_e, option: string) => {
+    const m = await import("./guide/guide-controller");
+    m.getController().handleUserChoice(option);
+  });
+
   ipcMain.handle(IPC.RESTORE_SESSION, async () => {
     try {
       const opencodeBin = findOpenCodeBinPath();

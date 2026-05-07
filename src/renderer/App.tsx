@@ -35,6 +35,8 @@ declare global {
       validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[]; needsAuth?: boolean; provider?: string }>;
       saveApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
       removeModel: (modelId: string) => Promise<any>;
+      guideUserChoice: (option: string) => void;
+      onGuideStateUpdate: (cb: (state: any) => void) => void;
     };
   }
 }

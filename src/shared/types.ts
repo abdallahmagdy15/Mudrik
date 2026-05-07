@@ -199,4 +199,6 @@ export const IPC = {
   REMOVE_MODEL: "remove-model",
   CURSOR_POS: "cursor-pos",
   REMOVE_SCREENSHOT: "remove-screenshot",
+  GUIDE_USER_CHOICE: "guide-user-choice",
+  GUIDE_STATE_UPDATE: "guide-state-update",
 } as const;

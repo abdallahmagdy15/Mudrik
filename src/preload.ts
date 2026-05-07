@@ -64,4 +64,8 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
   removeModel: (modelId: string) => ipcRenderer.invoke("remove-model", modelId),
   onCursorPos: (cb: (pos: { x: number; y: number }) => void) =>
     ipcRenderer.on("cursor-pos", (_e, pos) => cb(pos)),
+  guideUserChoice: (option: string) =>
+    ipcRenderer.send("guide-user-choice", option),
+  onGuideStateUpdate: (cb: (state: any) => void) =>
+    ipcRenderer.on("guide-state-update", (_e, state) => cb(state)),
 });
