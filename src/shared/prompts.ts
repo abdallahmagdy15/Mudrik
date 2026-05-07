@@ -195,6 +195,8 @@ export const SYSTEM_PROMPT = BASE_PROMPT + "\n\n" + ACTION_PROMPT_FULL;
 
 export const ACTION_PROMPT_AWARE = `Desktop actions (type/paste/click/press_keys/set_value/invoke_element/guide_to) are DISABLED in settings. Do NOT emit those action markers — they will be blocked. \`copy_to_clipboard\` is still allowed for putting content on the user's clipboard. If the user asks you to act on the screen, tell them to enable "Allow desktop actions" in ⚙ settings.`;
 
+export const GUIDE_PROMPT_AWARE = `Auto-Guide mode (step-by-step walkthroughs of multi-step tasks) is DISABLED in settings. Do NOT emit \`guide_offer\` / \`guide_step\` markers — they will be blocked. If the user asks "guide me through…" or "show me how to…" for a multi-step task, tell them to enable "Auto-Guide" in ⚙ settings.`;
+
 export interface BuildPromptConfig {
   actionsEnabled: boolean;
   autoGuideEnabled: boolean;
@@ -203,6 +205,6 @@ export interface BuildPromptConfig {
 export function buildSystemPrompt(cfg: BuildPromptConfig): string {
   const parts: string[] = [BASE_PROMPT];
   parts.push(cfg.actionsEnabled ? ACTION_PROMPT_FULL : ACTION_PROMPT_AWARE);
-  // GUIDE blocks added in Tasks 3.2 and 5.4
-  return parts.join("\n\n");
+  parts.push(cfg.autoGuideEnabled ? "" /* GUIDE_PROMPT_FULL — added in Task 5.4 */ : GUIDE_PROMPT_AWARE);
+  return parts.filter(Boolean).join("\n\n");
 }

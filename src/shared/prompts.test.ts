@@ -5,6 +5,7 @@ import {
   ACTION_PROMPT_AWARE,
   SYSTEM_PROMPT,
   buildSystemPrompt,
+  GUIDE_PROMPT_AWARE,
 } from "./prompts";
 
 describe("prompts split", () => {
@@ -65,5 +66,32 @@ describe("buildSystemPrompt", () => {
     const out2 = buildSystemPrompt({ actionsEnabled: false, autoGuideEnabled: false });
     expect(out1).toContain(BASE_PROMPT);
     expect(out2).toContain(BASE_PROMPT);
+  });
+});
+
+describe("GUIDE_PROMPT_AWARE", () => {
+  it("is short (under 60 words)", () => {
+    expect(GUIDE_PROMPT_AWARE.split(/\s+/).length).toBeLessThan(60);
+  });
+
+  it("forbids guide markers and tells how to enable", () => {
+    expect(GUIDE_PROMPT_AWARE).toContain("guide_offer");
+    expect(GUIDE_PROMPT_AWARE).toContain("DISABLED");
+    expect(GUIDE_PROMPT_AWARE).toContain("Auto-Guide");
+    expect(GUIDE_PROMPT_AWARE).toContain("settings");
+  });
+});
+
+describe("buildSystemPrompt — guide block AWARE", () => {
+  it("with autoGuideEnabled=false, includes GUIDE_PROMPT_AWARE", () => {
+    const out = buildSystemPrompt({ actionsEnabled: true, autoGuideEnabled: false });
+    expect(out).toContain(GUIDE_PROMPT_AWARE);
+  });
+
+  it("with autoGuideEnabled=true, does NOT include GUIDE_PROMPT_AWARE", () => {
+    // No GUIDE_PROMPT_FULL yet (added in Task 5.4) — this just confirms AWARE
+    // is excluded when guide is enabled.
+    const out = buildSystemPrompt({ actionsEnabled: true, autoGuideEnabled: true });
+    expect(out).not.toContain(GUIDE_PROMPT_AWARE);
   });
 });

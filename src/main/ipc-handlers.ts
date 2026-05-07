@@ -582,7 +582,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
 
       const systemPrefix = `${buildSystemPrompt({
         actionsEnabled: config.actionsEnabled,
-        autoGuideEnabled: false, // wired in Task 3.2
+        autoGuideEnabled: config.autoGuideEnabled,
       })}\n\n`;
       // Tell the AI about the current actions permission. The toggle is
       // LIVE — when the user flips it in settings, contextNeedsSending is
