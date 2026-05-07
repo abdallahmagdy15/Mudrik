@@ -94,6 +94,13 @@ let areaImagePath: string = "";
 let lastContextHash: string = "";
 let contextNeedsSending: boolean = false;
 let hasSentFirstMessage: boolean = false;
+// Mirror of the guide controller's phase, updated by onStateUpdate. Lets
+// callers (auto-show suppression, onContext message preservation) gate on
+// guide activity without forcing the lazy-loaded guide module to load.
+let guidePhase: string = "idle";
+function guideIsActive(): boolean {
+  return guidePhase !== "idle";
+}
 let attachScreenshotNext: boolean = false;
 
 export function setContext(context: ContextPayload): void {
@@ -351,6 +358,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       return `${desc}\n\n${screen}\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
     },
     onStateUpdate: (state) => {
+      guidePhase = state.phase;
       log(`GUIDE_STATE_UPDATE phase=${state.phase} options=${JSON.stringify(state.options || [])} caption=${state.caption ? "yes" : "no"} summary=${state.summary ? "yes" : "no"}`);
       const win = BrowserWindow.getAllWindows()[0];
       if (win && !win.isDestroyed()) {
@@ -1221,8 +1229,18 @@ function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {
       log(`step_finish: reason=${event.part?.reason || "unknown"}`);
       if (event.part?.reason === "stop") {
         if (!win.isVisible() && lastContext) {
-          log("Panel was hidden — auto-showing with last context");
-          showPanelFn?.(lastContext);
+          // Don't auto-show during an active guide — the panel was likely
+          // hidden because the user is interacting with the underlying app
+          // for the current step, and re-showing here fires CONTEXT_READY
+          // which resets the renderer's chat state, making the user think a
+          // new conversation started. The guide controller manages its own
+          // visibility expectations via state updates.
+          if (guideIsActive()) {
+            log("Panel hidden during active guide — skipping auto-show");
+          } else {
+            log("Panel was hidden — auto-showing with last context");
+            showPanelFn?.(lastContext);
+          }
         }
         showNotification("Mudrik", "AI response is ready");
       }

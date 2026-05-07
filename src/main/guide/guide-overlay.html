@@ -16,13 +16,13 @@
     }
     .owl {
       position: absolute;
-      width: 140px;
-      height: 140px;
+      width: 64px;
+      height: 64px;
       background: url('owl-wing-pointer.png') no-repeat center / contain;
-      filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.35));
-      transition: left 600ms cubic-bezier(0.22, 1, 0.36, 1),
-                  top 600ms cubic-bezier(0.22, 1, 0.36, 1),
-                  opacity 250ms ease;
+      filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+      transition: left 500ms cubic-bezier(0.22, 1, 0.36, 1),
+                  top 500ms cubic-bezier(0.22, 1, 0.36, 1),
+                  opacity 200ms ease;
       opacity: 0;
       pointer-events: none;
     }
@@ -30,17 +30,17 @@
     .owl.bob { animation: bob 1.4s ease-in-out infinite; }
     @keyframes bob {
       0%, 100% { transform: translateY(0); }
-      50%      { transform: translateY(-8px); }
+      50%      { transform: translateY(-4px); }
     }
     .circle {
       position: absolute;
       border-radius: 50%;
-      background: rgba(15, 168, 201, 0.22);  /* PRIMARY teal at ~22% */
-      border: 2px solid rgba(15, 168, 201, 0.55);
-      box-shadow: 0 0 24px rgba(15, 168, 201, 0.35);
-      transition: left 300ms ease, top 300ms ease,
-                  width 300ms ease, height 300ms ease,
-                  opacity 300ms ease;
+      background: rgba(15, 168, 201, 0.18);
+      border: 2px solid rgba(15, 168, 201, 0.7);
+      box-shadow: 0 0 12px rgba(15, 168, 201, 0.45);
+      transition: left 250ms ease, top 250ms ease,
+                  width 250ms ease, height 250ms ease,
+                  opacity 200ms ease;
       opacity: 0;
       pointer-events: none;
     }

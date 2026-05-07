@@ -171,6 +171,11 @@ export function App() {
   const [autoAttachImage, setAutoAttachImage] = useState(false);
   const [autoGuideEnabled, setAutoGuideEnabled] = useState(false);
   const [guideState, setGuideState] = useState<any | null>(null);
+  // Mirror guideState into a ref so the main mount-effect's closures
+  // (onContext, onStreamDone, etc.) can read the latest phase without
+  // re-subscribing each render.
+  const guideStateRef = useRef<any | null>(null);
+  useEffect(() => { guideStateRef.current = guideState; }, [guideState]);
   const restoreSessionRef = useRef(true);
   const configLoadedRef = useRef(false);
   const chatInputRef = useRef<{ focus: () => void }>(null);
@@ -187,6 +192,15 @@ export function App() {
 
     window.hoverbuddy.onContext((data) => {
       console.log(`[RENDERER] onContext: element type="${data.element?.type}" name="${data.element?.name}"`);
+      // During an active guide, the panel may be re-shown by the main process
+      // (e.g. step_finish auto-show). Treat that as a no-op for chat state —
+      // the user is mid-walkthrough and resetting messages/streaming would
+      // destroy the conversation flow they're trying to follow.
+      if (guideStateRef.current && guideStateRef.current.phase !== "idle") {
+        console.log("[RENDERER] onContext during active guide — preserving chat state");
+        setContext(data);
+        return;
+      }
       setContext(data);
       setActionResults([]);
       setCurrentResponse("");
@@ -963,14 +977,24 @@ if (!data?.hasImage) {
         )}
         <div ref={messagesEndRef} />
       </div>
-      {guideState && guideState.options ? (
+      {guideState && guideState.options && guideState.options.length > 0 ? (
         <React.Suspense fallback={null}>
           <ChatInputOptions
             caption={guideState.caption || guideState.summary}
             stepIndex={guideState.stepIndex}
             estStepsLeft={guideState.estStepsLeft}
             options={guideState.options}
-            onChoose={(opt) => window.hoverbuddy.guideUserChoice(opt)}
+            onChoose={(opt) => {
+              // Echo the user's choice into the chat (so the conversation
+              // visibly carries the user's action) and arm the streaming
+              // indicator until the AI's follow-up arrives. Cancel is the
+              // exception — the controller cleans state, no echo needed.
+              if (opt !== "Cancel") {
+                setMessages((prev) => [...prev, { role: "user", content: opt, toolUses: [] }]);
+                setStreaming(true);
+              }
+              window.hoverbuddy.guideUserChoice(opt);
+            }}
           />
         </React.Suspense>
       ) : (

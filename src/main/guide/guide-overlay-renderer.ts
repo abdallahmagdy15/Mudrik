@@ -23,17 +23,22 @@ declare global {
 const owl = document.getElementById("owl") as HTMLDivElement;
 const circle = document.getElementById("circle") as HTMLDivElement;
 
-const OWL_SIZE = 140;
-const OWL_OFFSET_X = 30;   // owl placed below-right of target so wing tip lands near target center
-const OWL_OFFSET_Y = 30;
-const CIRCLE_PADDING = 12; // around target bounds
+const OWL_SIZE = 64;
+const OWL_OFFSET_X = 18;   // owl placed below-right of target so wing tip lands near target center
+const OWL_OFFSET_Y = 18;
+const CIRCLE_PADDING = 6;
+const CIRCLE_MAX = 70;     // cap so a large bounds (e.g. whole "Library" tile) doesn't render a giant ring
+const CIRCLE_MIN = 28;     // floor so a 1px element isn't invisible
 
 function placeCircle(t: ShowPayload["target"]) {
-  const x = t.x - CIRCLE_PADDING;
-  const y = t.y - CIRCLE_PADDING;
-  const size = Math.max(t.width, t.height) + CIRCLE_PADDING * 2;
-  circle.style.left = `${x}px`;
-  circle.style.top = `${y}px`;
+  const raw = Math.max(t.width, t.height) + CIRCLE_PADDING * 2;
+  const size = Math.max(CIRCLE_MIN, Math.min(CIRCLE_MAX, raw));
+  // Center the (capped) circle on the target's centroid so it stays anchored
+  // even when the AI sent a huge boundsHint.
+  const cx = t.x + t.width / 2;
+  const cy = t.y + t.height / 2;
+  circle.style.left = `${cx - size / 2}px`;
+  circle.style.top = `${cy - size / 2}px`;
   circle.style.width = `${size}px`;
   circle.style.height = `${size}px`;
 }
