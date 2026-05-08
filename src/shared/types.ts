@@ -76,6 +76,13 @@ export interface GuideStepPayload {
   waitMs: number;
   stepIndex: number;
   estStepsLeft: number;
+  /**
+   * Subset of `options` whose selection ENDS the guide locally without an
+   * AI roundtrip. Use for terminal "Done" / "Task complete" / "Goal reached"
+   * confirmations on the final step. Saves tokens on what would otherwise be
+   * a wasted "ack — guide complete" turn.
+   */
+  closeOptions?: string[];
 }
 
 export interface GuideCompletePayload {

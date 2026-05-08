@@ -223,7 +223,8 @@ guide_step — show one step.
   "target":{"selector":"...","automationId":"...","boundsHint":{...}}|null,
   "options":["Cancel","I did it"]|<custom contextual options>,
   "trackable":<bool>, "waitMs":<300-3000>,
-  "stepIndex":<1-based>, "estStepsLeft":<best guess> }
+  "stepIndex":<1-based>, "estStepsLeft":<best guess>,
+  "closeOptions":["<subset of options that END the guide locally — no AI round-trip>"] }
 
 guide_complete — wrap up.
 { "type":"guide_complete", "summary":"<brief recap>" }
@@ -232,12 +233,22 @@ guide_abort — bail when user clicked wildly off twice OR screen unrecognizable
 { "type":"guide_abort", "reason":"<plain language>" }
 
 ## OPTIONS DESIGN
-- Always include "Cancel" first.
+- Always include "Cancel" first. Cancel always closes the guide locally — no
+  follow-up message is sent to you.
 - options text with same language you currently talk with.
 - Trackable click steps: just ["Cancel","I did it"] — the click signals success.
 - Non-trackable steps (typing/scrolling/dropdown): give 2-4 CONTEXTUAL options
   describing possible outcomes. Example after "open the menu":
     ["Cancel","I see the dialog","Nothing happened","I see an error"]
+- For the FINAL step (the one where the user confirms the goal is reached),
+  add a "closeOptions" array listing the option(s) that should END the guide
+  locally without a wasted "ack" round-trip. Example:
+    "options":["Cancel","Done — updates paused","Pause didn't work"],
+    "closeOptions":["Done — updates paused"]
+  Cancel is always implicitly a close — never list it in closeOptions.
+- A SCREENSHOT is attached to every follow-up message. Use it to read the
+  current UI and provide accurate target.boundsHint so the owl pointer can
+  land on the exact spot.
 
 ## trackable
 true  → there's a clickable UI element AND you have its bounds AND the step is a

@@ -217,6 +217,18 @@ function validateGuideAction(p: Record<string, unknown>): { action: Action } | {
           return { error: "guide_step.target.boundsHint is required when trackable=true" };
         }
       }
+      // closeOptions is optional; if present it must be a subset of options
+      // and not include "Cancel" (Cancel always cancels, never closes).
+      if (p.closeOptions !== undefined) {
+        if (!Array.isArray(p.closeOptions) || !p.closeOptions.every((s) => typeof s === "string")) {
+          return { error: "guide_step.closeOptions must be an array of strings" };
+        }
+        const opts = p.options as string[];
+        for (const c of p.closeOptions as string[]) {
+          if (c === "Cancel") return { error: 'guide_step.closeOptions cannot include "Cancel"' };
+          if (!opts.includes(c)) return { error: `guide_step.closeOptions["${c}"] must also appear in options` };
+        }
+      }
       return { action: p as unknown as Action };
     }
     case "guide_complete": {

@@ -139,10 +139,16 @@ export class GuideController {
       return;
     }
     if (this.phase === "step-active") {
-      // Non-trackable step — the user is signalling completion via option.
-      // Fire-and-forget the advance so callers (renderer IPC) don't block on
-      // the waitMs sleep + follow-up round-trip; the next guide_* marker
-      // arrives via handleAction() asynchronously.
+      // closeOptions short-circuit: AI marked this option as terminal (e.g.
+      // "Done — task complete" on the final step). Close locally without
+      // burning another round-trip on a confirmation the user already gave.
+      const step = this.currentStep;
+      if (step?.closeOptions && step.closeOptions.includes(option)) {
+        this.handleComplete({ type: "guide_complete", summary: option });
+        return;
+      }
+      // Otherwise the user is signalling progress mid-walkthrough — record
+      // and advance, the next guide_* marker arrives via handleAction().
       this.recordPendingAction({ kind: "option", choice: option });
       void this.advanceFromStep();
       return;
@@ -150,7 +156,10 @@ export class GuideController {
     // Other phases shouldn't receive choice events; ignore defensively
   }
 
-  /** User cancelled (Esc, Cancel button, or a hard timeout) — abort cleanly. */
+  /** User cancelled (Esc, Cancel button, or a hard timeout) — close locally
+   *  without an AI round-trip. The session continuation isn't worth a token
+   *  spend on "ack — guide cancelled" the user already initiated. The AI
+   *  will see the cancellation context on the user's next message. */
   async cancel(): Promise<void> {
     if (this.phase === "idle") return;
     this.deps.mouseHook.stop();
@@ -165,18 +174,6 @@ export class GuideController {
       phase: "idle",
       finalMessage: wasActive ? "Guide cancelled." : undefined,
     });
-    // Tell AI so it can wrap up gracefully (both from OFFER and from active
-    // STEP_ACTIVE/WAITING/etc. — the AI needs to know we're done so it can
-    // emit a guide_complete or guide_abort marker, or simply stop).
-    try {
-      const followUp = await this.deps.buildFollowUpPrompt({
-        kind: "option",
-        choice: "Cancel",
-      });
-      await this.deps.sendFollowUp(followUp);
-    } catch {
-      // Don't block cancel cleanup on a failed follow-up
-    }
   }
 
   // ---------- private state-machine methods ----------

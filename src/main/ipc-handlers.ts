@@ -296,21 +296,53 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     sendFollowUp: async (prompt: string) => {
       const win = BrowserWindow.getAllWindows()[0];
       if (!win) return;
-      // Send the follow-up through the existing OpenCode flow. The auto-execute
-      // loop in SEND_PROMPT is NOT triggered here — guide_* markers in the
-      // AI's response come back through handleOpenCodeEvent → text events
-      // streamed to the renderer, then the main SEND_PROMPT path's
-      // parseActionsFromResponse → executeAction → controller.handleAction.
-      // For follow-ups initiated by the controller we mirror that pattern in
-      // a slimmed-down form: stream tokens to the renderer for visibility,
-      // accumulate the response text, and parse + dispatch guide markers.
-      let buffer = "";
-      await client.sendMessage(prompt, (event) => {
-        handleOpenCodeEvent(event, win);
-        if (event.type === "text" && event.part?.text) {
-          buffer += event.part.text;
+      // Capture a fresh full-screen screenshot for every follow-up. Without
+      // it the AI is blind from step 2 onward — it can't emit accurate
+      // boundsHint values, so it falls back to trackable:false steps and
+      // the owl pointer never appears. With it, the AI sees the post-action
+      // UI (e.g. the Settings page that just opened) and can target precisely.
+      // We hide the panel briefly so the screenshot reflects the app the
+      // user is supposed to act on, not Mudrik's own UI.
+      let imagePath: string | null = null;
+      try {
+        const visionMod = await import("./vision");
+        const wasVisible = win.isVisible();
+        if (wasVisible) {
+          win.hide();
+          await new Promise((r) => setTimeout(r, 180));
         }
-      });
+        const display = require("electron").screen.getPrimaryDisplay();
+        imagePath = await visionMod.captureAndOptimize(
+          0,
+          0,
+          display.bounds.width,
+          display.bounds.height,
+        );
+        if (wasVisible && !win.isDestroyed()) {
+          win.show();
+        }
+        log(imagePath
+          ? `guide follow-up: attaching screenshot ${imagePath.slice(-40)}`
+          : "guide follow-up: screenshot capture failed — proceeding without image");
+      } catch (err: any) {
+        log(`guide follow-up: screenshot path errored (${err?.message || err}) — proceeding without image`);
+      }
+
+      // Stream tokens to the renderer for visibility; accumulate the response
+      // text; parse + dispatch guide markers when the subprocess exits.
+      let buffer = "";
+      try {
+        await client.sendMessage(prompt, (event) => {
+          handleOpenCodeEvent(event, win);
+          if (event.type === "text" && event.part?.text) {
+            buffer += event.part.text;
+          }
+        }, imagePath ? [imagePath] : undefined);
+      } finally {
+        if (imagePath) {
+          try { (await import("./vision")).cleanupImage(imagePath); } catch { /* best-effort */ }
+        }
+      }
       try {
         const { actions } = parseActionsFromResponse(buffer);
         for (const action of actions) {
@@ -355,7 +387,9 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const screen = ctx
         ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
         : "No screen context captured.";
-      return `${desc}\n\n${screen}\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+      // The runtime attaches a fresh screenshot to this same message — tell
+      // the AI so it knows to use it for spatial reasoning (boundsHint).
+      return `${desc}\n\n${screen}\n\nA fresh full-screen screenshot is attached to this message — use it to read the current UI and provide accurate target.boundsHint values when you emit a trackable guide_step. Decide the next guide marker (guide_step, guide_complete, or guide_abort).`;
     },
     onStateUpdate: (state) => {
       guidePhase = state.phase;

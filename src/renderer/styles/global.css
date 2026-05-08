@@ -1281,8 +1281,8 @@ body {
 
 /* ── Chat Input Options (auto-guide offer / step prompts) ──
    When the AI emits a guide_offer or guide_step marker, the chat input bar
-   transforms into this options bar with a caption + buttons. 2 options →
-   horizontal row (e.g. "Cancel" / "Done"); 3+ → vertical list (poll). */
+   transforms into this options bar with a caption + buttons.
+   Layout: 2 options → horizontal row, 3 → vertical list, 4+ → 2-col grid. */
 .chat-input-options {
   flex-shrink: 0;
   padding: 12px;
@@ -1318,9 +1318,19 @@ body {
   gap: 8px;
 }
 
-.chat-input-options.row .options-bar { flex-direction: row; }
-.chat-input-options.row .options-bar .option-btn { flex: 1; }
+.chat-input-options.row  .options-bar { flex-direction: row; }
+.chat-input-options.row  .options-bar .option-btn { flex: 1; }
 .chat-input-options.list .options-bar { flex-direction: column; }
+.chat-input-options.grid .options-bar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+/* Cancel always spans the full row in grid mode so the destructive action
+   stays distinct from the affirmative options pair-grouped below it. */
+.chat-input-options.grid .options-bar .option-btn.cancel {
+  grid-column: 1 / -1;
+}
 
 .chat-input-options .option-btn {
   padding: 10px 14px;
@@ -1332,28 +1342,33 @@ body {
   transition: all 0.15s ease;
 }
 
+/* Cancel: tinted red, matching .btn-stop (token: --red / --red-glow) so the
+   "exit" affordance is visually distinct from progress-confirming options.
+   Was a muted neutral border; the red tells the user clearly that this
+   button ends the guide locally with no AI round-trip. */
 .chat-input-options .option-btn.cancel {
-  background: transparent;
-  color: var(--text-muted);
-  border: 1px solid var(--border);
+  background: var(--red-glow);
+  color: var(--red);
+  border: 1px solid rgba(251, 113, 133, 0.32);
 }
 
 .chat-input-options .option-btn.cancel:hover {
-  color: var(--text);
-  border-color: var(--border-bright);
-  background: var(--bg-inset);
+  background: rgba(251, 113, 133, 0.18);
+  border-color: var(--red);
 }
 
 .chat-input-options .option-btn.primary {
   background: var(--gradient-accent);
   color: var(--owl-teal-ink);
   border: 1px solid var(--border-bright);
-  box-shadow: 0 2px 8px rgba(24, 191, 225, 0.25);
+  /* Brand glow tied to --accent-glow-strong (#18BFE1 @ 0.22) so a future
+     palette tweak propagates here without hunting for hardcoded RGBs. */
+  box-shadow: 0 2px 8px var(--accent-glow-strong);
 }
 
 .chat-input-options .option-btn.primary:hover {
   filter: brightness(1.08);
-  box-shadow: 0 4px 14px rgba(24, 191, 225, 0.4);
+  box-shadow: 0 4px 14px var(--accent-glow-strong);
 }
 
 .chat-input-options .option-btn:active {

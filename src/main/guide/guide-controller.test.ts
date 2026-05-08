@@ -90,13 +90,14 @@ describe("GuideController", () => {
       );
     });
 
-    it("user choice 'Cancel' from OFFER returns to IDLE and informs AI", async () => {
+    it("user choice 'Cancel' from OFFER returns to IDLE WITHOUT AI follow-up", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Cancel");
       expect(ctrl.getPhase()).toBe("idle");
-      expect(deps.sendFollowUp).toHaveBeenCalled();
+      // Local short-circuit — declining the offer shouldn't burn a token round-trip
+      expect(deps.sendFollowUp).not.toHaveBeenCalled();
     });
 
     it("user choice 'Start guide' from OFFER triggers AI follow-up requesting first step", async () => {
@@ -213,17 +214,23 @@ describe("GuideController", () => {
   });
 
   describe("cancel and abort", () => {
-    it("cancel() during STEP_ACTIVE stops hook, hides overlay, returns to IDLE, informs AI", async () => {
+    it("cancel() during STEP_ACTIVE stops hook, hides overlay, returns to IDLE WITHOUT informing AI (token-saving short-circuit)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
+      // sendFollowUp was called once (Start guide → first step prompt). Reset
+      // the spy so we can assert cancel doesn't add a second call.
+      const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
       await ctrl.handleAction(sampleStep as unknown as Action);
       await ctrl.cancel();
       expect(ctrl.getPhase()).toBe("idle");
       expect(deps.mouseHook.stop).toHaveBeenCalled();
       expect(deps.overlay.hide).toHaveBeenCalled();
-      expect(deps.sendFollowUp).toHaveBeenCalled();
+      // Cancel must NOT trigger a follow-up — that's the whole point of the
+      // local short-circuit (saves tokens on a redundant "ack" round-trip).
+      expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
+        .toBe(sendFollowUpCallsBefore);
     });
 
     it("cancel() while IDLE is a no-op", async () => {
@@ -233,6 +240,66 @@ describe("GuideController", () => {
       expect(deps.mouseHook.stop).not.toHaveBeenCalled();
       expect(deps.overlay.hide).not.toHaveBeenCalled();
       expect(deps.sendFollowUp).not.toHaveBeenCalled();
+    });
+
+    it("closeOptions short-circuit: clicking a terminal option closes locally with no AI round-trip", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      await ctrl.handleAction(sampleOffer as unknown as Action);
+      await ctrl.handleUserChoice("Start guide");
+      // Final step that lists "Done — task complete" as a closeOption.
+      const finalStep = {
+        type: "guide_step",
+        caption: "Click Pause updates and confirm",
+        target: { selector: "Pause", automationId: "pauseBtn", boundsHint: { x: 100, y: 100, width: 80, height: 24 } },
+        options: ["Cancel", "Done — updates paused", "It didn't work"],
+        closeOptions: ["Done — updates paused"],
+        trackable: true,
+        waitMs: 800,
+        stepIndex: 3,
+        estStepsLeft: 0,
+      };
+      await ctrl.handleAction(finalStep as unknown as Action);
+      const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
+      await ctrl.handleUserChoice("Done — updates paused");
+      expect(ctrl.getPhase()).toBe("idle");
+      expect(deps.mouseHook.stop).toHaveBeenCalled();
+      expect(deps.overlay.hide).toHaveBeenCalled();
+      // No new follow-up — the whole point of the short-circuit
+      expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
+        .toBe(sendFollowUpCallsBefore);
+      // Final state update carries the chosen option as the recap
+      expect(deps.onStateUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "idle", finalMessage: "Done — updates paused" }),
+      );
+    });
+
+    it("non-closeOption clicks still advance via AI follow-up (regression)", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      await ctrl.handleAction(sampleOffer as unknown as Action);
+      await ctrl.handleUserChoice("Start guide");
+      const stepWithCloseOpts = {
+        type: "guide_step",
+        caption: "Click File menu",
+        target: { selector: "File", automationId: "fileBtn", boundsHint: { x: 10, y: 10, width: 50, height: 24 } },
+        options: ["Cancel", "Menu opened", "Nothing happened"],
+        closeOptions: ["Menu opened"], // hypothetical, just exercising the schema
+        trackable: true,
+        waitMs: 800,
+        stepIndex: 1,
+        estStepsLeft: 2,
+      };
+      await ctrl.handleAction(stepWithCloseOpts as unknown as Action);
+      const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
+      await ctrl.handleUserChoice("Nothing happened"); // NOT in closeOptions
+      // Should still advance — phase moves out of step-active and a follow-up
+      // is dispatched (eventually, after the waitMs sleep)
+      expect(ctrl.getPhase()).not.toBe("idle");
+      // Drive timers: waiting → recapturing → awaiting-ai → sendFollowUp
+      await vi.runAllTimersAsync();
+      expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
+        .toBeGreaterThan(sendFollowUpCallsBefore);
     });
 
     it("guide_complete transitions to IDLE and emits a completion state update", async () => {

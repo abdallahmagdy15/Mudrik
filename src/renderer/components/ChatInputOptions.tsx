@@ -8,6 +8,16 @@ interface Props {
   onChoose: (option: string) => void;
 }
 
+// Layout per option count:
+//   2  → row (Cancel / Confirm sit side-by-side, equal flex)
+//   3  → list (single column, vertical poll)
+//   4+ → grid (2 columns; Cancel always spans the full row at top)
+function layoutFor(n: number): "row" | "list" | "grid" {
+  if (n <= 2) return "row";
+  if (n === 3) return "list";
+  return "grid";
+}
+
 export const ChatInputOptions: React.FC<Props> = ({
   caption,
   stepIndex,
@@ -15,9 +25,17 @@ export const ChatInputOptions: React.FC<Props> = ({
   options,
   onChoose,
 }) => {
-  const isRow = options.length === 2;
+  const layout = layoutFor(options.length);
+  // Render Cancel first so it lands on the leading edge in row mode and on
+  // top of the grid (where it spans both columns via CSS grid-column).
+  const ordered = React.useMemo(() => {
+    const cancelIdx = options.findIndex((o) => o === "Cancel");
+    if (cancelIdx <= 0) return options;
+    const rest = options.filter((o) => o !== "Cancel");
+    return ["Cancel", ...rest];
+  }, [options]);
   return (
-    <div className={`chat-input-options ${isRow ? "row" : "list"}`}>
+    <div className={`chat-input-options ${layout}`}>
       {caption && (
         <div className="step-caption">
           {typeof stepIndex === "number" && (
@@ -29,7 +47,7 @@ export const ChatInputOptions: React.FC<Props> = ({
         </div>
       )}
       <div className="options-bar">
-        {options.map((opt, i) => (
+        {ordered.map((opt, i) => (
           <button
             key={i}
             className={`option-btn ${opt === "Cancel" ? "cancel" : "primary"}`}
