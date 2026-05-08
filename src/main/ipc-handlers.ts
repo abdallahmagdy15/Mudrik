@@ -101,6 +101,15 @@ let guidePhase: string = "idle";
 function guideIsActive(): boolean {
   return guidePhase !== "idle";
 }
+// Set by STOP_RESPONSE when a guide was interrupted. Two effects:
+// 1. Suppresses guide marker dispatch from any buffered text the killed
+//    AI subprocess emitted (otherwise the very next guide_step would
+//    re-trigger the overlay/hook).
+// 2. Prepends a note to the user's next non-followup SEND_PROMPT so the
+//    AI's conversation history reflects the cancellation and it doesn't
+//    silently resume the guide on the next message.
+// Cleared the moment SEND_PROMPT consumes it (one-shot).
+let guideStoppedFlag: boolean = false;
 
 // Resolve the panel BrowserWindow (the React-app window the user types into),
 // excluding the auto-guide overlay. Once the overlay is created on the first
@@ -374,15 +383,23 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         }
       }
       try {
-        const { actions } = parseActionsFromResponse(buffer);
-        for (const action of actions) {
-          if ((["guide_offer","guide_step","guide_complete","guide_abort"] as string[]).includes(action.type)) {
-            const result = await executeAction(action, {
-              actionsEnabled: appConfig.actionsEnabled,
-              autoGuideEnabled: appConfig.autoGuideEnabled,
-            });
-            if (win && !win.isDestroyed()) {
-              win.webContents.send(IPC.ACTION_RESULT, { action, result });
+        // If the user hit Stop mid-stream, drop any guide markers the AI
+        // had partially emitted before the kill. Otherwise the very next
+        // guide_step would re-arm the overlay / mouse-hook the user just
+        // explicitly told us to tear down.
+        if (guideStoppedFlag) {
+          log("guide follow-up: STOP was hit — discarding buffered guide markers");
+        } else {
+          const { actions } = parseActionsFromResponse(buffer);
+          for (const action of actions) {
+            if ((["guide_offer","guide_step","guide_complete","guide_abort"] as string[]).includes(action.type)) {
+              const result = await executeAction(action, {
+                actionsEnabled: appConfig.actionsEnabled,
+                autoGuideEnabled: appConfig.autoGuideEnabled,
+              });
+              if (win && !win.isDestroyed()) {
+                win.webContents.send(IPC.ACTION_RESULT, { action, result });
+              }
             }
           }
         }
@@ -676,9 +693,26 @@ export function registerIpcHandlers(
     }
   });
 
-  ipcMain.on(IPC.STOP_RESPONSE, () => {
+  ipcMain.on(IPC.STOP_RESPONSE, async () => {
     log("STOP_RESPONSE received — killing active process");
     userStoppedCurrentResponse = true;
+    // Stop means stop everything. If a guide is mid-flight, fully cancel it
+    // (overlay hide, mouse hook stop, phase → idle). Without this, any
+    // buffered guide_step markers in the killed process's stdout would still
+    // get parsed and the next state-machine transition would fire — the
+    // owl would re-appear, mouse hook would re-arm, "trying again" loop.
+    if (guideIsActive()) {
+      log("STOP during active guide — cancelling guide session locally");
+      guideStoppedFlag = true;
+      try {
+        const m = await import("./guide/guide-controller");
+        if (m.isControllerInitialized()) {
+          await m.getController().cancel();
+        }
+      } catch (err: any) {
+        log(`STOP guide cancel errored (non-fatal): ${err?.message || err}`);
+      }
+    }
     client.kill();
     // Tell renderer the stream is done so it can drop the "thinking" UI.
     // No error message — the stop was deliberate.
@@ -704,9 +738,20 @@ export function registerIpcHandlers(
     log(`actionsEnabled=${config.actionsEnabled} (live — not snapshotted)`);
     let fullPrompt: string;
 
+    // One-shot: if the user hit Stop during a guide, the next message they
+    // send carries a small note so the AI's conversation history reflects
+    // the cancellation. Without this, the AI's history ends mid-guide_step
+    // and it would silently resume the walkthrough on the next user reply.
+    let stopNote = "";
+    if (guideStoppedFlag) {
+      stopNote = "\n\n[Note: I cancelled the in-progress guide walkthrough. Treat this message as a fresh request — do NOT resume the guide unless I explicitly ask for it.]\n\n";
+      log("Consuming guideStoppedFlag — prepending cancellation note to user prompt");
+      guideStoppedFlag = false;
+    }
+
     if (isFollowUp) {
       log("Follow-up message — skipping system prompt and context (already in session)");
-      fullPrompt = prompt;
+      fullPrompt = stopNote + prompt;
     } else {
       let contextBlock = "";
       if (isAreaContext && areaElements.length > 0) {
@@ -815,7 +860,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const actionsBlock = config.actionsEnabled
         ? `\n--- USER SETTING ---\nactionsEnabled: true — you MAY emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to). This is the live, current setting; if earlier in this conversation you said you were in read-only mode, that instruction is now superseded.\n--- END SETTING ---\n`
         : `\n--- USER SETTING ---\nactionsEnabled: false — READ-ONLY MODE. Do NOT emit interactive action markers (click, type, paste, press_keys, invoke, set_value, guide_to) — they will be blocked and the user will see a "blocked" error. You MAY still emit copy_to_clipboard markers and COPY chips so the user can paste content themselves. This is the live, current setting; if earlier in this conversation you said actions were enabled, that instruction is now superseded. If the user wants to re-enable actions: tell them to toggle 'Allow desktop actions' in ⚙ settings — the change takes effect on their next message.\n--- END SETTING ---\n`;
-      fullPrompt = systemPrefix + contextBlock + actionsBlock + `\n--- USER MESSAGE ---\n${prompt}\n--- END MESSAGE ---\n`;
+      fullPrompt = systemPrefix + contextBlock + actionsBlock + `\n--- USER MESSAGE ---\n${stopNote}${prompt}\n--- END MESSAGE ---\n`;
     }
 
     contextNeedsSending = false;
@@ -903,6 +948,21 @@ contextBlock += `\n--- END CONTEXT ---\n`;
             action: { type: b.type },
             result: { success: false, error: `Blocked: ${b.reason}` },
           });
+        }
+      }
+      // STOP-during-guide drops all guide markers from the buffer. The user
+      // just told us "stop everything" — re-arming the overlay/hook from
+      // partial buffered text would be exactly what they don't want.
+      // Non-guide actions still execute (e.g. a copy_to_clipboard the user
+      // asked for in the same response).
+      if (guideStoppedFlag) {
+        const guideTypes = ["guide_offer","guide_step","guide_complete","guide_abort"];
+        const dropped = actions.filter((a) => guideTypes.includes(a.type));
+        if (dropped.length > 0) {
+          log(`STOP active — discarded ${dropped.length} buffered guide marker(s): ${dropped.map((a) => a.type).join(", ")}`);
+          for (let i = actions.length - 1; i >= 0; i--) {
+            if (guideTypes.includes(actions[i].type)) actions.splice(i, 1);
+          }
         }
       }
       if (actions.length > 0) {
