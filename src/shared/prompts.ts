@@ -232,6 +232,17 @@ guide_complete — wrap up.
 guide_abort — bail when user clicked wildly off twice OR screen unrecognizable.
 { "type":"guide_abort", "reason":"<plain language>" }
 
+REQUIRED: when emitting guide_complete or guide_abort, ALSO write 1-2
+sentences of plain text BEFORE the marker — confirming what was achieved,
+or briefly explaining why you're aborting. The marker alone closes the UI
+but tells the user nothing. Example for a successful guide:
+
+  Done — Windows Updates are paused for 7 days. <!--ACTION:{"type":"guide_complete","summary":"Updates paused"}-->
+
+If the screenshot shows the goal ISN'T actually reached, do NOT emit
+guide_complete. Continue with another guide_step (correcting the user
+gently) or guide_abort if the screen is unrecognizable.
+
 ## OPTIONS DESIGN
 - Always include "Cancel" first. Cancel always closes the guide locally — no
   follow-up message is sent to you.

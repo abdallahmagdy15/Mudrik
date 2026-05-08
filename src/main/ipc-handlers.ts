@@ -436,6 +436,38 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         win.webContents.send(IPC.GUIDE_STATE_UPDATE, state);
       }
     },
+    resolveTargetBounds: async (target) => {
+      // UIA lookup returns PHYSICAL pixel bounds (the find script is DPI-aware).
+      // The overlay window uses LOGICAL pixels, so divide by scaleFactor before
+      // returning. The AI's boundsHint is already in logical px (we tell it the
+      // logical screen dims in the prompt), so the fallback path doesn't need
+      // this conversion.
+      try {
+        const heavy = await import("./actions/action-executor-heavy");
+        const found = await heavy.findElementBounds(
+          target.selector,
+          target.automationId,
+          target.boundsHint,
+        );
+        if (!found) {
+          log(`resolveTargetBounds: UIA lookup returned no match for selector="${target.selector}" — using AI hint`);
+          return null;
+        }
+        const { screen: electronScreen } = require("electron") as typeof import("electron");
+        const sf = electronScreen.getPrimaryDisplay().scaleFactor || 1;
+        const logical = {
+          x: Math.round(found.x / sf),
+          y: Math.round(found.y / sf),
+          width: Math.round(found.width / sf),
+          height: Math.round(found.height / sf),
+        };
+        log(`resolveTargetBounds: UIA hit "${found.name}" (${found.type}) at logical ${logical.x},${logical.y} ${logical.width}x${logical.height}`);
+        return logical;
+      } catch (err: any) {
+        log(`resolveTargetBounds failed (${err?.message || err}) — falling back to AI boundsHint`);
+        return null;
+      }
+    },
   });
   log("Guide controller initialized");
 }

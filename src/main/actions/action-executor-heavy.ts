@@ -485,7 +485,7 @@ function ensureFindScript(): string {
   return findScriptPath;
 }
 
-async function findElementBounds(selector: string, automationId?: string, boundsHint?: { x: number; y: number; width: number; height: number }): Promise<{ x: number; y: number; width: number; height: number; name: string; type: string; score: number } | null> {
+export async function findElementBounds(selector: string, automationId?: string, boundsHint?: { x: number; y: number; width: number; height: number }): Promise<{ x: number; y: number; width: number; height: number; name: string; type: string; score: number } | null> {
   log(`findElementBounds: selector="${selector}" automationId="${automationId || ""}" boundsHint=${boundsHint ? JSON.stringify(boundsHint) : "none"}`);
   const script = ensureFindScript();
 

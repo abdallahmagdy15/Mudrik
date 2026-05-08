@@ -294,8 +294,25 @@ if (!data?.hasImage) {
 
     window.hoverbuddy.onGuideStateUpdate((state: any) => {
       console.log(`[RENDERER] guide state: phase=${state?.phase} options=${JSON.stringify(state?.options || [])}`);
-      if (!state || state.phase === "idle") setGuideState(null);
-      else setGuideState(state);
+      if (!state || state.phase === "idle") {
+        // Guide just ended. The AI is supposed to write a completion sentence
+        // alongside guide_complete/guide_abort, but as a fallback (and so the
+        // chat always carries a clear "guide ended" signal) we surface the
+        // marker's summary/reason as an assistant message — but only if no
+        // streamed AI text is currently sitting in currentResponse for this
+        // turn (otherwise that AI text covers it and we'd duplicate).
+        const finalMsg = state?.finalMessage;
+        if (finalMsg) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: finalMsg, toolUses: [] },
+          ]);
+        }
+        setStreaming(false);
+        setGuideState(null);
+      } else {
+        setGuideState(state);
+      }
     });
 
     // Focus the chat input only when the user doesn't already have focus

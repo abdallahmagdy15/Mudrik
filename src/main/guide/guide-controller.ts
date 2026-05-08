@@ -73,6 +73,16 @@ export interface GuideControllerDeps {
   ) => Promise<string>;
   /** Pushes a state update to the renderer's chat-input options bar. */
   onStateUpdate: (s: GuideStateUpdate) => void;
+  /** Resolves the AI's target hint to ACCURATE pixel bounds via UIA before
+   *  the overlay places the owl. The AI's boundsHint comes from a screenshot
+   *  and is regularly off by tens-to-hundreds of pixels (LLMs are weak at
+   *  exact 2D coordinates). UIA lookup by selector/automationId returns
+   *  pixel-perfect bounds when the element exists. Returns null if the
+   *  lookup fails — the controller then falls back to the AI's boundsHint
+   *  so a stale UIA snapshot doesn't break the flow. */
+  resolveTargetBounds?: (
+    target: { selector: string; automationId?: string; boundsHint?: { x: number; y: number; width: number; height: number } },
+  ) => Promise<{ x: number; y: number; width: number; height: number } | null>;
 }
 
 const STEP_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
@@ -228,7 +238,23 @@ export class GuideController {
     // Show the overlay (only if we have a target — typing-only steps may have target=null)
     if (p.target && p.target.boundsHint) {
       const cursor = this.deps.getCursorPos();
-      await this.deps.overlay.show(p.target.boundsHint, cursor);
+      // Prefer UIA-resolved bounds (pixel-perfect) over the AI's screenshot
+      // guess (often off by tens-to-hundreds of px). Falls back to the AI
+      // hint if UIA can't find the element — an inaccurate owl is still
+      // better than no owl when the target exists in the wrong tree.
+      let resolved: { x: number; y: number; width: number; height: number } | null = null;
+      if (this.deps.resolveTargetBounds) {
+        try {
+          resolved = await this.deps.resolveTargetBounds({
+            selector: p.target.selector,
+            automationId: p.target.automationId,
+            boundsHint: p.target.boundsHint,
+          });
+        } catch {
+          // best-effort — fall through to AI's hint
+        }
+      }
+      await this.deps.overlay.show(resolved || p.target.boundsHint, cursor);
     } else {
       // No target → no overlay; user just acts in the underlying app
       this.deps.overlay.hide();
