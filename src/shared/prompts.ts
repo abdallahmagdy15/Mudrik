@@ -14,7 +14,7 @@ Use them when the user's question genuinely requires reading on-disk content (co
 
 EVERYTHING ELSE is blocked at runtime and will terminate your session:
 - bash, edit, write, task, todowrite, skill
-- playwright_*, mcp__*, any other function-calling tool
+- ANY tool whose name contains "mcp" (case-insensitive) — e.g. mcp__*, *_mcp_*, zai-mcp-server_*, playwright_*. ALL third-party MCP tools are blocked, regardless of what the user's OpenCode config registers. Vision is the LLM provider's native capability; do not call analyze_image / vision MCPs.
 
 Shell command execution is unavailable. Do not emit run_command markers — they will be blocked and shown to the user as a safety violation. If the user needs a command run, tell them to run it themselves.
 

@@ -50,13 +50,33 @@ const DISALLOWED_TOOLS: ReadonlySet<string> = new Set([
   "skill",
 ]);
 
+/**
+ * Tool name is disallowed if it's an exact match against the curated set
+ * above OR if it contains the substring "mcp" (case-insensitive). The MCP
+ * substring catch is a blanket deny: OpenCode users may register arbitrary
+ * MCP servers in their global `~/.config/opencode/opencode.json` (e.g.
+ * `zai-mcp-server`, `playwright`), and the readonly agent's frontmatter
+ * doesn't enumerate them — and OpenCode 1.4.x doesn't enforce that
+ * frontmatter anyway. Mudrik's contract is "model can read files + emit
+ * action markers, nothing else"; any third-party MCP tool widens the
+ * sandbox in ways the user didn't consent to per-session, so we refuse
+ * the whole class. Built-in OpenCode tools we DO allow (read, grep, glob,
+ * list, webfetch, websearch) don't have "mcp" in their name, so the
+ * substring rule is precise enough.
+ */
+function isDisallowedToolName(name: string): boolean {
+  if (DISALLOWED_TOOLS.has(name)) return true;
+  if (name.toLowerCase().includes("mcp")) return true;
+  return false;
+}
+
 function detectDisallowedTool(event: OpenCodeEvent): string | null {
   if (event.type === "permission.asked") {
     const asked = event.properties?.permission;
-    if (typeof asked === "string" && DISALLOWED_TOOLS.has(asked)) return asked;
+    if (typeof asked === "string" && isDisallowedToolName(asked)) return asked;
   }
   const tool = event.part?.tool;
-  if (typeof tool === "string" && DISALLOWED_TOOLS.has(tool)) return tool;
+  if (typeof tool === "string" && isDisallowedToolName(tool)) return tool;
   return null;
 }
 
