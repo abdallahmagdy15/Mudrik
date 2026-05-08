@@ -2,6 +2,32 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Critical rule: manual approval required
+
+**NEVER commit, submit, push, publish, release, or delete any changes without explicit manual review and approval by the owner/user.** This applies to every operation that mutates shared state, including but not limited to:
+
+- Git commits and pushes (also: amend, rebase, force-push, reset --hard)
+- Publishing packages or releases
+- Deleting files, branches, or resources
+- Submitting PRs or merging code
+- Deploying or releasing anything
+
+Default flow after making code changes: apply the edits, run build/tests if relevant, then **stop and present the result for review**. Wait for an explicit instruction like "commit", "push", "ship it", or equivalent before performing the destructive/shared-state action. The only exception is when the user gives explicit standing instructions to proceed without per-step review (e.g. "go ahead and commit + push as you finish each task").
+
+## General behavior
+
+- **Concise comments in code.** Default to no comments. When a comment IS warranted (non-obvious WHY, hidden invariant, deliberate workaround), keep it short and load-bearing — no narration of what the code already says.
+
+## Update summary format
+
+After making project updates, **always end the response with a brief bullet section** in this exact shape:
+
+- **Files touched** — every file modified or created in this round (one per line, with a one-phrase note if not obvious)
+- **Pending actions** — anything that still needs manual follow-up: commit, push, deploy, publish, migrate, restart, manual test, external service action
+- **Changes to review** — a checklist of the user's recent requirements / fixes / requests this round actually addresses, so they can verify nothing was missed
+
+Skip the section only when the response made no project changes (pure Q&A).
+
 ## Documentation rules
 
 After any feature ships, bug is fixed, or design decision is made — **after the user has reviewed it and the commit has landed** — update the relevant **internal** docs to match reality. That includes this `CLAUDE.md`, design specs, system architecture notes, and any in-repo planning files (e.g., `docs/superpowers/specs/*`, `Mudrik-Plan/`).
