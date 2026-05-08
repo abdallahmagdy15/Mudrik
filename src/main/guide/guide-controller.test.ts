@@ -114,23 +114,23 @@ describe("GuideController", () => {
   });
 
   describe("step phase", () => {
-    it("guide_step transitions to STEP_ACTIVE; trackable=true starts mouse hook AND shows overlay", async () => {
+    it("guide_step trackable=true shows overlay but does NOT start mouse hook (hook intentionally disabled this phase)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
       await ctrl.handleAction(sampleStep as unknown as Action);
       expect(ctrl.getPhase()).toBe("step-active");
-      expect(deps.mouseHook.start).toHaveBeenCalledWith(
-        expect.objectContaining({ scopeHwnd: 1234 }),
-      );
+      // Mouse hook stays off — user advances exclusively via option buttons
+      expect(deps.mouseHook.start).not.toHaveBeenCalled();
+      // Overlay still shows so the user knows where to click in their app
       expect(deps.overlay.show).toHaveBeenCalledWith(
         sampleStep.target!.boundsHint!,
         expect.any(Object),
       );
     });
 
-    it("guide_step trackable=false does NOT start mouse hook and does NOT show overlay (target=null)", async () => {
+    it("guide_step trackable=false does NOT show overlay (target=null)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
@@ -141,31 +141,7 @@ describe("GuideController", () => {
       expect(deps.overlay.show).not.toHaveBeenCalled();
     });
 
-    it("mouse hook click event during STEP_ACTIVE transitions through WAITING → RECAPTURING → AWAITING_AI", async () => {
-      const deps = makeDeps();
-      const ctrl = new GuideController(deps);
-      await ctrl.handleAction(sampleOffer as unknown as Action);
-      await ctrl.handleUserChoice("Start guide");
-      await ctrl.handleAction(sampleStep as unknown as Action);
-
-      // Get the onClick handler that was registered with mouseHook.start
-      const startCall = (deps.mouseHook.start as any).mock.calls[0][0];
-      startCall.onClick({ x: 120, y: 110, button: "left" });
-
-      // Advance through the waitMs sleep
-      await vi.advanceTimersByTimeAsync(sampleStep.waitMs + 50);
-      // Final phase after advance
-      expect(ctrl.getPhase()).toBe("awaiting-ai");
-      expect(deps.buildFollowUpPrompt).toHaveBeenCalledWith({
-        kind: "click",
-        x: 120,
-        y: 110,
-      });
-      expect(deps.sendFollowUp).toHaveBeenCalled();
-      expect(deps.mouseHook.stop).toHaveBeenCalled();
-    });
-
-    it("user option click during STEP_ACTIVE transitions through the same phases", async () => {
+    it("user option click during STEP_ACTIVE transitions through WAITING → RECAPTURING → AWAITING_AI", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
@@ -179,37 +155,23 @@ describe("GuideController", () => {
         kind: "option",
         choice: "I see the dialog",
       });
+      expect(deps.sendFollowUp).toHaveBeenCalled();
     });
 
-    it("rapid mouse clicks coalesce — only the FIRST position is used in the follow-up", async () => {
-      // Documented behaviour: FIRST-WINS coalesce.
-      //
-      // onMouseClick runs synchronously: it records the pending action, then
-      // calls `void this.advanceFromStep()`. advanceFromStep also runs its
-      // pre-await body synchronously: it flips phase from "step-active" to
-      // "waiting" before yielding. The 2nd and 3rd onClick calls then hit
-      // the `phase !== "step-active"` guard inside onMouseClick and are
-      // dropped — they never even update pendingAction. Net effect: the
-      // first click wins; subsequent rapid clicks during the same step are
-      // no-ops until the next guide_step arrives.
+    it("user option click during a TRACKABLE step also advances (mouse hook is off — option is the only path)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
       await ctrl.handleAction(sampleStep as unknown as Action);
 
-      // Reset the mock so we only count calls made by the click flow.
-      (deps.buildFollowUpPrompt as any).mockClear();
-
-      const startCall = (deps.mouseHook.start as any).mock.calls[0][0];
-      startCall.onClick({ x: 100, y: 100, button: "left" });
-      startCall.onClick({ x: 200, y: 200, button: "left" });
-      startCall.onClick({ x: 300, y: 300, button: "left" });
-
+      await ctrl.handleUserChoice("I did it");
       await vi.advanceTimersByTimeAsync(sampleStep.waitMs + 50);
-      expect(deps.buildFollowUpPrompt).toHaveBeenCalledTimes(1);
-      const calledWith = (deps.buildFollowUpPrompt as any).mock.calls[0][0];
-      expect(calledWith).toEqual({ kind: "click", x: 100, y: 100 });
+      expect(ctrl.getPhase()).toBe("awaiting-ai");
+      expect(deps.buildFollowUpPrompt).toHaveBeenCalledWith({
+        kind: "option",
+        choice: "I did it",
+      });
     });
   });
 
@@ -240,6 +202,62 @@ describe("GuideController", () => {
       expect(deps.mouseHook.stop).not.toHaveBeenCalled();
       expect(deps.overlay.hide).not.toHaveBeenCalled();
       expect(deps.sendFollowUp).not.toHaveBeenCalled();
+    });
+
+    it("guide_step from idle throws (so executeAction surfaces failure, not a misleading 'OK')", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      // No prior offer — controller starts in idle
+      await expect(ctrl.handleAction(sampleStep as unknown as Action)).rejects.toThrow(/no active offer/i);
+      expect(ctrl.getPhase()).toBe("idle");
+      // No state update for the rejection — the renderer would otherwise
+      // show a misleading "Guide ended" message when the guide never started
+      expect(deps.onStateUpdate).not.toHaveBeenCalled();
+    });
+
+    it("guide_complete from idle throws — common AI misread of 'start over' as 'close the previous guide'", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      await expect(
+        ctrl.handleAction({ type: "guide_complete", summary: "Restarting" } as unknown as Action),
+      ).rejects.toThrow(/no active guide/i);
+      expect(ctrl.getPhase()).toBe("idle");
+      expect(deps.onStateUpdate).not.toHaveBeenCalled();
+    });
+
+    it("guide_offer from idle ALWAYS works (the entry point for start-over / resume / fresh-start)", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      await ctrl.handleAction(sampleOffer as unknown as Action);
+      expect(ctrl.getPhase()).toBe("offer");
+      expect(deps.onStateUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ phase: "offer" }),
+      );
+    });
+
+    it("cancel() ABORTS an in-flight advanceFromStep — no screenshot/follow-up after Cancel races with a screen-click", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      await ctrl.handleAction(sampleOffer as unknown as Action);
+      await ctrl.handleUserChoice("Start guide");
+      await ctrl.handleAction(sampleStep as unknown as Action);
+      const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
+      // Simulate a screen click — kicks off advanceFromStep with sleep(waitMs)
+      // pending.
+      await ctrl.handleUserChoice("I see the dialog");
+      // Cancel arrives BEFORE the waitMs sleep resolves (real-world race:
+      // user's click on Cancel button happens just after a stray screen
+      // click already started the pipeline).
+      await ctrl.cancel();
+      // Drain the pending sleep + any post-await work
+      await vi.runAllTimersAsync();
+      expect(ctrl.getPhase()).toBe("idle");
+      // The crucial assertion: advanceFromStep must NOT have called
+      // sendFollowUp after cancel bumped the generation. Without the
+      // generation check, the sleep would resolve and sendFollowUp would
+      // fire — which is exactly the bug the user reported.
+      expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
+        .toBe(sendFollowUpCallsBefore);
     });
 
     it("closeOptions short-circuit: clicking a terminal option closes locally with no AI round-trip", async () => {

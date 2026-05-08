@@ -103,6 +103,14 @@ export class GuideController {
   // True while the controller is processing the post-action transitions
   // (prevents re-entering on a second click between WAITING -> RECAPTURING)
   private processing: boolean = false;
+  // Monotonic generation counter for the active advanceFromStep run. cancel()
+  // bumps it; advanceFromStep captures its value on entry and re-checks at
+  // every await point — if the captured value no longer matches, the user
+  // cancelled mid-flight and we abort BEFORE the screenshot capture / AI
+  // round-trip. Without this, a screen-click that races with the user's
+  // Cancel button would keep the pipeline running and the AI would receive
+  // a "User clicked at..." follow-up the user never wanted to send.
+  private runGeneration: number = 0;
 
   constructor(private deps: GuideControllerDeps) {}
 
@@ -169,9 +177,15 @@ export class GuideController {
   /** User cancelled (Esc, Cancel button, or a hard timeout) — close locally
    *  without an AI round-trip. The session continuation isn't worth a token
    *  spend on "ack — guide cancelled" the user already initiated. The AI
-   *  will see the cancellation context on the user's next message. */
+   *  will see the cancellation context on the user's next message.
+   *
+   *  Bumps runGeneration so any in-flight advanceFromStep aborts at its
+   *  next await point — without this, a screen-click that started the
+   *  pipeline a moment before Cancel would still complete its sleep,
+   *  recapture, screenshot, and follow-up to the AI. */
   async cancel(): Promise<void> {
     if (this.phase === "idle") return;
+    this.runGeneration += 1;
     this.deps.mouseHook.stop();
     this.deps.overlay.hide();
     this.clearInactivityTimer();
@@ -214,12 +228,13 @@ export class GuideController {
 
   private async handleStep(p: GuideStepPayload): Promise<void> {
     if (this.phase !== "offer" && this.phase !== "awaiting-ai") {
-      // Out-of-band guide_step (no prior offer) — reject defensively
-      this.deps.onStateUpdate({
-        phase: "idle",
-        finalMessage: "Guide rejected: guide_step without active offer.",
-      });
-      return;
+      // Out-of-band guide_step (no prior offer). Throw so the dispatcher's
+      // ActionResult shows success=false — otherwise the renderer's
+      // "guide_step OK" badge lies about what just happened. The throw is
+      // caught in action-executor.ts's guide branch and surfaced to the
+      // user as a clear failure they can act on (typically: ask the AI to
+      // emit a guide_offer first).
+      throw new Error("guide_step rejected — no active offer. Ask the AI to start the guide with guide_offer first.");
     }
     this.phase = "step-active";
     this.currentStep = p;
@@ -260,20 +275,38 @@ export class GuideController {
       this.deps.overlay.hide();
     }
 
-    // Start the mouse hook only for trackable steps
-    if (p.trackable) {
-      this.currentScopeHwnd = await this.deps.getActiveHwnd();
-      await this.deps.mouseHook.start({
-        scopeHwnd: this.currentScopeHwnd,
-        onClick: (e) => this.onMouseClick(e),
-      });
-    }
+    // Mouse-hook click detection is intentionally OFF for this phase. The
+    // global WH_MOUSE_LL hook caused two recurring bugs in real testing:
+    // (1) screen-clicks racing with the user's option-button click (Cancel
+    // got swallowed by the in-flight pipeline); (2) clicks on the panel's
+    // own buttons sometimes reaching the hook because scopeHwnd was set
+    // to the panel after a previous option click. Right now the user
+    // confirms every step exclusively via the chat-input options bar
+    // (e.g. "I did it", "Settings opened", "Nothing happened"). This is
+    // simpler and matches the user's mental model — the owl points at
+    // the target, the user clicks in their app, then taps the option to
+    // advance. The mouseHook dep / mouse-hook.ts module are kept for a
+    // future re-enable.
+    // if (p.trackable) {
+    //   this.currentScopeHwnd = await this.deps.getActiveHwnd();
+    //   await this.deps.mouseHook.start({
+    //     scopeHwnd: this.currentScopeHwnd,
+    //     onClick: (e) => this.onMouseClick(e),
+    //   });
+    // }
 
     // Arm the inactivity timeout
     this.armInactivityTimer();
   }
 
   private handleComplete(p: GuideCompletePayload): void {
+    if (this.phase === "idle") {
+      // The AI emitted guide_complete with no active guide — usually a
+      // misread of "start over" / "restart" requests where the AI tries to
+      // close a session that's already closed. Reject as a no-op so the
+      // user isn't confused by an empty completion message in chat.
+      throw new Error("guide_complete rejected — no active guide. The AI should emit guide_offer to begin a new walkthrough.");
+    }
     this.deps.mouseHook.stop();
     this.deps.overlay.hide();
     this.clearInactivityTimer();
@@ -313,6 +346,11 @@ export class GuideController {
     if (this.processing) return;
     if (!this.currentStep) return;
     if (!this.pendingAction) return;
+    // Capture the run generation; cancel() bumps it. Re-check at every
+    // await point so a Cancel that races with this run aborts before any
+    // expensive or AI-visible work (screenshot, sendFollowUp).
+    const myGen = ++this.runGeneration;
+    const isCurrent = () => this.runGeneration === myGen && this.phase !== "idle";
     this.processing = true;
     this.clearInactivityTimer();
     this.deps.mouseHook.stop();
@@ -324,6 +362,10 @@ export class GuideController {
     this.phase = "waiting";
     this.deps.onStateUpdate({ phase: "waiting" });
     await sleep(waitMs);
+    if (!isCurrent()) {
+      this.processing = false;
+      return;
+    }
 
     // RECAPTURING phase
     this.phase = "recapturing";
@@ -334,9 +376,21 @@ export class GuideController {
     this.deps.onStateUpdate({ phase: "awaiting-ai" });
     try {
       const followUp = await this.deps.buildFollowUpPrompt(action);
+      if (!isCurrent()) {
+        this.processing = false;
+        return;
+      }
       await this.deps.sendFollowUp(followUp);
+      if (!isCurrent()) {
+        this.processing = false;
+        return;
+      }
     } catch (err) {
-      // If follow-up fails, abort
+      if (!isCurrent()) {
+        // Cancel raced with the in-flight follow-up — swallow the error
+        this.processing = false;
+        return;
+      }
       this.handleAbort({
         type: "guide_abort",
         reason: `Follow-up failed: ${(err as Error).message ?? "unknown error"}`,
