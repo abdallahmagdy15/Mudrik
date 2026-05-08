@@ -101,6 +101,23 @@ let guidePhase: string = "idle";
 function guideIsActive(): boolean {
   return guidePhase !== "idle";
 }
+
+// Resolve the panel BrowserWindow (the React-app window the user types into),
+// excluding the auto-guide overlay. Once the overlay is created on the first
+// trackable step, BrowserWindow.getAllWindows()[0] becomes ambiguous and can
+// return the overlay — sending IPC into the wrong window silently breaks
+// every state update that depends on it. Filter by the loaded URL: the panel
+// is index.html, the overlay is guide-overlay.html.
+function getPanelWindow(): BrowserWindow | null {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (w.isDestroyed()) continue;
+    let url = "";
+    try { url = w.webContents.getURL(); } catch { continue; }
+    if (url.includes("guide-overlay.html")) continue;
+    return w;
+  }
+  return null;
+}
 let attachScreenshotNext: boolean = false;
 
 export function setContext(context: ContextPayload): void {
@@ -294,7 +311,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     getActiveHwnd: winMod.getActiveHwnd,
     getCursorPos,
     sendFollowUp: async (prompt: string) => {
-      const win = BrowserWindow.getAllWindows()[0];
+      const win = getPanelWindow();
       if (!win) return;
       // Capture a fresh full-screen screenshot for every follow-up. Without
       // it the AI is blind from step 2 onward — it can't emit accurate
@@ -303,7 +320,16 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       // UI (e.g. the Settings page that just opened) and can target precisely.
       // We hide the panel briefly so the screenshot reflects the app the
       // user is supposed to act on, not Mudrik's own UI.
+      //
+      // DPI: PowerShell capture is DPI-aware (physical pixels), so input
+      // bounds must be multiplied by scaleFactor to capture the FULL screen
+      // on high-DPI setups. Same pattern as the auto-attach screenshot at
+      // pointer-activation in index.ts. Without this, on a 150% DPI display
+      // we'd capture only the top-left ~67% of the screen and the AI's
+      // boundsHint would be useless for anything below or right of that.
       let imagePath: string | null = null;
+      let logicalWidth = 0;
+      let logicalHeight = 0;
       try {
         const visionMod = await import("./vision");
         const wasVisible = win.isVisible();
@@ -311,18 +337,22 @@ async function initGuideControllerIfNeeded(): Promise<void> {
           win.hide();
           await new Promise((r) => setTimeout(r, 180));
         }
-        const display = require("electron").screen.getPrimaryDisplay();
+        const { screen: electronScreen } = require("electron") as typeof import("electron");
+        const display = electronScreen.getPrimaryDisplay();
+        const sf = display.scaleFactor || 1;
+        logicalWidth = display.bounds.width;
+        logicalHeight = display.bounds.height;
         imagePath = await visionMod.captureAndOptimize(
-          0,
-          0,
-          display.bounds.width,
-          display.bounds.height,
+          Math.round(display.bounds.x * sf),
+          Math.round(display.bounds.y * sf),
+          Math.round((display.bounds.x + display.bounds.width) * sf),
+          Math.round((display.bounds.y + display.bounds.height) * sf),
         );
         if (wasVisible && !win.isDestroyed()) {
           win.show();
         }
         log(imagePath
-          ? `guide follow-up: attaching screenshot ${imagePath.slice(-40)}`
+          ? `guide follow-up: attaching screenshot ${imagePath.slice(-40)} (logical ${logicalWidth}x${logicalHeight}, sf=${sf})`
           : "guide follow-up: screenshot capture failed — proceeding without image");
       } catch (err: any) {
         log(`guide follow-up: screenshot path errored (${err?.message || err}) — proceeding without image`);
@@ -387,14 +417,21 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const screen = ctx
         ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
         : "No screen context captured.";
-      // The runtime attaches a fresh screenshot to this same message — tell
-      // the AI so it knows to use it for spatial reasoning (boundsHint).
-      return `${desc}\n\n${screen}\n\nA fresh full-screen screenshot is attached to this message — use it to read the current UI and provide accurate target.boundsHint values when you emit a trackable guide_step. Decide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+      // The runtime attaches a fresh screenshot to this same message and the
+      // overlay places the owl in LOGICAL screen pixels. Tell the AI the
+      // logical dimensions explicitly so its boundsHint values land in the
+      // same coordinate space the overlay uses — even if the screenshot was
+      // captured/transmitted at a different physical resolution.
+      const { screen: electronScreen } = require("electron") as typeof import("electron");
+      const display = electronScreen.getPrimaryDisplay();
+      const lw = display.bounds.width;
+      const lh = display.bounds.height;
+      return `${desc}\n\n${screen}\n\nA fresh full-screen screenshot is attached. The user's screen is ${lw}×${lh} logical pixels; provide target.boundsHint values in that coordinate space (NOT in image pixels — the screenshot may have been resized for transmission). Decide the next guide marker (guide_step, guide_complete, or guide_abort).`;
     },
     onStateUpdate: (state) => {
       guidePhase = state.phase;
       log(`GUIDE_STATE_UPDATE phase=${state.phase} options=${JSON.stringify(state.options || [])} caption=${state.caption ? "yes" : "no"} summary=${state.summary ? "yes" : "no"}`);
-      const win = BrowserWindow.getAllWindows()[0];
+      const win = getPanelWindow();
       if (win && !win.isDestroyed()) {
         win.webContents.send(IPC.GUIDE_STATE_UPDATE, state);
       }
@@ -601,7 +638,7 @@ export function registerIpcHandlers(
       attachScreenshotNext = true;
       log(`NEW_SESSION: re-arming pointer screenshot for next send`);
     }
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     if (win) {
       win.webContents.send(IPC.SESSION_RESET, { hasImage: hasPointerImage || (isAreaContext && !!areaImagePath) });
     }
@@ -613,7 +650,7 @@ export function registerIpcHandlers(
     client.kill();
     // Tell renderer the stream is done so it can drop the "thinking" UI.
     // No error message — the stop was deliberate.
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     if (win) win.webContents.send(IPC.STREAM_DONE);
   });
 
@@ -621,7 +658,7 @@ export function registerIpcHandlers(
     log(`SEND_PROMPT: "${prompt.slice(0, 80)}..."`);
     log(`hasSession=${client.hasSession()}, contextNeedsSending=${contextNeedsSending}, hasSentFirstMessage=${hasSentFirstMessage}, isAreaContext=${isAreaContext}`);
     log(`currentContext is ${currentContext ? `set: element="${currentContext.element?.name}" type="${currentContext.element?.type}" area=${isAreaContext} image=${currentContext.imagePath ? currentContext.imagePath.slice(-40) : "none"}` : "NULL"}`);
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     if (!win) {
       log("ERROR: No window found for SEND_PROMPT");
       return;
@@ -878,7 +915,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
   });
 
   ipcMain.on(IPC.EXECUTE_ACTION, async (_e, payload: unknown) => {
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     const v = validateAction(payload, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
     if ("error" in v) {
       log(`EXECUTE_ACTION REJECTED: ${v.error}`);
@@ -923,7 +960,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
   });
 
   ipcMain.on(IPC.RETRY_ACTION, async (_e, payload: unknown) => {
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     const v = validateAction(payload, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
     if ("error" in v) {
       log(`RETRY_ACTION REJECTED: ${v.error}`);
@@ -967,7 +1004,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
   });
 
   ipcMain.on(IPC.ATTACH_SCREENSHOT, async () => {
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     const sendStatus = (attached: boolean, hasImage: boolean) => {
       if (win && !win.isDestroyed()) {
         win.webContents.send(IPC.ATTACH_SCREENSHOT, { attached, hasImage });
@@ -1069,7 +1106,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     client.resetSession();
     contextNeedsSending = true;
     hasSentFirstMessage = false;
-    const win = BrowserWindow.getAllWindows()[0];
+    const win = getPanelWindow();
     if (win && !win.isDestroyed()) {
       win.webContents.send(IPC.SESSION_RESET, { hasImage: false });
     }
@@ -1118,7 +1155,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
         if (content.trim()) history.push({ role, content });
       }
       const trimmed = history.slice(-10);
-      const win = BrowserWindow.getAllWindows()[0];
+      const win = getPanelWindow();
       if (win && trimmed.length > 0) win.webContents.send(IPC.SESSION_HISTORY, trimmed);
       client.setRestoredSession(sessionId);
       log(`restoreSession: restored ${sessionId.slice(0, 30)}, ${trimmed.length}/${history.length} messages`);
