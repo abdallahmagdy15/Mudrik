@@ -32,23 +32,9 @@
       0%, 100% { transform: translateY(0); }
       50%      { transform: translateY(-4px); }
     }
-    .circle {
-      position: absolute;
-      border-radius: 50%;
-      background: rgba(15, 168, 201, 0.18);
-      border: 2px solid rgba(15, 168, 201, 0.7);
-      box-shadow: 0 0 12px rgba(15, 168, 201, 0.45);
-      transition: left 250ms ease, top 250ms ease,
-                  width 250ms ease, height 250ms ease,
-                  opacity 200ms ease;
-      opacity: 0;
-      pointer-events: none;
-    }
-    .circle.visible { opacity: 1; }
   </style>
 </head>
 <body>
-  <div id="circle" class="circle"></div>
   <div id="owl" class="owl"></div>
   <script src="./guide-overlay-renderer.js"></script>
 </body>
