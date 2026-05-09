@@ -188,10 +188,11 @@ function validateGuideAction(p: Record<string, unknown>): { action: Action } | {
   switch (p.type) {
     case "guide_offer": {
       if (typeof p.summary !== "string") return { error: "guide_offer.summary must be string" };
-      if (typeof p.estSteps !== "number" || !Number.isInteger(p.estSteps))
-        return { error: "guide_offer.estSteps must be an integer" };
-      if (p.estSteps < 2)
-        return { error: "guide_offer.estSteps must be at least 2 (use a single action for one step)" };
+      // estSteps is the AI's estimate, not a runtime gate. Only enforce
+      // schema sanity (number, finite) — content-policy decisions (is this
+      // guide-worthy?) belong to the AI per GUIDE_PROMPT_FULL.
+      if (typeof p.estSteps !== "number" || !Number.isFinite(p.estSteps))
+        return { error: "guide_offer.estSteps must be a finite number" };
       if (!Array.isArray(p.options)) return { error: "guide_offer.options must be an array" };
       return { action: p as unknown as Action };
     }

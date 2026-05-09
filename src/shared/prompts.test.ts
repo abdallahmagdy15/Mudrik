@@ -103,9 +103,19 @@ describe("GUIDE_PROMPT_FULL", () => {
     expect(GUIDE_PROMPT_FULL).toContain("guide_abort");
   });
 
-  it("has strict 'when not to use' rules", () => {
-    expect(GUIDE_PROMPT_FULL).toContain("DO NOT use guide mode");
-    expect(GUIDE_PROMPT_FULL).toContain("Single actions");
+  it("documents when not to use guide mode (single actions, pure questions)", () => {
+    expect(GUIDE_PROMPT_FULL).toContain("Don't use guide mode");
+    expect(GUIDE_PROMPT_FULL).toContain("single action");
+  });
+
+  it("explicitly tells the AI it owns the use-or-not-use decision (runtime doesn't gate)", () => {
+    expect(GUIDE_PROMPT_FULL).toMatch(/YOU decide whether to use guide mode/i);
+    expect(GUIDE_PROMPT_FULL).toMatch(/runtime does NOT reject/i);
+  });
+
+  it("honors explicit user requests for guide mode even on short tasks", () => {
+    expect(GUIDE_PROMPT_FULL).toMatch(/explicit user request/i);
+    expect(GUIDE_PROMPT_FULL).toMatch(/even for 1-2 step tasks/i);
   });
 
   it("includes a positive example with guide_offer first", () => {

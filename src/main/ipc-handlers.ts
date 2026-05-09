@@ -64,7 +64,7 @@ let userStoppedCurrentResponse = false;
 import { executeAction, parseActionsFromResponse, ActionResult, setLastContextElement, validateAction, isInteractiveAction } from "./action-executor";
 import { showNotification } from "./tray";
 import { cleanupImage, captureAndOptimize } from "./vision";
-import { saveConfig } from "./config-store";
+import { saveConfig, ensureIsolatedOpenCodeConfig } from "./config-store";
 import { spawn } from "child_process";
 import * as os from "os";
 import * as path from "path";
@@ -319,53 +319,132 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     },
     getActiveHwnd: winMod.getActiveHwnd,
     getCursorPos,
-    sendFollowUp: async (prompt: string) => {
+    sendFollowUp: async (actionDesc) => {
       const win = getPanelWindow();
       if (!win) return;
-      // Capture a fresh full-screen screenshot for every follow-up. Without
-      // it the AI is blind from step 2 onward — it can't emit accurate
-      // boundsHint values, so it falls back to trackable:false steps and
-      // the owl pointer never appears. With it, the AI sees the post-action
-      // UI (e.g. the Settings page that just opened) and can target precisely.
-      // We hide the panel briefly so the screenshot reflects the app the
-      // user is supposed to act on, not Mudrik's own UI.
-      //
-      // DPI: PowerShell capture is DPI-aware (physical pixels), so input
-      // bounds must be multiplied by scaleFactor to capture the FULL screen
-      // on high-DPI setups. Same pattern as the auto-attach screenshot at
-      // pointer-activation in index.ts. Without this, on a 150% DPI display
-      // we'd capture only the top-left ~67% of the screen and the AI's
-      // boundsHint would be useless for anything below or right of that.
+      // CRITICAL: hide Mudrik's panel BEFORE the screenshot AND UIA tree
+      // capture. Both reads must happen with the panel out of the way:
+      // - Screenshot: otherwise the panel's pixels are baked into the image
+      //   and the AI's vision can't see the underlying app properly.
+      // - UIA tree: otherwise GetForegroundWindow returns Mudrik's HWND and
+      //   the candidates list is Mudrik's own buttons (Settings, Close, etc)
+      //   instead of the target app's clickables — every previous follow-up
+      //   logged "Active window: Mudrik" because of this. With panel hidden,
+      //   focus reverts to the app the user was being guided through, and
+      //   UIA reads the right tree.
+      const { screen: electronScreen } = require("electron") as typeof import("electron");
+      const display = electronScreen.getPrimaryDisplay();
+      const sf = display.scaleFactor || 1;
+      const lw = display.bounds.width;
+      const lh = display.bounds.height;
+
       let imagePath: string | null = null;
-      let logicalWidth = 0;
-      let logicalHeight = 0;
+      let fresh: Awaited<ReturnType<typeof import("./context-reader").readContextAtPoint>> | null = null;
       try {
         const visionMod = await import("./vision");
+        const ctxReader = await import("./context-reader");
         const wasVisible = win.isVisible();
         if (wasVisible) {
+          // Blur first so the OS releases keyboard focus, then hide. Without
+          // the blur, Windows sometimes keeps Mudrik registered as the
+          // foreground window even after .hide() — and the subsequent
+          // GetForegroundWindow() in the UIA script returns Mudrik instead
+          // of the target app, which is the "Active window: Mudrik" symptom
+          // observed in production logs.
+          try { win.blur(); } catch { /* best-effort */ }
           win.hide();
-          await new Promise((r) => setTimeout(r, 180));
+          // 350ms (was 180) — Windows is sometimes slow to transition
+          // foreground after a hide. Tradeoff: extra latency per step.
+          await new Promise((r) => setTimeout(r, 350));
         }
-        const { screen: electronScreen } = require("electron") as typeof import("electron");
-        const display = electronScreen.getPrimaryDisplay();
-        const sf = display.scaleFactor || 1;
-        logicalWidth = display.bounds.width;
-        logicalHeight = display.bounds.height;
-        imagePath = await visionMod.captureAndOptimize(
-          Math.round(display.bounds.x * sf),
-          Math.round(display.bounds.y * sf),
-          Math.round((display.bounds.x + display.bounds.width) * sf),
-          Math.round((display.bounds.y + display.bounds.height) * sf),
-        );
+        const point =
+          actionDesc.kind === "click"
+            ? { x: actionDesc.x, y: actionDesc.y }
+            : ctxReader.getCursorPos();
+        // Run screenshot + UIA in parallel — both take ~500-1500ms via
+        // PowerShell, so saving a sequential leg cuts total step latency.
+        const [shot, ctx] = await Promise.all([
+          visionMod.captureAndOptimize(
+            Math.round(display.bounds.x * sf),
+            Math.round(display.bounds.y * sf),
+            Math.round((display.bounds.x + display.bounds.width) * sf),
+            Math.round((display.bounds.y + display.bounds.height) * sf),
+          ).catch((e) => { log(`guide follow-up: screenshot failed (${e?.message || e})`); return null as string | null; }),
+          ctxReader.readContextAtPoint(point.x, point.y).catch((e) => {
+            log(`guide follow-up: UIA capture failed (${e?.message || e}) — falling back to cached context`);
+            return null;
+          }),
+        ]);
+        imagePath = shot;
+        fresh = ctx;
         if (wasVisible && !win.isDestroyed()) {
           win.show();
         }
-        log(imagePath
-          ? `guide follow-up: attaching screenshot ${imagePath.slice(-40)} (logical ${logicalWidth}x${logicalHeight}, sf=${sf})`
-          : "guide follow-up: screenshot capture failed — proceeding without image");
+        log(`guide follow-up: capture complete — screenshot=${imagePath ? "yes" : "no"} uia=${fresh ? `yes (active="${fresh.windowInfo?.title || "?"}")` : "no"}`);
       } catch (err: any) {
-        log(`guide follow-up: screenshot path errored (${err?.message || err}) — proceeding without image`);
+        log(`guide follow-up: capture path errored (${err?.message || err}) — proceeding without`);
       }
+
+      // Build prompt from the FRESH capture (panel-hidden window). Falls
+      // back to currentContext if UIA failed entirely.
+      const ctx = fresh || currentContext;
+      const desc =
+        actionDesc.kind === "click"
+          ? `User clicked at (${actionDesc.x}, ${actionDesc.y}).`
+          : `User chose option: "${actionDesc.choice}".`;
+      const screen = ctx
+        ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
+        : "No screen context captured.";
+
+      // Pre-enumerate clickable UIA candidates from the freshly-captured tree
+      // (now correctly the TARGET app's tree, not Mudrik's). Cap to 50 for
+      // prompt cost; convert physical->logical bounds to match overlay coords.
+      // Interactable control types we surface to the AI as candidates.
+      // Includes everything the user can click, type into, select, or
+      // follow as a link. Chromium-based apps map many DOM elements to
+      // generic UIA types (Custom, Group, Pane, Document) so we include
+      // those too — better to show one extra layout container than to
+      // miss the actual button hosted inside it.
+      const CLICKABLE_TYPES = new Set([
+        // Standard interactives
+        "ControlType.Button","ControlType.MenuItem","ControlType.ListItem",
+        "ControlType.Edit","ControlType.Hyperlink","ControlType.CheckBox",
+        "ControlType.RadioButton","ControlType.ComboBox","ControlType.TabItem",
+        "ControlType.TreeItem","ControlType.SplitButton","ControlType.Tab",
+        "ControlType.Header","ControlType.HeaderItem",
+        // Tabular / data
+        "ControlType.DataItem","ControlType.DataGrid","ControlType.Cell",
+        // Chromium / web-rendered apps map most clickable things to these
+        "ControlType.Custom","ControlType.Image",
+        // Document-area editables (text editors, code editors, content surfaces)
+        "ControlType.Document","ControlType.Text",
+        // Containers that the AI may need to address (toolbar items, slider)
+        "ControlType.Slider","ControlType.Spinner","ControlType.Thumb",
+        "ControlType.ToolBar","ControlType.MenuBar",
+      ]);
+      let candidatesBlock = "";
+      const tree = (fresh as any)?.windowTree;
+      if (Array.isArray(tree) && tree.length > 0) {
+        const clickables = tree
+          .filter((el: any) => el && CLICKABLE_TYPES.has(el.type) && el.bounds && el.bounds.width > 0 && el.bounds.height > 0)
+          .slice(0, 50);
+        if (clickables.length > 0) {
+          const lines = clickables.map((el: any, i: number) => {
+            const lx = Math.round(el.bounds.x / sf);
+            const ly = Math.round(el.bounds.y / sf);
+            const lw2 = Math.round(el.bounds.width / sf);
+            const lh2 = Math.round(el.bounds.height / sf);
+            const t = el.type.replace(/^ControlType\./, "");
+            const name = (el.name || "").replace(/\s+/g, " ").slice(0, 60);
+            const aid = el.automationId ? ` automationId="${el.automationId}"` : "";
+            return `[${i}] ${t} "${name}"${aid} at (${lx},${ly},${lw2}x${lh2})`;
+          });
+          candidatesBlock = `\n\nUIA CLICKABLE CANDIDATES in the active window (use these for target.selector/automationId/boundsHint when picking — set target.confidence:"high"):\n${lines.join("\n")}\n`;
+          log(`guide follow-up: enumerated ${clickables.length} clickable candidates`);
+        }
+      }
+
+      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached. The user's screen is ${lw}×${lh} logical pixels; provide target.boundsHint values in that coordinate space (NOT in image pixels — the screenshot may have been resized for transmission). When you pick a target from the UIA CANDIDATES list above, COPY its name/automationId/bounds verbatim and set target.confidence:"high". When you have to guess from the screenshot alone (target not in the list), set target.confidence:"low" — Mudrik will run a spatial fallback on your boundsHint. Decide the next guide marker (guide_step, guide_complete, or guide_abort).`;
 
       // Stream tokens to the renderer for visibility; accumulate the response
       // text; parse + dispatch guide markers when the subprocess exits.
@@ -383,10 +462,6 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         }
       }
       try {
-        // If the user hit Stop mid-stream, drop any guide markers the AI
-        // had partially emitted before the kill. Otherwise the very next
-        // guide_step would re-arm the overlay / mouse-hook the user just
-        // explicitly told us to tear down.
         if (guideStoppedFlag) {
           log("guide follow-up: STOP was hit — discarding buffered guide markers");
         } else {
@@ -410,80 +485,32 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         win.webContents.send(IPC.STREAM_DONE);
       }
     },
-    buildFollowUpPrompt: async (actionDesc) => {
-      // Recapture screen state at the user's current focal point so the AI
-      // sees the post-action UI (e.g. the dialog that just opened), not the
-      // pre-Alt+Space snapshot. Click events know exactly where; option
-      // choices fall back to the live cursor position.
-      const ctxReader = await import("./context-reader");
-      const point =
-        actionDesc.kind === "click"
-          ? { x: actionDesc.x, y: actionDesc.y }
-          : ctxReader.getCursorPos();
-      let fresh: { element: any; windowInfo?: { title: string } } | null = null;
-      try {
-        fresh = await ctxReader.readContextAtPoint(point.x, point.y);
-      } catch (err: any) {
-        log(`buildFollowUpPrompt: recapture failed (${err?.message || err}) — falling back to cached context`);
-      }
-      const ctx = fresh || currentContext;
-      const desc =
-        actionDesc.kind === "click"
-          ? `User clicked at (${actionDesc.x}, ${actionDesc.y}).`
-          : `User chose option: "${actionDesc.choice}".`;
-      const screen = ctx
-        ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
-        : "No screen context captured.";
-      // The runtime attaches a fresh screenshot to this same message and the
-      // overlay places the owl in LOGICAL screen pixels. Tell the AI the
-      // logical dimensions explicitly so its boundsHint values land in the
-      // same coordinate space the overlay uses — even if the screenshot was
-      // captured/transmitted at a different physical resolution.
-      const { screen: electronScreen } = require("electron") as typeof import("electron");
-      const display = electronScreen.getPrimaryDisplay();
-      const lw = display.bounds.width;
-      const lh = display.bounds.height;
-      return `${desc}\n\n${screen}\n\nA fresh full-screen screenshot is attached. The user's screen is ${lw}×${lh} logical pixels; provide target.boundsHint values in that coordinate space (NOT in image pixels — the screenshot may have been resized for transmission). Decide the next guide marker (guide_step, guide_complete, or guide_abort).`;
-    },
     onStateUpdate: (state) => {
       guidePhase = state.phase;
-      log(`GUIDE_STATE_UPDATE phase=${state.phase} options=${JSON.stringify(state.options || [])} caption=${state.caption ? "yes" : "no"} summary=${state.summary ? "yes" : "no"}`);
+      log(`GUIDE_STATE_UPDATE phase=${state.phase} options=${JSON.stringify(state.options || [])} caption=${state.caption ? "yes" : "no"} summary=${state.summary ? "yes" : "no"} finalMessage=${state.finalMessage ? JSON.stringify(state.finalMessage) : "none"}`);
       const win = getPanelWindow();
       if (win && !win.isDestroyed()) {
         win.webContents.send(IPC.GUIDE_STATE_UPDATE, state);
       }
     },
     resolveTargetBounds: async (target) => {
-      // UIA lookup returns PHYSICAL pixel bounds (the find script is DPI-aware).
-      // The overlay window uses LOGICAL pixels, so divide by scaleFactor before
-      // returning. The AI's boundsHint is already in logical px (we tell it the
-      // logical screen dims in the prompt), so the fallback path doesn't need
-      // this conversion.
-      try {
-        const heavy = await import("./actions/action-executor-heavy");
-        const found = await heavy.findElementBounds(
-          target.selector,
-          target.automationId,
-          target.boundsHint,
-        );
-        if (!found) {
-          log(`resolveTargetBounds: UIA lookup returned no match for selector="${target.selector}" — using AI hint`);
-          return null;
-        }
-        const { screen: electronScreen } = require("electron") as typeof import("electron");
-        const sf = electronScreen.getPrimaryDisplay().scaleFactor || 1;
-        const logical = {
-          x: Math.round(found.x / sf),
-          y: Math.round(found.y / sf),
-          width: Math.round(found.width / sf),
-          height: Math.round(found.height / sf),
-        };
-        log(`resolveTargetBounds: UIA hit "${found.name}" (${found.type}) at logical ${logical.x},${logical.y} ${logical.width}x${logical.height}`);
-        return logical;
-      } catch (err: any) {
-        log(`resolveTargetBounds failed (${err?.message || err}) — falling back to AI boundsHint`);
-        return null;
+      // The AI now ONLY emits target.boundsHint when picking from the UIA
+      // candidates list we sent in the previous follow-up — those bounds
+      // are real UIA bounds (converted to logical px when we built the
+      // list), so we trust them verbatim and skip the UIA round-trip.
+      //
+      // The previous version had a "low confidence" fallback path that
+      // ran a UIA exact-match plus spatial fallback when the AI guessed.
+      // That was both slow and unreliable (an arbitrarily-placed cursor
+      // is worse than no cursor — the user gets misled). Per design
+      // change 2026-05-10: AI either picks from the list (cursor shows)
+      // or sets target:null (caption-only step, no cursor).
+      if (target.boundsHint) {
+        log(`resolveTargetBounds: trusting AI bounds verbatim (from candidates list)`);
+        return target.boundsHint;
       }
+      log(`resolveTargetBounds: no boundsHint — AI didn't pick from UIA list, no cursor will be shown`);
+      return null;
     },
   });
   log("Guide controller initialized");
@@ -511,8 +538,18 @@ export function registerIpcHandlers(
   appConfig = config;
   configChangeListener = onConfigChange || null;
   const workingDir = config.workingDir || process.cwd();
-  client = new OpenCodeClient(config.model || "ollama-cloud/gemini-3-flash-preview", workingDir, config.apiKeys);
-  log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}, keys=${Object.keys(config.apiKeys || {}).length}`);
+  // Provision an isolated XDG_CONFIG_HOME for the OpenCode spawn — empty
+  // mcp/plugins/skills — so any MCP servers the user registered globally
+  // (Playwright, zai-mcp-server, etc.) are invisible to Mudrik's subprocess.
+  // The runtime kill-switch stays as a second layer of defense.
+  const isolatedOpenCodeConfig = ensureIsolatedOpenCodeConfig(workingDir);
+  client = new OpenCodeClient(
+    config.model || "ollama-cloud/gemini-3-flash-preview",
+    workingDir,
+    config.apiKeys,
+    isolatedOpenCodeConfig,
+  );
+  log(`OpenCodeClient initialized: model=${config.model}, dir=${workingDir}, keys=${Object.keys(config.apiKeys || {}).length}, isolatedConfig=${isolatedOpenCodeConfig}`);
 
   ipcMain.on(IPC.DISMISS, () => {
     log("DISMISS received");
@@ -544,7 +581,8 @@ export function registerIpcHandlers(
     }
     Object.assign(config, newConfig, { recentModels: config.recentModels });
     if (newConfig.workingDir) {
-      client = new OpenCodeClient(config.model, config.workingDir, config.apiKeys);
+      const isolated = ensureIsolatedOpenCodeConfig(config.workingDir);
+      client = new OpenCodeClient(config.model, config.workingDir, config.apiKeys, isolated);
     }
     // If keys changed without a full client rebuild, propagate the new map.
     if (newConfig.apiKeys) {

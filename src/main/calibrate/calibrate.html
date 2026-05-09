@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Mudrik — Cursor Calibration</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: #0F1822; color: #E6F4F7;
+      font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+      font-size: 13px; line-height: 1.4;
+      height: 100vh; overflow: hidden;
+    }
+    .wrap { display: flex; flex-direction: column; height: 100vh; padding: 12px; gap: 10px; }
+    h1 { font-size: 14px; margin: 0; color: #18BFE1; letter-spacing: 0.4px; }
+    .sub { font-size: 11px; color: #8FBFCD; margin: 0 0 4px; }
+    .controls { display: flex; gap: 8px; align-items: center; }
+    button {
+      padding: 8px 12px; font-size: 13px; font-family: inherit;
+      background: linear-gradient(135deg, #18BFE1, #5FD8F0 55%, #F2A93A);
+      color: #081A22; border: none; border-radius: 6px; cursor: pointer;
+      font-weight: 600;
+    }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.ghost {
+      background: transparent; color: #8FBFCD;
+      border: 1px solid #2D4A63;
+    }
+    label { font-size: 11px; color: #8FBFCD; display: flex; align-items: center; gap: 4px; }
+    input[type=number] {
+      width: 60px; padding: 4px 6px; background: #1C2A3A; color: #E6F4F7;
+      border: 1px solid #2D4A63; border-radius: 4px; font-family: inherit; font-size: 12px;
+    }
+    .status {
+      padding: 8px 10px; background: #1C2A3A; border-radius: 6px;
+      font-size: 12px; color: #8FBFCD;
+      border: 1px solid #2D4A63;
+    }
+    .status.error { color: #ff8b8b; border-color: rgba(255, 80, 80, 0.4); }
+    .list { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+    .row {
+      display: flex; gap: 8px; align-items: center; padding: 8px;
+      background: #1C2A3A; border: 1px solid #2D4A63; border-radius: 6px;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 11px;
+    }
+    .row .info { flex: 1; min-width: 0; }
+    .row .type {
+      display: inline-block; padding: 2px 6px;
+      background: rgba(24, 191, 225, 0.18); color: #5FD8F0;
+      border-radius: 3px; font-size: 10px; margin-right: 6px;
+    }
+    .row .name { color: #E6F4F7; }
+    .row .meta { color: #556A77; font-size: 10px; margin-top: 2px; word-break: break-all; }
+    .row button { padding: 6px 10px; font-size: 11px; flex-shrink: 0; }
+    .empty { color: #556A77; padding: 16px; text-align: center; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🎯 Mudrik Cursor Calibration</h1>
+    <p class="sub">Open a target window (Excel, Settings, etc.), bring it to the foreground, then click <b>Capture</b>. Mudrik hides this window briefly, captures UIA from your target, then lists 10 random clickables. Click <b>Test cursor</b> on any row to see if the owl lands on the right element.</p>
+    <div class="controls">
+      <button id="btn-capture">Capture target</button>
+      <label>hide wait (ms): <input type="number" id="hide-wait" value="500" min="100" max="3000" step="50" /></label>
+    </div>
+    <div id="status" class="status">Ready.</div>
+    <div id="list" class="list"></div>
+  </div>
+  <script src="./calibrate-renderer.js"></script>
+</body>
+</html>

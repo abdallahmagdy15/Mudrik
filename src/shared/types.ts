@@ -66,6 +66,17 @@ export interface GuideOfferPayload {
 export interface GuideStepPayload {
   type: "guide_step";
   caption: string;
+  /**
+   * Target presence is now binary. The AI sets it ONLY when it picks an
+   * element from the UIA candidates list Mudrik provided in the previous
+   * follow-up — in which case `boundsHint` is real UIA bounds and the
+   * runtime shows the owl pointer there. If the AI can't pick from the
+   * list (target not present, ambiguous, or step doesn't have a single
+   * point target), it sets `target: null` and the user navigates from
+   * the caption + options alone — NO cursor is placed. Earlier versions
+   * had a "low confidence" path that placed the cursor at the AI's
+   * screenshot guess; that was unreliable and is now removed.
+   */
   target: {
     selector: string;
     automationId?: string;

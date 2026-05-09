@@ -59,18 +59,20 @@ export interface GuideControllerDeps {
   getActiveHwnd: () => Promise<number>;
   /** Returns the current cursor position (for the overlay's start position). */
   getCursorPos: () => { x: number; y: number };
-  /** Sends a follow-up prompt to OpenCode and starts streaming. The
-   *  controller does NOT wait on this — it expects the next guide_*
-   *  marker to arrive via handleAction(). */
-  sendFollowUp: (prompt: string) => Promise<void>;
-  /** Builds the screen-context block to include in the follow-up prompt,
-   *  describing the user's most recent action and the new active-window
-   *  state. */
-  buildFollowUpPrompt: (
+  /** Sends a follow-up to OpenCode and streams. Takes the action descriptor
+   *  directly; the implementation handles hiding the panel, capturing
+   *  screenshot + UIA tree of the TARGET app (not Mudrik), formatting the
+   *  prompt with fresh candidates, and showing the panel. The controller
+   *  doesn't wait on the AI — the next guide_* marker arrives via
+   *  handleAction(). Replaces the previous buildFollowUpPrompt+sendFollowUp
+   *  pair so screenshot and UIA capture happen in ONE hide-show window
+   *  with Mudrik out of the foreground (otherwise UIA reads Mudrik's own
+   *  tree, not the app the user is being guided through). */
+  sendFollowUp: (
     actionDesc:
       | { kind: "click"; x: number; y: number }
       | { kind: "option"; choice: string },
-  ) => Promise<string>;
+  ) => Promise<void>;
   /** Pushes a state update to the renderer's chat-input options bar. */
   onStateUpdate: (s: GuideStateUpdate) => void;
   /** Resolves the AI's target hint to ACCURATE pixel bounds via UIA before
@@ -81,7 +83,11 @@ export interface GuideControllerDeps {
    *  lookup fails — the controller then falls back to the AI's boundsHint
    *  so a stale UIA snapshot doesn't break the flow. */
   resolveTargetBounds?: (
-    target: { selector: string; automationId?: string; boundsHint?: { x: number; y: number; width: number; height: number } },
+    target: {
+      selector: string;
+      automationId?: string;
+      boundsHint?: { x: number; y: number; width: number; height: number };
+    },
   ) => Promise<{ x: number; y: number; width: number; height: number } | null>;
 }
 
@@ -149,11 +155,7 @@ export class GuideController {
     if (this.phase === "offer") {
       // User accepted the offer → ask AI for the first step
       this.transitionToAwaitingAI();
-      const followUp = await this.deps.buildFollowUpPrompt({
-        kind: "option",
-        choice: option,
-      });
-      await this.deps.sendFollowUp(followUp);
+      await this.deps.sendFollowUp({ kind: "option", choice: option });
       return;
     }
     if (this.phase === "step-active") {
@@ -203,16 +205,16 @@ export class GuideController {
   // ---------- private state-machine methods ----------
 
   private async handleOffer(p: GuideOfferPayload): Promise<void> {
-    // Runtime guard for plan-rule violation (already enforced in validateAction
-    // but belt-and-suspenders; controller should reject defensively too).
-    if (p.estSteps < 2) {
-      // Don't transition; surface as an error via state update
-      this.deps.onStateUpdate({
-        phase: "idle",
-        finalMessage: "Guide rejected: estSteps < 2.",
-      });
-      return;
-    }
+    // The decision to use guide mode is the AI's per GUIDE_PROMPT_FULL —
+    // the runtime does NOT gate on step count or task type. Only schema
+    // sanity is enforced here (must be a finite number; the renderer would
+    // otherwise show "Step 1 · ~NaN left" or similar). Clamp non-positive
+    // integers to 1 for the counter so they don't mislead the user, but
+    // don't reject the offer.
+    const estSteps =
+      typeof p.estSteps === "number" && Number.isFinite(p.estSteps)
+        ? Math.max(1, Math.round(p.estSteps))
+        : 1;
     if (this.phase !== "idle" && this.phase !== "awaiting-ai") {
       // A guide_offer arriving mid-step is unexpected; treat as abort of current
       await this.cancel();
@@ -222,7 +224,7 @@ export class GuideController {
       phase: "offer",
       summary: p.summary,
       options: p.options,
-      estStepsLeft: p.estSteps,
+      estStepsLeft: estSteps,
     });
   }
 
@@ -354,6 +356,10 @@ export class GuideController {
     this.processing = true;
     this.clearInactivityTimer();
     this.deps.mouseHook.stop();
+    // Hide the owl the moment the user responds — they've already given us
+    // their answer, so the pointer is no longer needed and would otherwise
+    // linger through the waitMs sleep, the recapture, and the AI round-trip.
+    this.deps.overlay.hide();
     const waitMs = this.currentStep.waitMs;
     const action = this.pendingAction;
     this.pendingAction = null;
@@ -371,16 +377,11 @@ export class GuideController {
     this.phase = "recapturing";
     this.deps.onStateUpdate({ phase: "recapturing" });
 
-    // AWAITING_AI phase — build follow-up prompt and send
+    // AWAITING_AI phase — send follow-up (capture + format + dispatch)
     this.phase = "awaiting-ai";
     this.deps.onStateUpdate({ phase: "awaiting-ai" });
     try {
-      const followUp = await this.deps.buildFollowUpPrompt(action);
-      if (!isCurrent()) {
-        this.processing = false;
-        return;
-      }
-      await this.deps.sendFollowUp(followUp);
+      await this.deps.sendFollowUp(action);
       if (!isCurrent()) {
         this.processing = false;
         return;

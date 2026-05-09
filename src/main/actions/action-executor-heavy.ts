@@ -16,7 +16,7 @@ import { Action } from "../../shared/types";
 import { runPowerShell } from "../powershell-runner";
 import { log } from "../logger";
 
-const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v5.ps1";
+const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v8.ps1";
 const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v4.ps1";
 
 export interface ActionResult {
@@ -269,16 +269,36 @@ async function pressKeys(combination: string): Promise<void> {
 
 function getFindScriptContent(): string {
   const lines: string[] = [];
-  lines.push('param([string]$SelectorFile, [string]$OutputFile)');
+  // $TargetHwnd lets the Node caller pin the foreground window before
+  // PowerShell can steal it. Same fix as context-reader v17 — without it,
+  // GetForegroundWindow inside the script returns PowerShell's own HWND
+  // when the target is Chromium/Electron, breaking element-find on
+  // Chrome / Claude Desktop / Slack / VS Code / Discord etc.
+  lines.push('param([string]$SelectorFile, [string]$OutputFile, [int]$TargetHwnd = 0)');
   lines.push('Add-Type -AssemblyName PresentationCore');
   lines.push('Add-Type -AssemblyName UIAutomationClient');
+  lines.push('Add-Type -AssemblyName UIAutomationTypes');
   lines.push('$ErrorActionPreference = "Stop"');
   lines.push('Add-Type @"');
   lines.push('using System;');
   lines.push('using System.Runtime.InteropServices;');
-  lines.push('public class Dpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }');
+  lines.push('public class Dpi {');
+  lines.push('    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();');
+  lines.push('    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();');
+  lines.push('    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);');
+  lines.push('}');
   lines.push('"@');
   lines.push('[Dpi]::SetProcessDPIAware() | Out-Null');
+  // Wake Chromium accessibility (same approach as context-reader v17).
+  // Adaptive: probe the tree first; only wake+sleep if empty.
+  lines.push('function WakeAccessibility($hwnd) {');
+  lines.push('    if ($hwnd -eq [IntPtr]::Zero) { return }');
+  lines.push('    $WM_GETOBJECT = 0x003D');
+  lines.push('    $r = [IntPtr]::Zero');
+  lines.push('    [Dpi]::SendMessageTimeout($hwnd, $WM_GETOBJECT, [IntPtr]::Zero, [IntPtr](-25), 0x0002, 200, [ref]$r) | Out-Null');
+  lines.push('    [Dpi]::SendMessageTimeout($hwnd, $WM_GETOBJECT, [IntPtr]::Zero, [IntPtr](-4), 0x0002, 200, [ref]$r) | Out-Null');
+  lines.push('}');
+  lines.push('try { [System.Windows.Automation.Automation]::AddAutomationFocusChangedEventHandler([System.Windows.Automation.AutomationFocusChangedEventHandler]{ param($s,$e) }) } catch {}');
   lines.push('');
   lines.push('$raw = (Get-Content -Path $SelectorFile -Raw -Encoding utf8).Trim()');
   lines.push('$action = $raw | ConvertFrom-Json');
@@ -433,18 +453,44 @@ function getFindScriptContent(): string {
   lines.push('}');
   lines.push('');
   lines.push('try {');
-  lines.push('    # Scope search to the foreground window instead of the entire desktop.');
-  lines.push('    Add-Type @"');
-  lines.push('    using System;');
-  lines.push('    using System.Runtime.InteropServices;');
-  lines.push('    using System.Text;');
-  lines.push('    public class Win32Find { [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow(); }');
-  lines.push('"@');
-  lines.push('    $fgHwnd = [Win32Find]::GetForegroundWindow()');
+  // Scope: caller-supplied $TargetHwnd > GetForegroundWindow > RootElement.
+  // The first option avoids the PowerShell-foreground steal that broke
+  // element-find on Chromium/Electron apps before this fix.
+  lines.push('    $fgHwnd = if ($TargetHwnd -gt 0) { [IntPtr]$TargetHwnd } else { [Dpi]::GetForegroundWindow() }');
   lines.push('    if ($fgHwnd -ne [IntPtr]::Zero) {');
   lines.push('        $root = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd)');
   lines.push('    } else {');
   lines.push('        $root = [System.Windows.Automation.AutomationElement]::RootElement');
+  lines.push('    }');
+  // Poll-until-stable Chromium wake-up. Same adaptive algorithm as
+  // context-reader v18: initial depth-2 ShallowCount probe — if the
+  // tree's already populated, skip wake entirely (native apps).
+  // Otherwise send WM_GETOBJECT and poll every 100ms until count
+  // stabilizes (two consecutive same non-zero polls), capped at 2000ms.
+  // Saves 500ms+ on simple pages, gives heavy renderers up to ~2s
+  // instead of timing out at half-empty.
+  lines.push('    function ShallowCount($node) {');
+  lines.push('        try {');
+  lines.push('            $kids = $node.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('            $sum = $kids.Count');
+  lines.push('            foreach ($k in $kids) { try { $sum += $k.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition).Count } catch {} }');
+  lines.push('            return $sum');
+  lines.push('        } catch { return 0 }');
+  lines.push('    }');
+  lines.push('    $POPULATED_THRESHOLD = 10');
+  lines.push('    $initialCount = ShallowCount $root');
+  lines.push('    if ($initialCount -le $POPULATED_THRESHOLD) {');
+  lines.push('        WakeAccessibility $fgHwnd');
+  lines.push('        $lastCount = $initialCount');
+  lines.push('        $elapsed = 0');
+  lines.push('        while ($elapsed -lt 2000) {');
+  lines.push('            Start-Sleep -Milliseconds 100');
+  lines.push('            $elapsed += 100');
+  lines.push('            $current = ShallowCount $root');
+  lines.push('            if ($current -gt $POPULATED_THRESHOLD -and $current -eq $lastCount) { break }');
+  lines.push('            $lastCount = $current');
+  lines.push('        }');
+  lines.push('        try { $root = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd) } catch {}');
   lines.push('    }');
   lines.push('');
   lines.push('    # Try to materialize a virtualized item (e.g. an Excel cell scrolled out');
@@ -456,6 +502,56 @@ function getFindScriptContent(): string {
   lines.push('    }');
   lines.push('');
   lines.push('    FindElement $root 0 20');
+  lines.push('');
+  // Spatial fallback. When the AI's selector/automationId don't match the
+  // live UIA tree (common with screenshot-eyeball selectors like "File"
+  // when the real UIA name is "MenuBarItem 0" or similar) AND the AI
+  // provided a boundsHint, walk the tree again and pick the clickable
+  // element whose center is closest to the AI's bounds center. This
+  // turns a "near but not accurate" AI guess into a pixel-perfect lookup
+  // for the auto-guide owl pointer.
+  lines.push('    function FindClosestSpatial($node, $hint, $depth, $maxDepth) {');
+  lines.push('        if ($depth -gt $maxDepth) { return }');
+  lines.push('        try {');
+  lines.push('            $children = $node.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('            foreach ($child in $children) {');
+  lines.push('                try {');
+  lines.push('                    $r = $child.Current.BoundingRectangle');
+  lines.push('                    if ($r.Width -le 0 -or $r.Height -le 0) { FindClosestSpatial $child $hint ($depth+1) $maxDepth; continue }');
+  lines.push('                    # Only consider elements that are interactable enough to point at —');
+  lines.push('                    # filtering out giant container Panes / Groups that would always win');
+  lines.push('                    # by virtue of containing the cursor.');
+  lines.push('                    $ct = "" ; try { $ct = $child.Current.LocalizedControlType } catch {}');
+  lines.push('                    $invokable = $false');
+  lines.push('                    try { $tmp = $null; $invokable = $child.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$tmp) } catch {}');
+  lines.push('                    $isClickable = $invokable -or ($ct -match "button|menu item|list item|tab|hyperlink|check|radio|edit|combo|tree item|header")');
+  lines.push('                    if ($isClickable) {');
+  lines.push('                        $cx = $r.X + $r.Width / 2');
+  lines.push('                        $cy = $r.Y + $r.Height / 2');
+  lines.push('                        $hcx = $hint.x + $hint.width / 2');
+  lines.push('                        $hcy = $hint.y + $hint.height / 2');
+  lines.push('                        $dx = $cx - $hcx; $dy = $cy - $hcy');
+  lines.push('                        $dist = [Math]::Sqrt($dx*$dx + $dy*$dy)');
+  lines.push('                        $cName = "" ; try { $cName = $child.Current.Name } catch {}');
+  lines.push('                        $cAuto = "" ; try { $cAuto = $child.Current.AutomationId } catch {}');
+  lines.push('                        $script:spatial += @{ name=$cName; type=$ctrlTypeName.Invoke($child); autoId=$cAuto; dist=$dist; bounds=@{ x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height } }');
+  lines.push('                    }');
+  lines.push('                } catch {}');
+  lines.push('                FindClosestSpatial $child $hint ($depth+1) $maxDepth');
+  lines.push('            }');
+  lines.push('        } catch {}');
+  lines.push('    }');
+  lines.push('');
+  lines.push('    if ($script:found.Count -eq 0 -and $boundsHint) {');
+  lines.push('        $script:spatial = @()');
+  lines.push('        $ctrlTypeName = { param($n) try { return $n.Current.LocalizedControlType } catch { return "" } }');
+  lines.push('        FindClosestSpatial $root $boundsHint 0 20');
+  lines.push('        if ($script:spatial.Count -gt 0) {');
+  lines.push('            $best = $script:spatial | Sort-Object -Property dist | Select-Object -First 1');
+  lines.push('            # Score 60 to indicate "spatial fallback won, no name match"');
+  lines.push('            $script:found += @{ name=$best.name; type=$best.type; autoId=$best.autoId; value=""; score=60; bounds=$best.bounds }');
+  lines.push('        }');
+  lines.push('    }');
   lines.push('');
   lines.push('    if ($script:found.Count -eq 0) {');
   lines.push('        @{ error="No element found matching selector: $selector"; selector=$selector } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
@@ -496,8 +592,26 @@ export async function findElementBounds(selector: string, automationId?: string,
   const selectorFile = path.join(os.tmpdir(), "hoverbuddy", "selector-" + Date.now() + ".json");
   fs.writeFileSync(selectorFile, JSON.stringify(selectorData), "utf-8");
 
+  // Capture target HWND on the Node side BEFORE PowerShell spawns. PS can
+  // briefly steal foreground itself, so a script-side GetForegroundWindow
+  // returned PowerShell's own HWND on Chromium/Electron targets — same bug
+  // the calibration tool surfaced. koffi's GetForegroundWindow is fast
+  // (sub-millisecond) and runs in this process, so the foreground we
+  // capture is the actual target the user just had in front.
+  let targetHwnd = 0;
   try {
-    const { output, stderr, exitCode } = await runPowerShell(script, [selectorFile], { timeout: 15000 });
+    const { getActiveHwnd } = await import("../guide/active-window");
+    targetHwnd = await getActiveHwnd();
+  } catch (err: any) {
+    log(`findElementBounds: getActiveHwnd failed (${err?.message || err}) — script will fall back to GetForegroundWindow`);
+  }
+
+  try {
+    const { output, stderr, exitCode } = await runPowerShell(
+      script,
+      [selectorFile, "-TargetHwnd", String(targetHwnd)],
+      { timeout: 15000 },
+    );
 
     try { fs.unlinkSync(selectorFile); } catch {}
 

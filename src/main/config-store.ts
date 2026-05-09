@@ -77,6 +77,43 @@ export function ensureAgentInWorkingDir(workingDir: string): void {
 }
 
 /**
+ * Provision an ISOLATED OpenCode config directory under Mudrik's userData
+ * so the OpenCode subprocess Mudrik spawns reads OUR config — empty MCPs,
+ * no plugins, no skills — instead of the user's global one at
+ * `~/.config/opencode/opencode.json`. The user's global config can keep
+ * registering Playwright, zai-mcp-server, superpowers, anything else they
+ * use for direct `opencode run` invocations; those will simply be invisible
+ * to Mudrik's spawn because XDG_CONFIG_HOME is overridden in the spawn env.
+ *
+ * This is the "stop it from root" fix: relying on the AI to obey prompts
+ * is brittle (it kept reaching for playwright_browser_*); cutting off the
+ * tool registration before OpenCode even starts is bulletproof.
+ *
+ * Returns the directory to use as `XDG_CONFIG_HOME`. Per XDG, OpenCode
+ * looks for `$XDG_CONFIG_HOME/opencode/opencode.json`, which is the file
+ * we write here.
+ */
+export function ensureIsolatedOpenCodeConfig(workingDir: string): string {
+  const xdgConfigHome = path.join(workingDir, "opencode-config");
+  try {
+    const opencodeDir = path.join(xdgConfigHome, "opencode");
+    fs.mkdirSync(opencodeDir, { recursive: true });
+    const configPath = path.join(opencodeDir, "opencode.json");
+    // Minimal config with explicit empty mcp. Plugins / skills are not set
+    // (default empty). Overwrites every launch so updates propagate.
+    const minimal = {
+      $schema: "https://opencode.ai/config.json",
+      mcp: {},
+    };
+    fs.writeFileSync(configPath, JSON.stringify(minimal, null, 2), "utf-8");
+    log(`isolated opencode config provisioned at ${configPath} (XDG_CONFIG_HOME=${xdgConfigHome})`);
+  } catch (e: any) {
+    log(`ensureIsolatedOpenCodeConfig FAILED (non-fatal): ${e.message}`);
+  }
+  return xdgConfigHome;
+}
+
+/**
  * Persisted config lives at `<userData>/config.json`. Writes are atomic
  * (write to `.tmp`, then rename) so a crash mid-write can't leave a
  * corrupt file that bricks startup. Unknown fields from future versions

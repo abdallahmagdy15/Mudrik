@@ -24,6 +24,7 @@ module.exports = [
       new CopyPlugin({
         patterns: [
           { from: "src/main/guide/guide-overlay.html", to: "guide-overlay.html" },
+          { from: "src/main/calibrate/calibrate.html", to: "calibrate.html" },
           { from: "assets/owl-wing-pointer.png", to: "owl-wing-pointer.png" },
         ],
       }),
@@ -87,6 +88,34 @@ module.exports = [
     resolve: { extensions: [".ts", ".js"] },
     output: {
       filename: "guide-overlay-renderer.js",
+      path: path.resolve(__dirname, "dist"),
+    },
+  },
+  {
+    mode: "production",
+    target: "electron-preload",
+    devtool: "source-map",
+    entry: "./src/main/calibrate/calibrate-preload.ts",
+    module: {
+      rules: [{ test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ }],
+    },
+    resolve: { extensions: [".ts", ".js"] },
+    output: {
+      filename: "calibrate-preload.js",
+      path: path.resolve(__dirname, "dist"),
+    },
+  },
+  {
+    mode: "production",
+    target: "web",
+    devtool: "source-map",
+    entry: "./src/main/calibrate/calibrate-renderer.ts",
+    module: {
+      rules: [{ test: /\.ts$/, use: "ts-loader", exclude: /node_modules/ }],
+    },
+    resolve: { extensions: [".ts", ".js"] },
+    output: {
+      filename: "calibrate-renderer.js",
       path: path.resolve(__dirname, "dist"),
     },
   },

@@ -18,7 +18,6 @@ function makeDeps(overrides: Partial<GuideControllerDeps> = {}): GuideController
     getActiveHwnd: vi.fn().mockResolvedValue(1234),
     getCursorPos: vi.fn().mockReturnValue({ x: 50, y: 50 }),
     sendFollowUp: vi.fn().mockResolvedValue(undefined),
-    buildFollowUpPrompt: vi.fn().mockResolvedValue("follow-up prompt"),
     onStateUpdate: vi.fn(),
     ...overrides,
   };
@@ -74,19 +73,38 @@ describe("GuideController", () => {
       );
     });
 
-    it("guide_offer with estSteps < 2 is rejected (no transition)", async () => {
+    it("guide_offer with estSteps=1 is ACCEPTED (AI decides; runtime doesn't gate on step count)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
-      await ctrl.handleAction({
-        ...sampleOffer,
-        estSteps: 1,
-      } as unknown as Action);
-      expect(ctrl.getPhase()).toBe("idle");
+      await ctrl.handleAction({ ...sampleOffer, estSteps: 1 } as unknown as Action);
+      expect(ctrl.getPhase()).toBe("offer");
       expect(deps.onStateUpdate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          phase: "idle",
-          finalMessage: expect.stringContaining("estSteps < 2"),
-        }),
+        expect.objectContaining({ phase: "offer", estStepsLeft: 1 }),
+      );
+    });
+
+    it("guide_offer with weird estSteps (0, negative, non-finite) is accepted but clamped to 1 for the counter", async () => {
+      const deps = makeDeps();
+      const ctrl = new GuideController(deps);
+      await ctrl.handleAction({ ...sampleOffer, estSteps: 0 } as unknown as Action);
+      expect(ctrl.getPhase()).toBe("offer");
+      expect(deps.onStateUpdate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: "offer", estStepsLeft: 1 }),
+      );
+      // Reset and try negative
+      (deps.onStateUpdate as ReturnType<typeof vi.fn>).mockClear();
+      await ctrl.cancel();
+      (deps.onStateUpdate as ReturnType<typeof vi.fn>).mockClear();
+      await ctrl.handleAction({ ...sampleOffer, estSteps: -3 } as unknown as Action);
+      expect(deps.onStateUpdate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: "offer", estStepsLeft: 1 }),
+      );
+      // And non-numeric
+      await ctrl.cancel();
+      (deps.onStateUpdate as ReturnType<typeof vi.fn>).mockClear();
+      await ctrl.handleAction({ ...sampleOffer, estSteps: "two" } as unknown as Action);
+      expect(deps.onStateUpdate).toHaveBeenLastCalledWith(
+        expect.objectContaining({ phase: "offer", estStepsLeft: 1 }),
       );
     });
 
@@ -105,10 +123,9 @@ describe("GuideController", () => {
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
-      expect(deps.buildFollowUpPrompt).toHaveBeenCalledWith(
+      expect(deps.sendFollowUp).toHaveBeenCalledWith(
         expect.objectContaining({ kind: "option", choice: "Start guide" }),
       );
-      expect(deps.sendFollowUp).toHaveBeenCalled();
       expect(ctrl.getPhase()).toBe("awaiting-ai");
     });
   });
@@ -151,11 +168,10 @@ describe("GuideController", () => {
       await ctrl.handleUserChoice("I see the dialog");
       await vi.advanceTimersByTimeAsync(sampleStepNonTrackable.waitMs + 50);
       expect(ctrl.getPhase()).toBe("awaiting-ai");
-      expect(deps.buildFollowUpPrompt).toHaveBeenCalledWith({
+      expect(deps.sendFollowUp).toHaveBeenCalledWith({
         kind: "option",
         choice: "I see the dialog",
       });
-      expect(deps.sendFollowUp).toHaveBeenCalled();
     });
 
     it("user option click during a TRACKABLE step also advances (mouse hook is off — option is the only path)", async () => {
@@ -168,7 +184,7 @@ describe("GuideController", () => {
       await ctrl.handleUserChoice("I did it");
       await vi.advanceTimersByTimeAsync(sampleStep.waitMs + 50);
       expect(ctrl.getPhase()).toBe("awaiting-ai");
-      expect(deps.buildFollowUpPrompt).toHaveBeenCalledWith({
+      expect(deps.sendFollowUp).toHaveBeenCalledWith({
         kind: "option",
         choice: "I did it",
       });

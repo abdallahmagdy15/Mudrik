@@ -41,33 +41,32 @@ export type EventHandler = (event: OpenCodeEvent) => void;
  * enforced by OpenCode 1.4.x, so this in-process kill-switch is the
  * authoritative enforcement point.
  */
-const DISALLOWED_TOOLS: ReadonlySet<string> = new Set([
-  "bash",
-  "edit",
-  "write",
-  "task",
-  "todowrite",
-  "skill",
+/**
+ * Allowlist — the only tools Mudrik's readonly agent may use. Switched
+ * from a denylist after the original `*mcp*` substring failed to catch
+ * `playwright_browser_navigate` / `playwright_browser_click` (registered
+ * via the user's OpenCode global config and named without "mcp"). The AI
+ * happily called them mid-guide, did the task itself via browser
+ * automation, and never emitted guide_step markers — exactly the leak the
+ * sandbox is meant to prevent.
+ *
+ * If OpenCode adds new built-in read tools, append here. Anything else
+ * (bash, edit, write, task, todowrite, skill, ANY MCP server's tools
+ * regardless of naming) terminates the session. Users can still register
+ * MCP servers in their global OpenCode config — those tools just won't
+ * be reachable from inside Mudrik's subprocess.
+ */
+const ALLOWED_TOOLS: ReadonlySet<string> = new Set([
+  "read",
+  "grep",
+  "glob",
+  "list",
+  "webfetch",
+  "websearch",
 ]);
 
-/**
- * Tool name is disallowed if it's an exact match against the curated set
- * above OR if it contains the substring "mcp" (case-insensitive). The MCP
- * substring catch is a blanket deny: OpenCode users may register arbitrary
- * MCP servers in their global `~/.config/opencode/opencode.json` (e.g.
- * `zai-mcp-server`, `playwright`), and the readonly agent's frontmatter
- * doesn't enumerate them — and OpenCode 1.4.x doesn't enforce that
- * frontmatter anyway. Mudrik's contract is "model can read files + emit
- * action markers, nothing else"; any third-party MCP tool widens the
- * sandbox in ways the user didn't consent to per-session, so we refuse
- * the whole class. Built-in OpenCode tools we DO allow (read, grep, glob,
- * list, webfetch, websearch) don't have "mcp" in their name, so the
- * substring rule is precise enough.
- */
 function isDisallowedToolName(name: string): boolean {
-  if (DISALLOWED_TOOLS.has(name)) return true;
-  if (name.toLowerCase().includes("mcp")) return true;
-  return false;
+  return !ALLOWED_TOOLS.has(name.toLowerCase());
 }
 
 function detectDisallowedTool(event: OpenCodeEvent): string | null {
@@ -87,12 +86,27 @@ export class OpenCodeClient {
   private workingDir: string;
   private activeProcess: ChildProcess | null = null;
   private apiKeys: Record<string, string> = {};
+  /**
+   * Path to a Mudrik-controlled `XDG_CONFIG_HOME` directory containing an
+   * `opencode/opencode.json` with empty `mcp` (and no plugins/skills). When
+   * set, it's injected into the spawn env so the OpenCode subprocess reads
+   * OUR config instead of the user's global one — making any MCP servers
+   * the user registered (Playwright, zai-mcp-server, etc.) invisible to
+   * the AI Mudrik runs. Provisioned via `ensureIsolatedOpenCodeConfig`.
+   */
+  private isolatedConfigDir: string | null = null;
 
-  constructor(model: string = "ollama-cloud/gemini-3-flash-preview", workingDir?: string, apiKeys?: Record<string, string>) {
+  constructor(
+    model: string = "ollama-cloud/gemini-3-flash-preview",
+    workingDir?: string,
+    apiKeys?: Record<string, string>,
+    isolatedConfigDir?: string,
+  ) {
     this.model = model;
     this.workingDir = workingDir || os.homedir();
     this.apiKeys = apiKeys || {};
-    log(`OpenCodeClient created: model=${this.model}, dir=${this.workingDir}, keys=${Object.keys(this.apiKeys).length}`);
+    this.isolatedConfigDir = isolatedConfigDir || null;
+    log(`OpenCodeClient created: model=${this.model}, dir=${this.workingDir}, keys=${Object.keys(this.apiKeys).length}, isolatedConfig=${this.isolatedConfigDir || "none"}`);
   }
 
   updateModel(model: string): void {
@@ -166,10 +180,19 @@ export class OpenCodeClient {
       // the Bun 1.3.13 segfault triggered by Electron/Chromium-injected env
       // vars on Windows. Inheriting process.env wholesale crashes opencode
       // 1.14.x at startup (~1ms in, in the Windows loader).
+      const cleanEnv = buildCleanOpenCodeEnv(process.env, this.apiKeys);
+      // Override XDG_CONFIG_HOME so the spawn reads our isolated config
+      // (no MCPs, no plugins) instead of the user's global one. Cuts off
+      // Playwright / zai-mcp-server / any future-registered MCP server
+      // before OpenCode ever learns it exists. The kill-switch in
+      // detectDisallowedTool stays as a belt-and-suspenders second layer.
+      if (this.isolatedConfigDir) {
+        cleanEnv.XDG_CONFIG_HOME = this.isolatedConfigDir;
+      }
       const proc = spawn("node", args, {
         cwd: this.workingDir,
         stdio: ["pipe", "pipe", "pipe"],
-        env: buildCleanOpenCodeEnv(process.env, this.apiKeys),
+        env: cleanEnv,
       });
 
       this.activeProcess = proc;

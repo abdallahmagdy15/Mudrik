@@ -6,11 +6,19 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v14.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v18.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
-  lines.push('param([int]$X, [int]$Y, [string]$OutputFile)');
+  // $TargetHwnd is passed when the caller wants a specific window's UIA
+  // tree, regardless of which window is currently in the foreground. This
+  // bypasses a real bug we hit in production: the PowerShell process Mudrik
+  // spawns briefly takes foreground itself, so GetForegroundWindow() inside
+  // the script returned PowerShell's own HWND ("Process: powershell" in the
+  // calibrate diagnostic). Result was an empty/wrong tree even though the
+  // user's actual target (Chrome with YouTube) was right there. Pass 0 to
+  // fall back to GetForegroundWindow (legacy behaviour).
+  lines.push('param([int]$X, [int]$Y, [string]$OutputFile, [int]$TargetHwnd = 0)');
   lines.push('Add-Type -AssemblyName PresentationCore');
   lines.push('Add-Type -AssemblyName UIAutomationClient');
   lines.push('Add-Type -TypeDefinition @"');
@@ -18,10 +26,102 @@ function getScriptContent(): string {
   lines.push('using System.Runtime.InteropServices;');
   lines.push('public class DpiHelper {');
   lines.push('    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();');
+  lines.push('    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();');
+  lines.push('    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);');
+  lines.push('    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);');
+  lines.push('    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWnd, IntPtr lpEnumFunc, IntPtr lParam);');
   lines.push('}');
   lines.push('"@');
   lines.push('[DpiHelper]::SetProcessDPIAware() | Out-Null');
   lines.push('$ErrorActionPreference = "Stop"');
+  lines.push('');
+  // Chromium-based apps (Chrome, Edge, Electron — Claude Desktop, Slack,
+  // VS Code, Discord, etc.) keep their UIA tree EMPTY by default for
+  // performance. They only populate it when an accessibility client signals
+  // intent through TWO mechanisms (Chromium watches both):
+  //   1. WM_GETOBJECT message with lParam=UiaRootObjectId (the
+  //      Narrator/JAWS/NVDA wake signal — accessibility/browser_accessibility_state_impl_win.cc)
+  //   2. UIA event handler registered in the calling process (the
+  //      "AT detected via UiaClientsAreListening" path — Chromium polls)
+  // v15 only did (1) and was filtered to a class-name pattern that
+  // missed some Chromium variants. v16 unconditionally does BOTH on
+  // every capture, removes the filter, and waits longer (700ms instead
+  // of 400) for Chromium's renderer process to populate. Native apps
+  // pay a tiny extra cost but this is the most reliable wake-up.
+  lines.push('function WakeAccessibility($hwnd) {');
+  lines.push('    if ($hwnd -eq [IntPtr]::Zero) { return $false }');
+  lines.push('    $WM_GETOBJECT = 0x003D');
+  lines.push('    $UiaRootObjectId = [IntPtr](-25)');
+  lines.push('    $OBJID_CLIENT = [IntPtr](-4)');
+  lines.push('    $r = [IntPtr]::Zero');
+  // SMTO_ABORTIFHUNG=2 — never hang if the target process is busy
+  lines.push('    [DpiHelper]::SendMessageTimeout($hwnd, $WM_GETOBJECT, [IntPtr]::Zero, $UiaRootObjectId, 0x0002, 200, [ref]$r) | Out-Null');
+  lines.push('    [DpiHelper]::SendMessageTimeout($hwnd, $WM_GETOBJECT, [IntPtr]::Zero, $OBJID_CLIENT, 0x0002, 200, [ref]$r) | Out-Null');
+  lines.push('    # Also send to the top-level Chromium browser HWND if different from the')
+  lines.push('    # foreground (Chromium hosts content in child windows; the renderer that');
+  lines.push('    # owns the tree may not be the foreground frame).');
+  lines.push('    $sb = New-Object System.Text.StringBuilder 256');
+  lines.push('    [DpiHelper]::GetClassName($hwnd, $sb, 256) | Out-Null');
+  lines.push('    return $true');
+  lines.push('}');
+  lines.push('');
+  lines.push('Add-Type -AssemblyName UIAutomationTypes');
+  lines.push('# Register a UIA focus event handler in this PowerShell process. Chromium');
+  lines.push('# uses UiaClientsAreListening() to detect AT presence — once we register,');
+  lines.push('# the renderer enables full accessibility tree population for ALL its');
+  lines.push('# windows, not just the one we wake. Handler is a no-op; just registering');
+  lines.push('# is enough to flip the flag inside Chromium.');
+  lines.push('$uiaWakeOk = $false');
+  lines.push('try {');
+  lines.push('    $focusHandler = [System.Windows.Automation.AutomationFocusChangedEventHandler]{ param($s, $e) }');
+  lines.push('    [System.Windows.Automation.Automation]::AddAutomationFocusChangedEventHandler($focusHandler)');
+  lines.push('    $uiaWakeOk = $true');
+  lines.push('} catch {}');
+  lines.push('');
+  // Resolve the HWND we should wake + read from. $TargetHwnd > 0 means
+  // the caller passed an explicit window (the proper path — avoids the
+  // PowerShell-foreground bug). 0 falls back to whatever's foreground at
+  // script-execution time.
+  lines.push('$fgHwnd = if ($TargetHwnd -gt 0) { [IntPtr]$TargetHwnd } else { [DpiHelper]::GetForegroundWindow() }');
+  // Poll-until-stable wake-up. Replaces the fixed 700ms wait with an
+  // adaptive loop:
+  //   1. Initial probe: count root + 1 level deep. If already large
+  //      (> POPULATED_THRESHOLD), tree is up — skip wake entirely.
+  //      Native Win32 apps hit this path → ~50ms cost (one ShallowCount).
+  //   2. Else, send WM_GETOBJECT wake, then poll ShallowCount every 100ms.
+  //      Stable = same non-zero count two polls in a row → tree's done
+  //      growing → walk it. Caps at 2000ms in case a renderer is stuck.
+  // This catches Chromium's fast renderers in ~200ms, gives heavy YouTube
+  // pages a full second+, and never wastes time on native apps. Depth-2
+  // (children + grandchildren) is needed because Chromium has 3-5 Pane
+  // children even when accessibility is OFF — direct-children count
+  // would falsely report "populated" and skip the wake.
+  lines.push('function ShallowCount($node) {');
+  lines.push('    try {');
+  lines.push('        $kids = $node.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        $sum = $kids.Count');
+  lines.push('        foreach ($k in $kids) { try { $sum += $k.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition).Count } catch {} }');
+  lines.push('        return $sum');
+  lines.push('    } catch { return 0 }');
+  lines.push('}');
+  lines.push('$POPULATED_THRESHOLD = 10');
+  lines.push('$root_for_probe = $null');
+  lines.push('try { if ($fgHwnd -ne [IntPtr]::Zero) { $root_for_probe = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd) } } catch {}');
+  lines.push('$initialCount = if ($root_for_probe) { ShallowCount $root_for_probe } else { 0 }');
+  lines.push('if ($initialCount -le $POPULATED_THRESHOLD) {');
+  lines.push('    WakeAccessibility $fgHwnd | Out-Null');
+  lines.push('    $lastCount = $initialCount');
+  lines.push('    $elapsed = 0');
+  lines.push('    $POLL_MS = 100');
+  lines.push('    $CAP_MS = 2000');
+  lines.push('    while ($elapsed -lt $CAP_MS) {');
+  lines.push('        Start-Sleep -Milliseconds $POLL_MS');
+  lines.push('        $elapsed += $POLL_MS');
+  lines.push('        $current = if ($root_for_probe) { ShallowCount $root_for_probe } else { 0 }');
+  lines.push('        if ($current -gt $POPULATED_THRESHOLD -and $current -eq $lastCount) { break }');
+  lines.push('        $lastCount = $current');
+  lines.push('    }');
+  lines.push('}');
   lines.push('');
   lines.push('function ElDict($el) {');
   lines.push('    $dict = @{}');
@@ -267,7 +367,18 @@ function getScriptContent(): string {
   lines.push('    $windowTitle = GetWindowTitle $element');
   lines.push('    $result["element"]["windowTitle"] = $windowTitle');
   lines.push('');
-  lines.push('    $winEl = GetAncestorWindow $element');
+  // Tree-walk root: prefer the explicit $fgHwnd (resolved from $TargetHwnd
+  // when provided, else GetForegroundWindow) over GetAncestorWindow($element).
+  // The latter relies on FromPoint having already returned an element inside
+  // the right window — but for an unwoken Chromium where FromPoint may
+  // bottom out at the desktop or a Group with no children, that chain
+  // breaks. FromHandle on the correct HWND gives us the actual top-level
+  // UIA root regardless of what FromPoint did.
+  lines.push('    $winEl = $null');
+  lines.push('    if ($fgHwnd -ne [IntPtr]::Zero) {');
+  lines.push('        try { $winEl = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd) } catch {}');
+  lines.push('    }');
+  lines.push('    if (-not $winEl) { $winEl = GetAncestorWindow $element }');
   lines.push('    if ($winEl) {');
   lines.push('        CollectWindowTree $winEl 0 15 $element');
   lines.push('    }');
@@ -332,7 +443,22 @@ async function readElementAtPoint(x: number, y: number): Promise<{ element: UIEl
   const startTime = Date.now();
   try {
     const script = ensureScriptFile();
-    const { output, stderr, exitCode } = await runPowerShell(script, [String(x), String(y)], { timeout: 15000 });
+    // Capture the target HWND BEFORE spawning PowerShell — once PS spawns
+    // it can briefly steal foreground (production diagnostic showed
+    // "Process: powershell" when the cursor was actually over Chrome).
+    // The script uses $TargetHwnd > 0 to bypass GetForegroundWindow().
+    let targetHwnd = 0;
+    try {
+      const { getActiveHwnd } = await import("./guide/active-window");
+      targetHwnd = await getActiveHwnd();
+    } catch (err: any) {
+      log(`readContextAtPoint: getActiveHwnd failed (${err?.message || err}) — falling back to PowerShell-side GetForegroundWindow`);
+    }
+    const { output, stderr, exitCode } = await runPowerShell(
+      script,
+      [String(x), String(y), "-TargetHwnd", String(targetHwnd)],
+      { timeout: 15000 },
+    );
 
     const elapsed = Date.now() - startTime;
     log(`PowerShell completed in ${elapsed}ms, output length=${output.length}, exitCode=${exitCode}`);

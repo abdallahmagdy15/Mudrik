@@ -2,6 +2,7 @@ import { Tray, Menu, nativeImage, app } from "electron";
 import * as path from "path";
 import * as fs from "fs";
 import { checkForUpdatesInteractive } from "./updater";
+import { openCalibrateWindow } from "./calibrate/calibrate-window";
 
 const log = (msg: string) => console.log(`[TRAY] ${msg}`);
 
@@ -102,6 +103,19 @@ export function createTrayWithShow(onShow: (() => void) | undefined, onQuit: () 
         shell.showItemInFolder(logPath);
       },
     },
+    // Cursor Calibration Test: dev-only diagnostic. Hidden in release
+    // builds so end users don't see internal tooling. `app.isPackaged` is
+    // false for `electron .` (local/debug) and true for installer-built
+    // releases. Power users can still force-show via MUDRIK_DEV=1.
+    ...((!app.isPackaged || process.env.MUDRIK_DEV === "1")
+      ? [{
+          label: "🎯 Cursor Calibration Test",
+          click: () => {
+            log("Opening calibrate window from tray");
+            openCalibrateWindow();
+          },
+        }]
+      : []),
     { type: "separator" },
     { label: "Quit", click: onQuit },
   ]);

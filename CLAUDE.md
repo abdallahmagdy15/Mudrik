@@ -30,7 +30,7 @@ Skip the section only when the response made no project changes (pure Q&A).
 
 ## Documentation rules
 
-After any feature ships, bug is fixed, or design decision is made — **after the user has reviewed it and the commit has landed** — update the relevant **internal** docs to match reality. That includes this `CLAUDE.md`, design specs, system architecture notes, and any in-repo planning files (e.g., `docs/superpowers/specs/*`, `Mudrik-Plan/`).
+After any feature ships, bug is fixed, or design decision is made — **after the user has reviewed it and the commit has landed** — update the relevant **internal** docs to match reality. That includes this `CLAUDE.md`, design specs, system architecture notes, and any in-repo planning files. The Mudrik internal-planning repo lives at `D:\SandBoX\Mudrik-Plan` (separate git repo, private). Specs/plans this codebase references live under `D:\SandBoX\Mudrik-Plan\docs\specs\` and `D:\SandBoX\Mudrik-Plan\docs\plans\` — same `Mudrik-Plan/...` paths used elsewhere in this file are shorthand for that repo.
 
 **Internal docs auto-update.** Don't ask permission for these — keep them in sync as part of the same task.
 

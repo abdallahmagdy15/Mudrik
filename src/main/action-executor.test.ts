@@ -15,12 +15,33 @@ describe("validateAction — guide markers", () => {
     expect("error" in r && r.error).toMatch(/Auto-Guide is disabled/i);
   });
 
-  it("rejects guide_offer with estSteps < 2 even when enabled", () => {
+  it("accepts guide_offer with estSteps=1 (AI decides; not a runtime gate)", () => {
     const r = validateAction(
       { type: "guide_offer", summary: "x", estSteps: 1, options: ["Cancel", "Start guide"] },
       cfg(true)
     );
-    expect("error" in r && r.error).toMatch(/at least 2/i);
+    expect("action" in r).toBe(true);
+  });
+
+  it("accepts guide_offer with estSteps=0 — AI's call, runtime stays out of policy", () => {
+    const r = validateAction(
+      { type: "guide_offer", summary: "x", estSteps: 0, options: ["Cancel", "Start guide"] },
+      cfg(true)
+    );
+    expect("action" in r).toBe(true);
+  });
+
+  it("rejects guide_offer when estSteps is non-finite (NaN/Infinity) or non-numeric — schema sanity only", () => {
+    const rNaN = validateAction(
+      { type: "guide_offer", summary: "x", estSteps: NaN, options: ["Cancel", "Start guide"] },
+      cfg(true)
+    );
+    expect("error" in rNaN && rNaN.error).toMatch(/finite/i);
+    const rStr = validateAction(
+      { type: "guide_offer", summary: "x", estSteps: "two", options: ["Cancel", "Start guide"] },
+      cfg(true)
+    );
+    expect("error" in rStr && rStr.error).toMatch(/finite/i);
   });
 
   it("accepts a valid guide_offer when enabled", () => {
