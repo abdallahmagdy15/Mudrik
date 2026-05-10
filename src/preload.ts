@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
     ipcRenderer.send("send-prompt", prompt),
   onStreamToken: (cb: (token: string) => void) =>
     ipcRenderer.on("stream-token", (_e, token) => cb(token)),
+  onStreamTextReset: (cb: () => void) =>
+    ipcRenderer.on("stream-text-reset", () => cb()),
   onStreamDone: (cb: () => void) =>
     ipcRenderer.on("stream-done", () => cb()),
   onStreamError: (cb: (err: string) => void) =>

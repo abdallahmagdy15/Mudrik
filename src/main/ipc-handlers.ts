@@ -159,7 +159,18 @@ export function setContext(context: ContextPayload): void {
     name: context.element?.name,
     type: context.element?.type,
   });
-  log(`setContext: element type="${context.element?.type}" name="${context.element?.name}" automationId="${context.element?.automationId || ""}"`);
+  // Cache the user's app HWND so action handlers can use the captured
+  // foreground (Excel/Chrome/etc.) instead of whatever's foreground at
+  // execution time (which is usually Mudrik's panel, since the user
+  // just submitted a prompt). Lazy-loads active-window.ts the first
+  // time so we don't pull koffi into the cold-start path for users
+  // who never trigger an action.
+  if (context.windowInfo?.hwnd) {
+    void import("./guide/active-window")
+      .then((m) => m.setLastUserAppHwnd(context.windowInfo!.hwnd!))
+      .catch((e) => log(`setContext: setLastUserAppHwnd failed (${e?.message || e})`));
+  }
+  log(`setContext: element type="${context.element?.type}" name="${context.element?.name}" automationId="${context.element?.automationId || ""}" hwnd=${context.windowInfo?.hwnd || 0}`);
 }
 
 export function getLastContext(): ContextPayload | null {
@@ -353,9 +364,44 @@ async function initGuideControllerIfNeeded(): Promise<void> {
           // observed in production logs.
           try { win.blur(); } catch { /* best-effort */ }
           win.hide();
-          // 350ms (was 180) — Windows is sometimes slow to transition
-          // foreground after a hide. Tradeoff: extra latency per step.
-          await new Promise((r) => setTimeout(r, 350));
+          // After hide, Windows' default foreground transition picks
+          // whichever HWND is next in the Z-order — which may NOT be the
+          // user's target app, especially if it was previously fullscreen
+          // (Mudrik's panel breaks the fullscreen state on some configs).
+          // Symptom: AI sees "active window != Excel" and keeps telling
+          // the user to "click on Excel to make it active." Fix: explicitly
+          // re-foreground the user's app HWND, captured on the original
+          // Alt+Space and stored on currentContext.windowInfo.hwnd.
+          const targetHwnd = currentContext?.windowInfo?.hwnd || 0;
+          if (targetHwnd) {
+            try {
+              const { setForegroundHwnd, getActiveHwnd } = await import("./guide/active-window");
+              const ok = await setForegroundHwnd(targetHwnd);
+              log(`guide follow-up: setForegroundHwnd(${targetHwnd}) -> ${ok}`);
+              // Wait a beat for Windows to settle the foreground transition,
+              // then verify. If the foreground isn't what we asked for
+              // (Windows blocked us, the app spawned a child window, etc.),
+              // try once more — the second call usually succeeds because
+              // we now have "recent input" rights from the first call.
+              await new Promise((r) => setTimeout(r, 200));
+              const fg = await getActiveHwnd();
+              if (fg !== targetHwnd) {
+                log(`guide follow-up: foreground mismatch (got ${fg}, want ${targetHwnd}) — retrying setForegroundHwnd`);
+                const ok2 = await setForegroundHwnd(targetHwnd);
+                log(`guide follow-up: setForegroundHwnd retry -> ${ok2}`);
+                await new Promise((r) => setTimeout(r, 150));
+              } else {
+                await new Promise((r) => setTimeout(r, 150));
+              }
+            } catch (e: any) {
+              log(`guide follow-up: setForegroundHwnd failed (${e?.message || e}) — proceeding anyway`);
+              await new Promise((r) => setTimeout(r, 350));
+            }
+          } else {
+            // No stored HWND — fall back to the original 350ms wait
+            // and let Windows' default foreground transition pick.
+            await new Promise((r) => setTimeout(r, 350));
+          }
         }
         const point =
           actionDesc.kind === "click"
@@ -439,12 +485,12 @@ async function initGuideControllerIfNeeded(): Promise<void> {
             const aid = el.automationId ? ` automationId="${el.automationId}"` : "";
             return `[${i}] ${t} "${name}"${aid} at (${lx},${ly},${lw2}x${lh2})`;
           });
-          candidatesBlock = `\n\nUIA CLICKABLE CANDIDATES in the active window (use these for target.selector/automationId/boundsHint when picking — set target.confidence:"high"):\n${lines.join("\n")}\n`;
+          candidatesBlock = `\n\nUIA CLICKABLE CANDIDATES in the active window (the AUTHORITATIVE list — pick one for target.selector/automationId/boundsHint, or set target:null):\n${lines.join("\n")}\n`;
           log(`guide follow-up: enumerated ${clickables.length} clickable candidates`);
         }
       }
 
-      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached. The user's screen is ${lw}×${lh} logical pixels; provide target.boundsHint values in that coordinate space (NOT in image pixels — the screenshot may have been resized for transmission). When you pick a target from the UIA CANDIDATES list above, COPY its name/automationId/bounds verbatim and set target.confidence:"high". When you have to guess from the screenshot alone (target not in the list), set target.confidence:"low" — Mudrik will run a spatial fallback on your boundsHint. Decide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached. The user's screen is ${lw}×${lh} logical pixels.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.boundsHint. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n\nDo NOT guess bounds from the screenshot when the target isn't in the list. Do NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
 
       // Stream tokens to the renderer for visibility; accumulate the response
       // text; parse + dispatch guide markers when the subprocess exits.
@@ -1423,6 +1469,24 @@ function handleOpenCodeEvent(event: OpenCodeEvent, win: BrowserWindow): void {
         const toolName = event.part.tool || "unknown";
         const status = event.part.state?.status || "unknown";
         log(`tool_use: ${toolName} status=${status} (suppressed from display)`);
+        // Tell the renderer to wipe whatever text it has accumulated so
+        // far when the AI starts a REAL tool call. Pre-tool text is
+        // "thinking out loud" the model re-says after the tool result
+        // arrives. Without this, models that loop through several
+        // text→tool→text cycles dump a wall of duplicated preamble.
+        //
+        // EXCEPT when the "tool" is OpenCode's special "invalid" pseudo-
+        // tool — that's the bucket for tool calls that OpenCode rejected
+        // (e.g. model tried to call click_element as if it were a tool;
+        // OpenCode replies "unavailable tool, available: ..."). In that
+        // case the model often gives up and emits nothing more, so
+        // resetting the text would blank the chat. Keep the model's
+        // pre-error text visible so the user at least sees what it
+        // intended.
+        const isRealTool = toolName !== "invalid" && toolName !== "unknown";
+        if (isRealTool && (status === "running" || status === "completed")) {
+          win.webContents.send(IPC.STREAM_TEXT_RESET);
+        }
       }
       break;
 

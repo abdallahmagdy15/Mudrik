@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v18.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v19.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -289,13 +289,30 @@ function getScriptContent(): string {
   lines.push('}');
   lines.push('');
   lines.push('$script:treeElements = @()');
+  lines.push('$script:treeStart = Get-Date');
+  // Wall-clock budget on the recursive tree walk. Excel/Word/PowerPoint
+  // expose a worksheet/document with hundreds of cells/runs as UIA elements,
+  // each with its own children — even with the 500-element cap, the walk
+  // can chew 5-7s of UIA COM round-trips before hitting it. Cap total walk
+  // time so Alt+Space stays sub-3s on heavy apps. Tree we got at the cap
+  // is still usable; AI just sees fewer elements (which is fine — the
+  // candidates list already caps at 50).
+  lines.push('$script:TREE_BUDGET_MS = 2500');
+  // Cell-grid terminals: their UIA children are content patterns that don't
+  // help the AI pick a click target. Capture them as siblings (so the AI
+  // sees C4, D4, etc.) but don't recurse INTO each one — saves 80%+ of the
+  // walk on Excel.
+  lines.push('$script:terminalTypes = @("ControlType.DataItem", "ControlType.Cell", "ControlType.HeaderItem")');
   lines.push('');
   lines.push('function CollectWindowTree($root, $depth, $maxDepth, $targetEl) {');
   lines.push('    if ($depth -gt $maxDepth) { return }');
   lines.push('    if ($script:treeElements.Count -ge 500) { return }');
+  lines.push('    if (((Get-Date) - $script:treeStart).TotalMilliseconds -gt $script:TREE_BUDGET_MS) { return }');
   lines.push('    try {');
   lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
   lines.push('        foreach ($child in $children) {');
+  lines.push('            if ($script:treeElements.Count -ge 500) { return }');
+  lines.push('            if (((Get-Date) - $script:treeStart).TotalMilliseconds -gt $script:TREE_BUDGET_MS) { return }');
   lines.push('            try {');
   lines.push('                $r = $child.Current.BoundingRectangle');
   lines.push('                if ($r.Width -le 0 -or $r.Height -le 0) { continue }');
@@ -304,7 +321,10 @@ function getScriptContent(): string {
   lines.push('                $d["depth"] = $depth');
   lines.push('                if ($child -eq $targetEl) { $d["isTarget"] = $true }');
   lines.push('                $script:treeElements += $d');
-  lines.push('                CollectWindowTree $child ($depth + 1) $maxDepth $targetEl');
+  lines.push('                $childType = $d["type"]');
+  lines.push('                $isTerminal = $false');
+  lines.push('                foreach ($tt in $script:terminalTypes) { if ($childType -eq $tt) { $isTerminal = $true; break } }');
+  lines.push('                if (-not $isTerminal) { CollectWindowTree $child ($depth + 1) $maxDepth $targetEl }');
   lines.push('            } catch {}');
   lines.push('        }');
   lines.push('    } catch {}');
@@ -420,18 +440,32 @@ export function getCursorPos(): { x: number; y: number } {
 export async function readContextAtPoint(
   x: number,
   y: number
-): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string }; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
+): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string; hwnd?: number }; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
   log(`readContextAtPoint called: x=${x}, y=${y}`);
+
+  // Capture the target HWND ONCE here, before kicking off the parallel
+  // PowerShell reads. Both readElementAtPoint and readForegroundWindow
+  // need it, and we surface it on windowInfo.hwnd so callers (e.g.
+  // sendFollowUp) can re-foreground the user's app on a later capture
+  // without re-querying.
+  let targetHwnd = 0;
+  try {
+    const { getActiveHwnd } = await import("./guide/active-window");
+    targetHwnd = await getActiveHwnd();
+  } catch (err: any) {
+    log(`readContextAtPoint: getActiveHwnd failed (${err?.message || err}) — proceeding without HWND`);
+  }
 
   try {
     const [ctxResult, winResult] = await Promise.all([
-      readElementAtPoint(x, y),
+      readElementAtPoint(x, y, targetHwnd),
       readForegroundWindow(),
     ]);
 
     const { element, surrounding, windowTree, visibleWindows } = ctxResult;
-    log(`Context read: element type="${element.type}" name="${element.name}" process="${winResult?.processName || ""}" title="${winResult?.title || ""}"`);
-    return { element, surrounding, windowInfo: winResult || undefined, windowTree, visibleWindows };
+    const windowInfo = winResult ? { ...winResult, hwnd: targetHwnd || undefined } : undefined;
+    log(`Context read: element type="${element.type}" name="${element.name}" process="${winResult?.processName || ""}" title="${winResult?.title || ""}" hwnd=${targetHwnd}`);
+    return { element, surrounding, windowInfo, windowTree, visibleWindows };
   } catch (err: any) {
     log(`readContextAtPoint FAILED: ${err.message}`);
     const { element, surrounding } = makeError(x, y, err.message || String(err));
@@ -439,20 +473,22 @@ export async function readContextAtPoint(
   }
 }
 
-async function readElementAtPoint(x: number, y: number): Promise<{ element: UIElement; surrounding: UIElement[]; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
+async function readElementAtPoint(x: number, y: number, presetHwnd: number = 0): Promise<{ element: UIElement; surrounding: UIElement[]; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
   const startTime = Date.now();
   try {
     const script = ensureScriptFile();
-    // Capture the target HWND BEFORE spawning PowerShell — once PS spawns
-    // it can briefly steal foreground (production diagnostic showed
-    // "Process: powershell" when the cursor was actually over Chrome).
-    // The script uses $TargetHwnd > 0 to bypass GetForegroundWindow().
-    let targetHwnd = 0;
-    try {
-      const { getActiveHwnd } = await import("./guide/active-window");
-      targetHwnd = await getActiveHwnd();
-    } catch (err: any) {
-      log(`readContextAtPoint: getActiveHwnd failed (${err?.message || err}) — falling back to PowerShell-side GetForegroundWindow`);
+    // Use caller-supplied HWND when available (single source of truth);
+    // otherwise capture here as a fallback. The script uses $TargetHwnd > 0
+    // to bypass GetForegroundWindow (which can return PowerShell's own HWND
+    // due to spawn-time foreground-steal — see context-reader v17 notes).
+    let targetHwnd = presetHwnd;
+    if (!targetHwnd) {
+      try {
+        const { getActiveHwnd } = await import("./guide/active-window");
+        targetHwnd = await getActiveHwnd();
+      } catch (err: any) {
+        log(`readElementAtPoint: getActiveHwnd failed (${err?.message || err}) — falling back to PowerShell-side GetForegroundWindow`);
+      }
     }
     const { output, stderr, exitCode } = await runPowerShell(
       script,

@@ -14,6 +14,7 @@ declare global {
       onContext: (cb: (data: ContextPayload) => void) => void;
       sendPrompt: (prompt: string) => void;
       onStreamToken: (cb: (token: string) => void) => void;
+      onStreamTextReset: (cb: () => void) => void;
       onStreamDone: (cb: () => void) => void;
       onStreamError: (cb: (err: string) => void) => void;
       onToolUse: (cb: (event: any) => void) => void;
@@ -231,6 +232,15 @@ export function App() {
 
     window.hoverbuddy.onStreamToken((token) => {
       setCurrentResponse((prev) => prev + token);
+    });
+
+    // Main process tells us to wipe the streamed text — happens when the
+    // AI starts a tool call mid-stream. Pre-tool text is "thinking out
+    // loud" the model re-says after the tool result arrives. Without
+    // this, models that loop through several text→tool→text cycles
+    // dump a wall of duplicated preamble into the chat.
+    window.hoverbuddy.onStreamTextReset(() => {
+      setCurrentResponse("");
     });
 
     window.hoverbuddy.onStreamDone(() => {

@@ -16,7 +16,7 @@ import { Action } from "../../shared/types";
 import { runPowerShell } from "../powershell-runner";
 import { log } from "../logger";
 
-const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v8.ps1";
+const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v9.ps1";
 const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v4.ps1";
 
 export interface ActionResult {
@@ -139,62 +139,33 @@ async function pasteText(text: string): Promise<boolean> {
     // OR before the focus click/setValue has fully settled, and the paste
     // either inserts stale clipboard or gets dropped.
     await sleep(120);
-    // robotjs 0.7.0 throws "Invalid key code specified" on the array-modifier
-    // form of keyTap — `keyTap("v", ["control"])` is broken on this native
-    // binding. Synthesize the chord with explicit keyToggle down/up instead;
-    // it uses the same Win32 SendInput underneath and actually works.
-    robot.keyToggle("control", "down");
-    try {
-      robot.keyTap("v");
-    } finally {
-      robot.keyToggle("control", "up");
-    }
-    await sleep(120);
-    log("pasteText: completed via keyToggle(control) + keyTap(v)");
-    return true;
-  } catch (err: any) {
-    log(`pasteText FAILED via robotjs: ${err.message} — falling back to PowerShell SendInput`);
-    try {
-      await sendCtrlVViaPowerShell();
-      log("pasteText: completed via PowerShell fallback");
-      return true;
-    } catch (err2: any) {
-      log(`pasteText PowerShell fallback FAILED: ${err2.message}`);
+    // Primary path: koffi-based keybd_event from this process. Replaces
+    // the old robotjs.keyTap("v")-then-PowerShell-fallback chain that had
+    // two compounding production bugs:
+    //   1. robotjs 0.7.0 throws "Invalid key code specified" on newer
+    //      Node versions (25.5+) — every paste fell through to fallback.
+    //   2. The PowerShell fallback spawned PS which briefly took
+    //      foreground, so its keybd_event went to the PS window instead
+    //      of the user's app. Paste reported success while Excel got
+    //      nothing.
+    // koffi keybd_event runs INSIDE the Mudrik process — no spawn, no
+    // foreground steal — so the synthesized Ctrl+V hits whatever's
+    // foreground when it fires (which is the user's app after the
+    // preceding clickElement). robotjs mouse clicks still work fine and
+    // are used elsewhere; only keyboard input was broken.
+    const { sendCtrlV } = await import("../guide/active-window");
+    const ok = await sendCtrlV();
+    if (!ok) {
+      log("pasteText FAILED: koffi keybd_event returned false");
       return false;
     }
+    await sleep(120);
+    log("pasteText: completed via koffi keybd_event");
+    return true;
+  } catch (err: any) {
+    log(`pasteText FAILED: ${err.message}`);
+    return false;
   }
-}
-
-// PowerShell SendInput fallback. Uses user32!keybd_event which is the same
-// underlying API robotjs wraps — but invoked from a fresh PowerShell process
-// so it side-steps whatever state has the node-native binding refusing keys.
-async function sendCtrlVViaPowerShell(): Promise<void> {
-  const scriptContent = [
-    'Add-Type @"',
-    'using System;',
-    'using System.Runtime.InteropServices;',
-    'public class Kbd {',
-    '  [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte scan, uint flags, int extra);',
-    '}',
-    '"@',
-    '# VK_CONTROL=0x11, V=0x56, KEYEVENTF_KEYUP=2',
-    '[Kbd]::keybd_event(0x11,0,0,0)',
-    'Start-Sleep -Milliseconds 30',
-    '[Kbd]::keybd_event(0x56,0,0,0)',
-    'Start-Sleep -Milliseconds 30',
-    '[Kbd]::keybd_event(0x56,0,2,0)',
-    'Start-Sleep -Milliseconds 30',
-    '[Kbd]::keybd_event(0x11,0,2,0)',
-  ].join("\n");
-  const scriptPath = path.join(os.tmpdir(), "hoverbuddy", `paste-fallback-${Date.now()}.ps1`);
-  fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
-  fs.writeFileSync(scriptPath, scriptContent);
-  await new Promise<void>((resolve, reject) => {
-    exec(`powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}"`, { timeout: 5000 }, (e) => {
-      try { fs.unlinkSync(scriptPath); } catch {}
-      if (e) reject(e); else resolve();
-    });
-  });
 }
 
 async function pressKeys(combination: string): Promise<void> {
@@ -383,6 +354,17 @@ function getFindScriptContent(): string {
   lines.push('                    $score = 200');
   lines.push('                }');
   lines.push('');
+  // Selector-as-automationId fallback. Excel cells (and many data grids)
+  // expose AutomationId="C4" with Name="" or Name=cell-value. The AI often
+  // emits selector="C4" without a separate automationId field — if we only
+  // matched on Name, those clicks fail (the cell IS in the tree but its
+  // Name doesn't equal "C4"). When no explicit automationId is supplied,
+  // also score an exact AutomationId hit. Score 180 < 200 so an explicit
+  // automationId match still wins, but well above name-substring matches.
+  lines.push('                if ($score -eq 0 -and -not $automationId -and $autoId -and $filterName -and $autoId -eq $filterName) {');
+  lines.push('                    $score = 180');
+  lines.push('                }');
+  lines.push('');
   lines.push('                if ($score -eq 0) {');
   lines.push('                    if (MatchName $name -and MatchType $ctrlType) {');
   lines.push('                        if ($nameLower -eq $filterNameLower) { $score = 100 }');
@@ -495,9 +477,13 @@ function getFindScriptContent(): string {
   lines.push('');
   lines.push('    # Try to materialize a virtualized item (e.g. an Excel cell scrolled out');
   lines.push('    # of view) BEFORE walking the tree. If found, give Excel a moment to');
-  lines.push('    # update its UIA tree before FindElement enumerates.');
-  lines.push('    if ($automationId) {');
-  lines.push('        TryRealizeVirtualized $root $automationId 0 8');
+  lines.push('    # update its UIA tree before FindElement enumerates. Falls back to');
+  lines.push('    # using the selector itself as the automationId-to-find when the AI');
+  lines.push('    # did not supply an explicit one — Excel cells "C4" / "AB12" etc. are');
+  lines.push('    # the common case where the cell address IS the AutomationId.');
+  lines.push('    $idForRealize = if ($automationId) { $automationId } else { $filterName }');
+  lines.push('    if ($idForRealize) {');
+  lines.push('        TryRealizeVirtualized $root $idForRealize 0 8');
   lines.push('        if ($script:realized) { Start-Sleep -Milliseconds 150 }');
   lines.push('    }');
   lines.push('');
@@ -592,19 +578,37 @@ export async function findElementBounds(selector: string, automationId?: string,
   const selectorFile = path.join(os.tmpdir(), "hoverbuddy", "selector-" + Date.now() + ".json");
   fs.writeFileSync(selectorFile, JSON.stringify(selectorData), "utf-8");
 
-  // Capture target HWND on the Node side BEFORE PowerShell spawns. PS can
-  // briefly steal foreground itself, so a script-side GetForegroundWindow
-  // returned PowerShell's own HWND on Chromium/Electron targets — same bug
-  // the calibration tool surfaced. koffi's GetForegroundWindow is fast
-  // (sub-millisecond) and runs in this process, so the foreground we
-  // capture is the actual target the user just had in front.
+  // Resolve target HWND. Priority order:
+  //   1. lastUserAppHwnd — the HWND captured at the most recent Alt+Space.
+  //      This is the RIGHT one to use most of the time: when an action
+  //      runs, Mudrik's panel has just received the user's prompt and is
+  //      itself foreground, so a getActiveHwnd() call here returns
+  //      MUDRIK's HWND. The PS script would then walk Mudrik's tree
+  //      (no Excel cells / no Chrome elements) and fail with
+  //      "could not find UI element". This was the bug behind every
+  //      "click_element: C10 FAIL but paste_text: C10 OK" report — paste's
+  //      bringWindowToFront() preliminary click incidentally fixed
+  //      foreground before its internal clickElement, masking the issue.
+  //   2. getActiveHwnd() fallback if no cache yet (e.g. very first action
+  //      before any Alt+Space — shouldn't happen in normal flow).
   let targetHwnd = 0;
   try {
-    const { getActiveHwnd } = await import("../guide/active-window");
-    targetHwnd = await getActiveHwnd();
+    const { getLastUserAppHwnd, getActiveHwnd, setForegroundHwnd } = await import("../guide/active-window");
+    targetHwnd = getLastUserAppHwnd();
+    if (!targetHwnd) targetHwnd = await getActiveHwnd();
+    // Restore foreground to the user's app BEFORE the find runs. UIA
+    // FromHandle() doesn't actually require foreground (it walks the
+    // tree of any HWND), but the subsequent click via robotjs DOES
+    // need the target window to be active to receive input. Doing this
+    // before the script also helps wake up Chromium-based apps that
+    // gate accessibility on focus.
+    if (targetHwnd) {
+      try { await setForegroundHwnd(targetHwnd); } catch { /* best-effort */ }
+    }
   } catch (err: any) {
-    log(`findElementBounds: getActiveHwnd failed (${err?.message || err}) — script will fall back to GetForegroundWindow`);
+    log(`findElementBounds: HWND resolution failed (${err?.message || err}) — script will fall back to GetForegroundWindow`);
   }
+  log(`findElementBounds: using targetHwnd=${targetHwnd}`);
 
   try {
     const { output, stderr, exitCode } = await runPowerShell(

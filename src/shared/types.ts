@@ -176,6 +176,12 @@ export interface WindowInfo {
   title: string;
   processName: string;
   processPath: string;
+  // HWND of the user's target window at capture time. sendFollowUp uses
+  // this to explicitly re-foreground the user's app (Excel, Chrome, etc.)
+  // before the next screenshot/UIA recapture — Windows' default foreground
+  // transition after Mudrik's panel hides isn't reliable, especially if
+  // the app was previously fullscreen.
+  hwnd?: number;
 }
 
 export interface ContextPayload {
@@ -196,6 +202,13 @@ export const IPC = {
   STREAM_TOKEN: "stream-token",
   STREAM_DONE: "stream-done",
   STREAM_ERROR: "stream-error",
+  // Sent when the AI starts a tool call mid-stream. The renderer should
+  // discard whatever streamed text it has accumulated so far — that text
+  // was the model "thinking out loud" before the tool call, and the model
+  // usually re-emits a fresh answer after the tool result comes back.
+  // Without this, OpenCode versions that emit multiple text-then-tool
+  // cycles produce duplicated/contradicting walls of text in the chat.
+  STREAM_TEXT_RESET: "stream-text-reset",
   TOOL_USE: "tool-use",
   SESSION_RESET: "session-reset",
   EXECUTE_ACTION: "execute-action",

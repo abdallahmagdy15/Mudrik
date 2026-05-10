@@ -117,7 +117,27 @@ CONTEXT NOTES:
 - windowTitle and processName tell you what app the user is in
 - Values shown with = (e.g. ="search text") are the current content of that field`;
 
-export const ACTION_PROMPT_FULL = `### THE CONTRACT (read this twice)
+export const ACTION_PROMPT_FULL = `### STOP — desktop actions are NOT tools (read this first)
+
+These names look like tools but they DO NOT EXIST as tools. Calling any
+of them via your tool-call API will fail every single time with
+"unavailable tool":
+  click_element, paste_text, type_text, set_value, invoke_element,
+  press_keys, copy_to_clipboard, guide_to,
+  guide_offer, guide_step, guide_complete, guide_abort
+
+The ONLY tools that exist are the six in the BASE prompt above:
+read, grep, glob, list, webfetch, websearch. Nothing else.
+
+To perform a UI action, embed an HTML-comment marker INSIDE your text
+reply — never as a tool call:
+  <!--ACTION:{"type":"paste_text","selector":"E10","automationId":"E10","text":"..."}-->
+  <!--ACTION:{"type":"click_element","selector":"Save","automationId":"saveBtn"}-->
+
+If you've been tempted to call click_element / paste_text / set_value /
+press_keys / etc. as a tool, STOP and emit the marker in text instead.
+
+### THE CONTRACT (read this twice)
 
 You perform UI actions by embedding <!--ACTION:{...}--> markers in your text. An action happens ONLY if your reply contains the exact marker. No marker = nothing happened, no matter what words you used.
 
