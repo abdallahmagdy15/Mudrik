@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v19.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v21.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -123,6 +123,18 @@ function getScriptContent(): string {
   lines.push('    }');
   lines.push('}');
   lines.push('');
+  // Per-element text caps. TextPattern in particular was capped at 500
+  // chars which is way too short to answer "what does this doc say".
+  // Bumped to 15000 — covers most editor / Notepad / Word / VS Code
+  // pages with room to spare. Adobe Reader still won't expose any text
+  // (it uses IAccessible2 not UIA TextPattern) but for apps that DO
+  // surface document content, the AI now actually gets it.
+  // ValuePattern stays uncapped because (a) Excel/data cells return
+  // short scalars anyway and (b) form fields where users care about
+  // full content (URLs, addresses, long descriptions) should arrive
+  // intact. The full payload size is still bounded by the 500-element
+  // tree cap + the wall-clock walk budget.
+  lines.push('$TEXT_PATTERN_CAP = 15000');
   lines.push('function ElDict($el) {');
   lines.push('    $dict = @{}');
   lines.push('    try { $dict["name"] = $el.Current.Name } catch { $dict["name"] = "" }');
@@ -136,7 +148,7 @@ function getScriptContent(): string {
   lines.push('        else {');
   lines.push('            $txt = $null');
   lines.push('            $ok2 = $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$txt)');
-  lines.push('            if ($ok2 -and $txt) { try { $dict["value"] = $txt.DocumentRange.GetText(500) } catch { $dict["value"] = "" } }');
+  lines.push('            if ($ok2 -and $txt) { try { $dict["value"] = $txt.DocumentRange.GetText($TEXT_PATTERN_CAP) } catch { $dict["value"] = "" } }');
   lines.push('            else { $dict["value"] = "" }');
   lines.push('        }');
   lines.push('    } catch { $dict["value"] = "" }');
@@ -150,6 +162,13 @@ function getScriptContent(): string {
   lines.push('    $dict');
   lines.push('}');
   lines.push('');
+  // Cursor element is prime real estate — the user literally pointed
+  // at it, so its full content is the most important text in the
+  // capture. Bumped from 8000 → 20000 chars to cover full pages of a
+  // document, a long Markdown file, an entire long-form code file
+  // visible in an editor, etc. Costs ~5k tokens worst case but the
+  // signal:noise ratio is excellent vs the rest of the tree.
+  lines.push('$DEEP_VALUE_CAP = 20000');
   lines.push('function GetDeepValue($el) {');
   lines.push('    $deepVal = ""');
   lines.push('    try {');
@@ -157,7 +176,7 @@ function getScriptContent(): string {
   lines.push('        $ok = $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$vp)');
   lines.push('        if ($ok -and $vp) {');
   lines.push('            $deepVal = $vp.Current.Value');
-  lines.push('            if ($deepVal.Length -gt 8000) { $deepVal = $deepVal.Substring(0, 8000) }');
+  lines.push('            if ($deepVal.Length -gt $DEEP_VALUE_CAP) { $deepVal = $deepVal.Substring(0, $DEEP_VALUE_CAP) }');
   lines.push('        }');
   lines.push('    } catch {}');
   lines.push('    if (-not $deepVal) {');
@@ -165,7 +184,7 @@ function getScriptContent(): string {
   lines.push('            $tp = $null');
   lines.push('            $ok2 = $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$tp)');
   lines.push('            if ($ok2 -and $tp) {');
-  lines.push('                $deepVal = $tp.DocumentRange.GetText(8000)');
+  lines.push('                $deepVal = $tp.DocumentRange.GetText($DEEP_VALUE_CAP)');
   lines.push('            }');
   lines.push('        } catch {}');
   lines.push('    }');
@@ -291,27 +310,40 @@ function getScriptContent(): string {
   lines.push('$script:treeElements = @()');
   lines.push('$script:treeStart = Get-Date');
   // Wall-clock budget on the recursive tree walk. Excel/Word/PowerPoint
-  // expose a worksheet/document with hundreds of cells/runs as UIA elements,
-  // each with its own children — even with the 500-element cap, the walk
-  // can chew 5-7s of UIA COM round-trips before hitting it. Cap total walk
-  // time so Alt+Space stays sub-3s on heavy apps. Tree we got at the cap
-  // is still usable; AI just sees fewer elements (which is fine — the
-  // candidates list already caps at 50).
+  // expose a worksheet/document with hundreds-to-thousands of cells/runs
+  // as UIA elements, each with its own children — even with caps, the
+  // walk can chew several seconds of UIA COM round-trips. Cap total walk
+  // time so Alt+Space stays bounded.
   lines.push('$script:TREE_BUDGET_MS = 2500');
+  // Element-count cap. Raised from 500 to 2000 (user decision 2026-05-13)
+  // for Excel-style apps where the user wants the full sheet visible —
+  // not just cells around the cursor. Other apps stop naturally at their
+  // actual element count well below 2000, so this only kicks in for
+  // grid-heavy targets. Memory cost: ~2000 × ~150 bytes = ~300 KB JSON
+  // before formatting — still well under the 60000-char prompt budget
+  // once Node-side formatting picks essential lines.
+  lines.push('$script:ELEMENT_CAP = 2000');
   // Cell-grid terminals: their UIA children are content patterns that don't
   // help the AI pick a click target. Capture them as siblings (so the AI
   // sees C4, D4, etc.) but don't recurse INTO each one — saves 80%+ of the
   // walk on Excel.
   lines.push('$script:terminalTypes = @("ControlType.DataItem", "ControlType.Cell", "ControlType.HeaderItem")');
+  // Scaffolding container types that are typically pure layout wrappers
+  // with no semantic information. When such an element has NO name,
+  // NO value, AND NO automationId, it is empty noise — we still walk
+  // through it to find its descendants but DON'T add it to the result
+  // tree. Cuts ~20–30% of tokens on apps like File Explorer that nest
+  // Pane → Pane → Pane scaffolding.
+  lines.push('$script:scaffoldingTypes = @("ControlType.Pane", "ControlType.Group", "ControlType.Custom")');
   lines.push('');
   lines.push('function CollectWindowTree($root, $depth, $maxDepth, $targetEl) {');
   lines.push('    if ($depth -gt $maxDepth) { return }');
-  lines.push('    if ($script:treeElements.Count -ge 500) { return }');
+  lines.push('    if ($script:treeElements.Count -ge $script:ELEMENT_CAP) { return }');
   lines.push('    if (((Get-Date) - $script:treeStart).TotalMilliseconds -gt $script:TREE_BUDGET_MS) { return }');
   lines.push('    try {');
   lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
   lines.push('        foreach ($child in $children) {');
-  lines.push('            if ($script:treeElements.Count -ge 500) { return }');
+  lines.push('            if ($script:treeElements.Count -ge $script:ELEMENT_CAP) { return }');
   lines.push('            if (((Get-Date) - $script:treeStart).TotalMilliseconds -gt $script:TREE_BUDGET_MS) { return }');
   lines.push('            try {');
   lines.push('                $r = $child.Current.BoundingRectangle');
@@ -320,10 +352,21 @@ function getScriptContent(): string {
   lines.push('                $d = ElDict $child');
   lines.push('                $d["depth"] = $depth');
   lines.push('                if ($child -eq $targetEl) { $d["isTarget"] = $true }');
-  lines.push('                $script:treeElements += $d');
+  // Empty-scaffolding skip: type is a wrapper (Pane/Group/Custom) AND
+  // it has no name, no value, no automationId, AND it is NOT the
+  // user's cursor target (target always included regardless).
   lines.push('                $childType = $d["type"]');
+  lines.push('                $isScaffolding = $false');
+  lines.push('                foreach ($st in $script:scaffoldingTypes) { if ($childType -eq $st) { $isScaffolding = $true; break } }');
+  lines.push('                $isEmpty = (-not $d["name"]) -and (-not $d["value"]) -and (-not $d["autoId"])');
+  lines.push('                $isTarget = $d.ContainsKey("isTarget") -and $d["isTarget"]');
+  lines.push('                if (-not ($isScaffolding -and $isEmpty) -or $isTarget) {');
+  lines.push('                    $script:treeElements += $d');
+  lines.push('                }');
   lines.push('                $isTerminal = $false');
   lines.push('                foreach ($tt in $script:terminalTypes) { if ($childType -eq $tt) { $isTerminal = $true; break } }');
+  // Always recurse through scaffolding (children may be real targets).
+  // Only skip recursion for true terminals (cells, list items).
   lines.push('                if (-not $isTerminal) { CollectWindowTree $child ($depth + 1) $maxDepth $targetEl }');
   lines.push('            } catch {}');
   lines.push('        }');

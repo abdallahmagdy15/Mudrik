@@ -117,7 +117,7 @@ let guideStoppedFlag: boolean = false;
 // return the overlay — sending IPC into the wrong window silently breaks
 // every state update that depends on it. Filter by the loaded URL: the panel
 // is index.html, the overlay is guide-overlay.html.
-function getPanelWindow(): BrowserWindow | null {
+export function getPanelWindow(): BrowserWindow | null {
   for (const w of BrowserWindow.getAllWindows()) {
     if (w.isDestroyed()) continue;
     let url = "";
@@ -281,6 +281,21 @@ function formatElementType(type: string): string {
   return type.replace("ControlType.", "");
 }
 
+// Element types that legitimately carry rich text content (document body,
+// editor contents, long form values). The PS script now returns up to
+// 15000 chars in their `value` field; formatWindowTree must NOT clamp
+// them at 60 chars or the user's "what does this doc say" question
+// loses all signal. Plain UI elements (buttons, panes, labels) stay
+// clamped to keep the tree readable.
+const RICH_TEXT_TREE_TYPES = new Set([
+  "ControlType.Document",
+  "ControlType.Edit",
+  "ControlType.Text",
+  "ControlType.Custom",
+]);
+const RICH_TEXT_TREE_CAP = 8000;
+const PLAIN_TREE_VALUE_CAP = 200;
+
 function formatWindowTree(elements: { type: string; name: string; value: string; automationId?: string; bounds: { x: number; y: number; width: number; height: number }; depth?: number; isTarget?: boolean; isOffscreen?: boolean }[]): string {
   if (!elements || elements.length === 0) return "";
   const lines: string[] = [];
@@ -292,8 +307,18 @@ function formatWindowTree(elements: { type: string; name: string; value: string;
     if (el.name) line += ` "${el.name}"`;
     if (el.automationId) line += ` [${el.automationId}]`;
     if (el.value) {
-      const v = el.value.length > 60 ? el.value.slice(0, 60) + "..." : el.value;
-      line += `="${v}"`;
+      const cap = RICH_TEXT_TREE_TYPES.has(el.type) ? RICH_TEXT_TREE_CAP : PLAIN_TREE_VALUE_CAP;
+      const v = el.value.length > cap
+        ? el.value.slice(0, cap) + `... (${el.value.length} chars, showing first ${cap})`
+        : el.value;
+      // Multi-line values (document bodies, code editor contents) read
+      // far better when broken onto their own indented block than mashed
+      // into the trailing ="..." spot.
+      if (v.includes("\n") && v.length > 120) {
+        line += `\n${indent}  value:\n${v.split("\n").map((l: string) => `${indent}    ${l}`).join("\n")}`;
+      } else {
+        line += `="${v}"`;
+      }
     }
     line += ` @(${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height})`;
     if (el.isTarget) line += ` \u2190 YOU ARE HERE`;
@@ -471,11 +496,66 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       let candidatesBlock = "";
       const tree = (fresh as any)?.windowTree;
       if (Array.isArray(tree) && tree.length > 0) {
-        const clickables = tree
-          .filter((el: any) => el && CLICKABLE_TYPES.has(el.type) && el.bounds && el.bounds.width > 0 && el.bounds.height > 0)
-          .slice(0, 50);
-        if (clickables.length > 0) {
-          const lines = clickables.map((el: any, i: number) => {
+        // Per-type quota selection. The old code did plain `.slice(0, 50)`
+        // on tree-order, which is depth-first traversal of the UIA tree.
+        // For apps like File Explorer where the content pane is visited
+        // BEFORE the sibling toolbar/navigation panes, the 50-cap filled
+        // entirely with file-list rows / column headers / status bar,
+        // leaving NO toolbar buttons (New, Cut, Copy) or nav items (Home,
+        // Gallery, Desktop) in the prompt. The AI then couldn't point at
+        // any of them. Fix: quota-pick per control-type tier so each
+        // semantic category gets representation, then fill remaining
+        // slots with whatever's left in tree order.
+        const allClickables = tree.filter((el: any) =>
+          el && CLICKABLE_TYPES.has(el.type) && el.bounds && el.bounds.width > 0 && el.bounds.height > 0
+        );
+        // Tiers ordered by typical action-target value. Toolbar/menu buttons
+        // are the most common AI targets (commands), then navigation/tabs,
+        // then form inputs, then list/data items, then chrome leftovers.
+        const tierOf = (t: string): number => {
+          if (t === "ControlType.Button" || t === "ControlType.SplitButton" ||
+              t === "ControlType.MenuItem" || t === "ControlType.ToolBar" ||
+              t === "ControlType.MenuBar") return 0;
+          if (t === "ControlType.TreeItem" || t === "ControlType.TabItem" ||
+              t === "ControlType.Tab" || t === "ControlType.Hyperlink") return 1;
+          if (t === "ControlType.Edit" || t === "ControlType.ComboBox" ||
+              t === "ControlType.CheckBox" || t === "ControlType.RadioButton" ||
+              t === "ControlType.Spinner" || t === "ControlType.Slider") return 2;
+          if (t === "ControlType.ListItem" || t === "ControlType.DataItem" ||
+              t === "ControlType.Cell") return 3;
+          if (t === "ControlType.Header" || t === "ControlType.HeaderItem" ||
+              t === "ControlType.Thumb") return 4;
+          if (t === "ControlType.Custom" || t === "ControlType.Image" ||
+              t === "ControlType.Document" || t === "ControlType.Text" ||
+              t === "ControlType.DataGrid") return 5;
+          return 6;
+        };
+        // Per-tier quotas — sum well above the final cap so a tier with
+        // sparse content doesn't waste slots. Actions and nav get the
+        // biggest allotments; list/data items get fewer because dozens of
+        // them (file rows, cells) repeat the same control type and the
+        // AI doesn't need every single one to target a specific row.
+        const TIER_QUOTAS = [25, 20, 15, 20, 8, 8, 4];
+        const CANDIDATE_CAP = 75;
+        const buckets: any[][] = [[], [], [], [], [], [], []];
+        for (const el of allClickables) buckets[tierOf(el.type)].push(el);
+        const selected: any[] = [];
+        for (let tier = 0; tier < buckets.length && selected.length < CANDIDATE_CAP; tier++) {
+          const quota = Math.min(TIER_QUOTAS[tier], CANDIDATE_CAP - selected.length);
+          selected.push(...buckets[tier].slice(0, quota));
+        }
+        // Fill remaining slots from leftovers across all tiers in tree
+        // order (preserves the "user likely wants this nearby element"
+        // signal from UIA's natural traversal).
+        if (selected.length < CANDIDATE_CAP) {
+          const taken = new Set(selected);
+          for (const el of allClickables) {
+            if (selected.length >= CANDIDATE_CAP) break;
+            if (!taken.has(el)) selected.push(el);
+          }
+        }
+        if (selected.length > 0) {
+          const lines = selected.map((el: any, i: number) => {
             const lx = Math.round(el.bounds.x / sf);
             const ly = Math.round(el.bounds.y / sf);
             const lw2 = Math.round(el.bounds.width / sf);
@@ -486,7 +566,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
             return `[${i}] ${t} "${name}"${aid} at (${lx},${ly},${lw2}x${lh2})`;
           });
           candidatesBlock = `\n\nUIA CLICKABLE CANDIDATES in the active window (the AUTHORITATIVE list — pick one for target.selector/automationId/boundsHint, or set target:null):\n${lines.join("\n")}\n`;
-          log(`guide follow-up: enumerated ${clickables.length} clickable candidates`);
+          log(`guide follow-up: enumerated ${selected.length} clickable candidates (from ${allClickables.length} total) via per-tier quotas`);
         }
       }
 
@@ -882,7 +962,11 @@ contextBlock += `\n  ${formatElementType(el.type)}`;
         if (el.automationId) contextBlock += ` [${el.automationId}]`;
         contextBlock += ` @(${el.bounds.x},${el.bounds.y} ${el.bounds.width}x${el.bounds.height})`;
         if (el.value) {
-          const MAX_TARGET_VALUE = 8000;
+          // Match the PS-side GetDeepValue cap (20000 chars). Lower caps
+          // here would clamp document/PDF/long-form text the user is
+          // literally pointing at — defeats the whole point of the
+          // recent context-reader v20 bump.
+          const MAX_TARGET_VALUE = 20000;
           const val = el.value.length > MAX_TARGET_VALUE ? el.value.slice(0, MAX_TARGET_VALUE) + `\n... (${el.value.length} chars total, showing first ${MAX_TARGET_VALUE})` : el.value;
           if (val.includes("\n")) {
             contextBlock += `\n  value:\n${val.split("\n").map((l: string) => `    ${l}`).join("\n")}`;
@@ -915,7 +999,13 @@ contextBlock += `\n  ${formatElementType(el.type)}`;
 contextBlock += `\n--- END CONTEXT ---\n`;
       }
 
-      const MAX_CONTEXT_CHARS = 16000;
+      // The overall context block budget. With v20's 15000-char tree
+      // values + 20000-char cursor value, the previous 16000 budget
+      // forced premature truncation on text-heavy apps (Word, VS Code,
+      // even the AI couldn't see the document body it was being asked
+      // about). 60000 chars ≈ 15k tokens — adds ~$0.02 worst-case at
+      // current provider rates, well worth the signal.
+      const MAX_CONTEXT_CHARS = 60000;
       if (contextBlock.length > MAX_CONTEXT_CHARS) {
         const targetSection = "YOU POINTED AT:";
         const targetIdx = contextBlock.indexOf(targetSection);
@@ -970,28 +1060,40 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     let receivedAnyText = false;
     let timeoutFired = false;
 
-    // Idle-based timeout: fires only after 5 minutes of *silence* from
-    // OpenCode. Every event (step_start, tool_use, text, step_finish) resets
-    // the timer — so heavy reasoning / slow-first-token models don't trip it
-    // as long as they're making any progress. Once sendPromise resolves the
-    // subprocess is done, we cancel the timer entirely so action execution
-    // (which can take 30+ seconds for a chain of UIA paste/click ops) never
-    // fires this error.
-    const IDLE_TIMEOUT_MS = 300000; // 5 min
+    // Idle-based timeout: fires after `IDLE_TIMEOUT_MS` of *silence* from
+    // OpenCode. Every event (step_start, tool_use, text, step_finish)
+    // resets the timer — so heavy reasoning / slow-first-token models
+    // don't trip it as long as they're making any progress. Once
+    // sendPromise resolves the subprocess is done, we cancel the timer
+    // entirely so action execution (which can take 30+ seconds for a
+    // chain of UIA paste/click ops) never fires this error.
+    //
+    // 3 min budget — covers genuinely slow models that reason at length
+    // over large code/context, plus transient provider issues that
+    // OpenCode's internal retry mechanism takes time to recover from.
+    // Was 5 min (too long — user perceives as "frozen"), then briefly
+    // 90s (too short — kills legitimately slow models). 3 min is the
+    // patience the user actually has.
+    const IDLE_TIMEOUT_MS = 180000; // 3 min
     let idleTimer: NodeJS.Timeout | null = null;
     const armIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
       idleTimer = setTimeout(() => {
         timeoutFired = true;
-        log(`TIMEOUT: No AI activity for ${IDLE_TIMEOUT_MS / 60000} minutes — killing process`);
+        log(`TIMEOUT: No AI activity for ${IDLE_TIMEOUT_MS / 1000}s — killing process`);
         client.kill();
-        win.webContents.send(IPC.STREAM_ERROR, "AI took too long to respond. Please try again.");
+        win.webContents.send(IPC.STREAM_ERROR, `AI hasn't responded in ${IDLE_TIMEOUT_MS / 60000} minutes. Likely a transient provider issue — please try sending again.`);
       }, IDLE_TIMEOUT_MS);
     };
     const stopIdleTimer = () => {
       if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
     };
 
+    // Track whether the client already surfaced a real error event. If so,
+    // the "no text received" fallback below would just stack a less-useful
+    // generic message on top of an already-specific one (e.g. "model name
+    // is invalid, check ⚙ Settings"). Skip the duplicate.
+    let errorEventSurfaced = false;
     try {
       armIdleTimer();
       await client.sendMessage(fullPrompt, (event: OpenCodeEvent) => {
@@ -999,6 +1101,9 @@ contextBlock += `\n--- END CONTEXT ---\n`;
         armIdleTimer(); // reset on every event — AI is still making progress
         if (event.type === "text" && event.part?.text) {
           receivedAnyText = true;
+        }
+        if (event.type === "error" && event.error?.message) {
+          errorEventSurfaced = true;
         }
         handleOpenCodeEvent(event, win);
       }, imageFiles.length > 0 ? imageFiles : undefined);
@@ -1011,12 +1116,16 @@ contextBlock += `\n--- END CONTEXT ---\n`;
 
       // If the process exited cleanly but produced zero text (e.g. Bun segfault
       // with exit code 0 suppressed), surface a friendly error instead of a
-      // blank response. EXCEPT when the user explicitly hit Stop — that's a
-      // deliberate cancellation, not a failure, and showing an error message
-      // would be misleading.
+      // blank response. EXCEPT:
+      // - when the user explicitly hit Stop (deliberate cancellation), OR
+      // - when the client already surfaced a specific error (model bad,
+      //   API key missing, etc.) — don't override that with the generic
+      //   fallback.
       if (!receivedAnyText && fullResponseText.trim().length === 0) {
         if (userStoppedCurrentResponse) {
           log("No text received — but user manually stopped, skipping error");
+        } else if (errorEventSurfaced) {
+          log("No text received — but client already surfaced a specific error, skipping generic fallback");
         } else {
           log("No text received — sending friendly error");
           win.webContents.send(IPC.STREAM_ERROR, "No response was received from the AI. Please try again — if this keeps happening, restart Mudrik.");

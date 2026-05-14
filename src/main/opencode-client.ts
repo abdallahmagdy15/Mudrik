@@ -95,6 +95,12 @@ export class OpenCodeClient {
    * the AI Mudrik runs. Provisioned via `ensureIsolatedOpenCodeConfig`.
    */
   private isolatedConfigDir: string | null = null;
+  // True when the active process was killed via `kill()` (user clicked
+  // Stop, or the idle-timeout fired). The close handler uses this to
+  // suppress the silent-failure diagnostic — surfacing "model
+  // unavailable / API key bad" right after the user deliberately
+  // cancelled would be misleading and confusing.
+  private killedByUser: boolean = false;
 
   constructor(
     model: string = "ollama-cloud/gemini-3-flash-preview",
@@ -138,6 +144,11 @@ export class OpenCodeClient {
 
   sendMessage(prompt: string, onEvent: EventHandler, imageFiles?: string[]): Promise<void> {
     return new Promise((resolve, reject) => {
+      // Reset per-send. Set to true by `kill()` if the user (or the idle
+      // timeout) terminates the process; the close handler uses it to
+      // suppress the "silent failure" diagnostic that would otherwise
+      // mislead a deliberate cancellation.
+      this.killedByUser = false;
       const opencodeBin = this.findOpenCodeBin();
       if (!opencodeBin) {
         const err = "Could not find opencode binary. Is it installed? (npm i -g opencode-ai)";
@@ -199,6 +210,15 @@ export class OpenCodeClient {
       let buffer = "";
       let errorOccurred = false;
       let resolved = false;
+      // Accumulators for diagnostic when OpenCode bails silently (empty
+      // error event, exit 0, no text streamed). Without these we just
+      // logged "OpenCode error: undefined" and lost all signal — see
+      // session ses_1de8b600cffeQGo3oslUB55e98 where model name
+      // "ollama-cloud/kimi-k2.6:cloud" caused an instant provider
+      // failure with no message.
+      let stderrBuf = "";
+      let textWasStreamed = false;
+      let lastErrorEvent: any = null;
 
       proc.stdout!.on("data", (data: Buffer) => {
         buffer += data.toString("utf-8");
@@ -235,6 +255,22 @@ export class OpenCodeClient {
               return;
             }
 
+            // Track whether ANY text was streamed (so close-handler can
+            // distinguish "silent failure" from "graceful empty response").
+            if (event.type === "text" && event.part?.text) {
+              textWasStreamed = true;
+            }
+            // Capture raw error event for close-time diagnostic. Some
+            // provider failures (bad model name, auth) come through as
+            // {"type":"error","error":{}} with no message — log the raw
+            // line so future debugging has SOMETHING to look at.
+            if (event.type === "error") {
+              lastErrorEvent = event;
+              if (!event.error?.message) {
+                log(`OpenCode error event with no message — raw line: ${trimmed.slice(0, 500)}`);
+              }
+            }
+
             onEvent(event);
           } catch {
             log(`Non-JSON line: ${trimmed.slice(0, 100)}`);
@@ -243,8 +279,11 @@ export class OpenCodeClient {
       });
 
       proc.stderr!.on("data", (data: Buffer) => {
-        const msg = data.toString("utf-8").trim();
-        if (msg) log(`stderr: ${msg.slice(0, 200)}`);
+        const msg = data.toString("utf-8");
+        // Accumulate (capped) for close-time diagnostic surfacing.
+        if (stderrBuf.length < 4000) stderrBuf += msg;
+        const trimmed = msg.trim();
+        if (trimmed) log(`stderr: ${trimmed.slice(0, 200)}`);
       });
 
       proc.on("error", (err) => {
@@ -264,11 +303,61 @@ export class OpenCodeClient {
         if (buffer.trim()) {
           try {
             const event: OpenCodeEvent = JSON.parse(buffer.trim());
+            // Same tracking as in stdout handler.
+            if (event.type === "text" && event.part?.text) textWasStreamed = true;
+            if (event.type === "error") lastErrorEvent = event;
             onEvent(event);
           } catch {}
         }
 
         this.activeProcess = null;
+
+        // Silent-failure path: OpenCode exited cleanly (code 0) but
+        // streamed no text. Either a) it emitted an error event with
+        // an empty message field (provider auth/model-name failure
+        // — common with mistyped model names like
+        // "ollama-cloud/kimi-k2.6:cloud"), b) it crashed without
+        // emitting anything useful, or c) the model returned nothing.
+        // Surface a useful message including any stderr we captured.
+        //
+        // BUT skip when the process was killed via `kill()` — the user
+        // (or the idle timeout) deliberately cancelled. Surfacing
+        // "model unavailable / check API key" after a deliberate Stop
+        // is misleading. The caller already showed its own message
+        // (Stop button → renders nothing; idle timeout → shows the
+        // timeout message).
+        if (this.killedByUser) {
+          log(`Process was killed by user/timeout — skipping silent-failure diagnostic`);
+        } else if (!textWasStreamed && !errorOccurred && (code === 0 || code === null)) {
+          const stderrTail = stderrBuf.trim().slice(-800);
+          const errorMsgFromEvent = lastErrorEvent?.error?.message;
+          let diagnostic: string;
+          // Lead with the MOST COMMON cause: transient provider issue.
+          // OpenCode internally retries 5xx / network errors; if it
+          // still emitted an empty error or exited silently, the
+          // retries didn't help. Almost always "try again in a moment"
+          // is the right next step — not "your model/API key is bad."
+          // Configuration problems are real but rare and we'd usually
+          // have a real error message from the provider in that case.
+          if (errorMsgFromEvent) {
+            diagnostic = errorMsgFromEvent;
+          } else if (stderrTail) {
+            diagnostic = `OpenCode failed silently. stderr: ${stderrTail}`;
+          } else if (lastErrorEvent) {
+            // Empty error event — usually a 5xx from the provider that
+            // OpenCode couldn't extract a message from after exhausting
+            // its retries.
+            diagnostic = `Provider returned an error with no details — likely a temporary outage. Please try sending again.\n\nIf this keeps happening: check the model name and API key for "${this.model.split("/")[0]}" in ⚙ Settings.`;
+          } else {
+            // No error event at all, no text — the subprocess exited
+            // cleanly with nothing to say. Same root cause space.
+            diagnostic = `No response received. The provider may be temporarily unavailable — please try sending again.\n\nIf this keeps happening: check the model "${this.model}" and the API key for "${this.model.split("/")[0]}" in ⚙ Settings.`;
+          }
+          log(`Silent-failure diagnostic: ${diagnostic.slice(0, 300)}`);
+          onEvent({ type: "error", error: { message: diagnostic } });
+          errorOccurred = true;
+        }
+
         if (!errorOccurred && !resolved) {
           resolved = true;
           if (code !== 0 && code !== null) {
@@ -276,6 +365,9 @@ export class OpenCodeClient {
           } else {
             resolve();
           }
+        } else if (errorOccurred && !resolved) {
+          resolved = true;
+          resolve(); // error was already surfaced via onEvent
         }
       });
 
@@ -288,6 +380,7 @@ export class OpenCodeClient {
   kill(): void {
     if (this.activeProcess) {
       log("Killing active OpenCode process");
+      this.killedByUser = true;
       this.activeProcess.kill();
       this.activeProcess = null;
     }

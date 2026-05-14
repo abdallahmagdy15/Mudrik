@@ -324,11 +324,43 @@ let lastCursorY: number | null = null;
 // user sees the panel "stuck on" the previous element.
 let activationSeq = 0;
 
-function handlePointerActivate(cursorPos: { x: number; y: number }): void {
+async function handlePointerActivate(cursorPos: { x: number; y: number }): Promise<void> {
   const myActivation = ++activationSeq;
   log(`Pointer hotkey at cursor pos: x=${cursorPos.x}, y=${cursorPos.y} (activation #${myActivation})`);
   lastCursorX = cursorPos.x;
   lastCursorY = cursorPos.y;
+
+  // Edge case: Mudrik panel is currently focused (user pressed Alt+Space
+  // while typing in our chat input). Without intervention, getActiveHwnd
+  // inside readContextAtPoint returns Mudrik's own HWND, and the PS
+  // script walks Mudrik's panel tree (chat input, owl logo, settings
+  // button) — useless to the user, who meant "refresh context from
+  // whatever I was working on."
+  //
+  // Fix: detect the case, hide the panel, force the cached user-app
+  // HWND to foreground, brief settle wait, THEN capture. This matches
+  // the user's mental model — Alt+Space always reads "what's underneath
+  // / behind me," not Mudrik itself.
+  try {
+    const { getPanelWindow } = await import("./ipc-handlers");
+    const panel = getPanelWindow();
+    if (panel && panel.isVisible() && panel.isFocused()) {
+      const { getLastUserAppHwnd, setForegroundHwnd } = await import("./guide/active-window");
+      const cachedHwnd = getLastUserAppHwnd();
+      log(`Alt+Space fired while Mudrik was focused; cached user-app HWND=${cachedHwnd}`);
+      try { panel.blur(); } catch { /* best-effort */ }
+      panel.hide();
+      if (cachedHwnd) {
+        try { await setForegroundHwnd(cachedHwnd); } catch { /* best-effort */ }
+      }
+      // Brief wait for Windows to transition foreground back. The
+      // remainder of the capture will see the user's app as foreground
+      // via the standard `getActiveHwnd` path inside readContextAtPoint.
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  } catch (err: any) {
+    log(`Mudrik-as-foreground detection failed (${err?.message || err}) — continuing with live foreground`);
+  }
 
   const contextPromise = readContextAtPoint(cursorPos.x, cursorPos.y);
   // When autoAttachImage is on, capture a full-screen screenshot in parallel
