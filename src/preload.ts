@@ -68,6 +68,8 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
     ipcRenderer.on("cursor-pos", (_e, pos) => cb(pos)),
   guideUserChoice: (option: string) =>
     ipcRenderer.send("guide-user-choice", option),
+  onContextLoading: (cb: (loading: boolean) => void) =>
+    ipcRenderer.on("context-loading", (_e, loading) => cb(loading)),
   onGuideStateUpdate: (cb: (state: any) => void) =>
     ipcRenderer.on("guide-state-update", (_e, state) => cb(state)),
 });

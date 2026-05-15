@@ -232,4 +232,5 @@ export const IPC = {
   REMOVE_SCREENSHOT: "remove-screenshot",
   GUIDE_USER_CHOICE: "guide-user-choice",
   GUIDE_STATE_UPDATE: "guide-state-update",
+  CONTEXT_LOADING: "context-loading",
 } as const;

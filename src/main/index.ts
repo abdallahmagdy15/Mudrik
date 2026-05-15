@@ -283,6 +283,52 @@ function showPanel(context: ContextPayload): void {
   log("Panel shown and focused");
 }
 
+function showPanelWithLoading(cursorPos: { x: number; y: number }): void {
+  const cursorX = cursorPos.x;
+  const cursorY = cursorPos.y;
+
+  if (!mainWindow) {
+    mainWindow = createWindow(cursorX, cursorY);
+    mainWindow.on("closed", () => {
+      mainWindow = null;
+    });
+  } else {
+    const pos = calculatePanelPosition(cursorX, cursorY);
+    mainWindow.setPosition(pos.x, pos.y);
+    mainWindow.setSize(pos.width, pos.height);
+  }
+
+  const send = () => {
+    mainWindow?.webContents.send(IPC.CONTEXT_LOADING, true);
+  };
+
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once("did-finish-load", () => send());
+  } else {
+    send();
+  }
+
+  mainWindow.show();
+  applyAcrylic(mainWindow);
+  applyRoundedCorners(mainWindow);
+  mainWindow.focus();
+  mainWindow.moveTop();
+}
+
+function updatePanelContext(context: ContextPayload): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  log(`updatePanelContext: delivering real context — element "${context.element?.name}" type="${context.element?.type}"`);
+  mainWindow.webContents.send(IPC.CONTEXT_LOADING, false);
+  mainWindow.webContents.send(IPC.CONTEXT_READY, context);
+  mainWindow.focus();
+  mainWindow.moveTop();
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC.FOCUS_INPUT);
+    }
+  }, 150);
+}
+
 function hidePanel(): void {
   log("hidePanel called");
   if (mainWindow) {
@@ -362,6 +408,11 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
     log(`Mudrik-as-foreground detection failed (${err?.message || err}) — continuing with live foreground`);
   }
 
+  // Show panel IMMEDIATELY with a loading indicator, then capture context
+  // in the background. Without this the user sees nothing for 1-4 seconds
+  // while PowerShell + UIA COM round-trips run — feels broken.
+  showPanelWithLoading(cursorPos);
+
   const contextPromise = readContextAtPoint(cursorPos.x, cursorPos.y);
   // When autoAttachImage is on, capture a full-screen screenshot in parallel
   // with the UIA context read. The panel isn't visible yet so the capture is
@@ -396,10 +447,14 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
       }
       setContext(context);
       showElementHighlight(element.bounds);
-      showPanel(context);
+      updatePanelContext(context);
     }
   ).catch((err) => {
     log(`ERROR reading context: ${err.message}`);
+    // Still dismiss the loading state so the panel isn't stuck
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(IPC.CONTEXT_LOADING, false);
+    }
   });
 }
 

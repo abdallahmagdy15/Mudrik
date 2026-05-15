@@ -38,6 +38,7 @@ declare global {
       validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[]; needsAuth?: boolean; provider?: string }>;
       saveApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
       removeModel: (modelId: string) => Promise<any>;
+      onContextLoading: (cb: (loading: boolean) => void) => void;
       guideUserChoice: (option: string) => void;
       onGuideStateUpdate: (cb: (state: any) => void) => void;
     };
@@ -103,6 +104,7 @@ function parseMessageContent(content: string): MessageSegment[] {
 
 export function App() {
   const [context, setContext] = useState<ContextPayload | null>(null);
+  const [contextLoading, setContextLoading] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -190,6 +192,11 @@ export function App() {
       console.log("[RENDERER] ERROR: window.hoverbuddy is undefined!");
       return;
     }
+
+    window.hoverbuddy.onContextLoading((loading) => {
+      console.log(`[RENDERER] contextLoading: ${loading}`);
+      setContextLoading(loading);
+    });
 
     window.hoverbuddy.onContext((data) => {
       console.log(`[RENDERER] onContext: element type="${data.element?.type}" name="${data.element?.name}"`);
@@ -957,7 +964,13 @@ if (!data?.hasImage) {
         {restoringSession && (
           <div className="session-restoring">{t("loadingHistory")}</div>
         )}
-        {!restoringSession && messages.length === 0 && !currentResponse && (
+        {contextLoading && (
+          <div className="loading-bar-container">
+            <div className="loading-bar" />
+            <div className="loading-text">Scanning screen…</div>
+          </div>
+        )}
+        {!restoringSession && !contextLoading && messages.length === 0 && !currentResponse && (
           <div className="new-conversation-hint">{t("startNewConversation")}</div>
         )}
         {messages.map((msg, i) => (
@@ -1025,7 +1038,7 @@ if (!data?.hasImage) {
           />
         </React.Suspense>
       ) : (
-        <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming} lang={lang} />
+        <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming || contextLoading} lang={lang} />
       )}
     </div>
   );
