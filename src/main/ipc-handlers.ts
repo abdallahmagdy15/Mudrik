@@ -448,7 +448,11 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         ]);
         imagePath = shot;
         fresh = ctx;
-        if (wasVisible && !win.isDestroyed()) {
+        // Always re-show after capture so the AI's follow-up response is
+        // visible. The button mousedown already pre-hides the panel (so
+        // wasVisible is false here) — without this unconditional show,
+        // the panel stays hidden and the user never sees the AI's reply.
+        if (!win.isDestroyed()) {
           win.show();
         }
         log(`guide follow-up: capture complete — screenshot=${imagePath ? "yes" : "no"} uia=${fresh ? `yes (active="${fresh.windowInfo?.title || "?"}")` : "no"}`);

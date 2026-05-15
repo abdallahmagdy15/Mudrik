@@ -6,6 +6,7 @@ interface Props {
   estStepsLeft?: number;
   options: string[];
   onChoose: (option: string) => void;
+  onCustomText?: (text: string) => void;
 }
 
 // Layout per option count:
@@ -24,8 +25,11 @@ export const ChatInputOptions: React.FC<Props> = ({
   estStepsLeft,
   options,
   onChoose,
+  onCustomText,
 }) => {
   const layout = layoutFor(options.length);
+  const [showCustomInput, setShowCustomInput] = React.useState(false);
+  const [customText, setCustomText] = React.useState("");
   // Render Cancel first so it lands on the leading edge in row mode and on
   // top of the grid (where it spans both columns via CSS grid-column).
   const ordered = React.useMemo(() => {
@@ -34,6 +38,16 @@ export const ChatInputOptions: React.FC<Props> = ({
     const rest = options.filter((o) => o !== "Cancel");
     return ["Cancel", ...rest];
   }, [options]);
+
+  const handleCustomSubmit = () => {
+    const trimmed = customText.trim();
+    if (trimmed && onCustomText) {
+      onCustomText(trimmed);
+      setCustomText("");
+      setShowCustomInput(false);
+    }
+  };
+
   return (
     <div className={`chat-input-options ${layout}`}>
       {caption && (
@@ -51,12 +65,60 @@ export const ChatInputOptions: React.FC<Props> = ({
           <button
             key={i}
             className={`option-btn ${opt === "Cancel" ? "cancel" : "primary"}`}
-            onClick={() => onChoose(opt)}
+            onMouseDown={(e) => {
+              if (opt !== "Cancel") {
+                // Pre-hide panel on mousedown so the target app's open
+                // popup/menu/dropdown is not dismissed by the click's
+                // foreground transfer. Cancel and "Something else…" don't
+                // trigger recapture — no need to pre-hide.
+                e.preventDefault();
+                window.hoverbuddy?.hidePanel?.();
+                setTimeout(() => onChoose(opt), 60);
+              }
+            }}
+            onClick={() => {
+              // Cancel fires on regular click (no pre-hide needed — it just
+              // tears down the guide locally with no AI round-trip).
+              if (opt === "Cancel") onChoose(opt);
+            }}
           >
             {opt}
           </button>
         ))}
+        {onCustomText && (
+          <button
+            className="option-btn custom-else"
+            onClick={() => setShowCustomInput(!showCustomInput)}
+          >
+            Something else…
+          </button>
+        )}
       </div>
+      {showCustomInput && onCustomText && (
+        <div className="custom-input-row">
+          <textarea
+            className="custom-input"
+            value={customText}
+            onChange={(e) => setCustomText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleCustomSubmit();
+              }
+            }}
+            placeholder="Tell the AI what happened…"
+            rows={2}
+            autoFocus
+          />
+          <button
+            className="btn-send-custom"
+            onClick={handleCustomSubmit}
+            disabled={!customText.trim()}
+          >
+            Send
+          </button>
+        </div>
+      )}
     </div>
   );
 };

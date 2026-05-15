@@ -40,6 +40,7 @@ declare global {
       removeModel: (modelId: string) => Promise<any>;
       onContextLoading: (cb: (loading: boolean) => void) => void;
       guideUserChoice: (option: string) => void;
+      hidePanel: () => void;
       onGuideStateUpdate: (cb: (state: any) => void) => void;
     };
   }
@@ -1034,6 +1035,11 @@ if (!data?.hasImage) {
                 setStreaming(true);
               }
               window.hoverbuddy.guideUserChoice(opt);
+            }}
+            onCustomText={(text) => {
+              setMessages((prev) => [...prev, { role: "user", content: text, toolUses: [] }]);
+              setStreaming(true);
+              window.hoverbuddy.guideUserChoice(text);
             }}
           />
         </React.Suspense>
