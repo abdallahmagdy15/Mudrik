@@ -14,7 +14,6 @@ import type {
 function makeDeps(overrides: Partial<GuideControllerDeps> = {}): GuideControllerDeps {
   return {
     overlay: { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() },
-    mouseHook: { start: vi.fn().mockResolvedValue(undefined), stop: vi.fn() },
     getActiveHwnd: vi.fn().mockResolvedValue(1234),
     getCursorPos: vi.fn().mockReturnValue({ x: 50, y: 50 }),
     sendFollowUp: vi.fn().mockResolvedValue(undefined),
@@ -131,16 +130,13 @@ describe("GuideController", () => {
   });
 
   describe("step phase", () => {
-    it("guide_step trackable=true shows overlay but does NOT start mouse hook (hook intentionally disabled this phase)", async () => {
+    it("guide_step trackable=true shows overlay (mouse hook removed)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
       await ctrl.handleAction(sampleStep as unknown as Action);
       expect(ctrl.getPhase()).toBe("step-active");
-      // Mouse hook stays off — user advances exclusively via option buttons
-      expect(deps.mouseHook.start).not.toHaveBeenCalled();
-      // Overlay still shows so the user knows where to click in their app
       expect(deps.overlay.show).toHaveBeenCalledWith(
         sampleStep.target!.boundsHint!,
         expect.any(Object),
@@ -154,7 +150,6 @@ describe("GuideController", () => {
       await ctrl.handleUserChoice("Start guide");
       await ctrl.handleAction(sampleStepNonTrackable as unknown as Action);
       expect(ctrl.getPhase()).toBe("step-active");
-      expect(deps.mouseHook.start).not.toHaveBeenCalled();
       expect(deps.overlay.show).not.toHaveBeenCalled();
     });
 
@@ -192,21 +187,16 @@ describe("GuideController", () => {
   });
 
   describe("cancel and abort", () => {
-    it("cancel() during STEP_ACTIVE stops hook, hides overlay, returns to IDLE WITHOUT informing AI (token-saving short-circuit)", async () => {
+    it("cancel() during STEP_ACTIVE hides overlay, returns to IDLE WITHOUT informing AI (token-saving short-circuit)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
-      // sendFollowUp was called once (Start guide → first step prompt). Reset
-      // the spy so we can assert cancel doesn't add a second call.
       const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
       await ctrl.handleAction(sampleStep as unknown as Action);
       await ctrl.cancel();
       expect(ctrl.getPhase()).toBe("idle");
-      expect(deps.mouseHook.stop).toHaveBeenCalled();
       expect(deps.overlay.hide).toHaveBeenCalled();
-      // Cancel must NOT trigger a follow-up — that's the whole point of the
-      // local short-circuit (saves tokens on a redundant "ack" round-trip).
       expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
         .toBe(sendFollowUpCallsBefore);
     });
@@ -215,7 +205,6 @@ describe("GuideController", () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.cancel();
-      expect(deps.mouseHook.stop).not.toHaveBeenCalled();
       expect(deps.overlay.hide).not.toHaveBeenCalled();
       expect(deps.sendFollowUp).not.toHaveBeenCalled();
     });
@@ -297,7 +286,6 @@ describe("GuideController", () => {
       const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
       await ctrl.handleUserChoice("Done — updates paused");
       expect(ctrl.getPhase()).toBe("idle");
-      expect(deps.mouseHook.stop).toHaveBeenCalled();
       expect(deps.overlay.hide).toHaveBeenCalled();
       // No new follow-up — the whole point of the short-circuit
       expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
@@ -349,7 +337,6 @@ describe("GuideController", () => {
       };
       await ctrl.handleAction(complete as unknown as Action);
       expect(ctrl.getPhase()).toBe("idle");
-      expect(deps.mouseHook.stop).toHaveBeenCalled();
       expect(deps.overlay.hide).toHaveBeenCalled();
       expect(deps.onStateUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ phase: "idle", finalMessage: "Done. PDF saved." }),

@@ -340,7 +340,6 @@ async function initGuideControllerIfNeeded(): Promise<void> {
   const ctrlMod = await import("./guide/guide-controller");
   if (ctrlMod.isControllerInitialized()) return; // already wired
   const overlayMod = await import("./guide/guide-overlay");
-  const hookMod = await import("./guide/mouse-hook");
   const winMod = await import("./guide/active-window");
   const { getCursorPos } = await import("./context-reader");
 
@@ -348,10 +347,6 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     overlay: {
       show: overlayMod.showOverlay,
       hide: overlayMod.hideOverlay,
-    },
-    mouseHook: {
-      start: hookMod.startMouseHook,
-      stop: hookMod.stopMouseHook,
     },
     getActiveHwnd: winMod.getActiveHwnd,
     getCursorPos,
@@ -374,60 +369,49 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const lw = display.bounds.width;
       const lh = display.bounds.height;
 
-      let imagePath: string | null = null;
+        let imagePath: string | null = null;
       let fresh: Awaited<ReturnType<typeof import("./context-reader").readContextAtPoint>> | null = null;
       try {
         const visionMod = await import("./vision");
         const ctxReader = await import("./context-reader");
         const wasVisible = win.isVisible();
         if (wasVisible) {
-          // Blur first so the OS releases keyboard focus, then hide. Without
-          // the blur, Windows sometimes keeps Mudrik registered as the
-          // foreground window even after .hide() — and the subsequent
-          // GetForegroundWindow() in the UIA script returns Mudrik instead
-          // of the target app, which is the "Active window: Mudrik" symptom
-          // observed in production logs.
           try { win.blur(); } catch { /* best-effort */ }
           win.hide();
-          // After hide, Windows' default foreground transition picks
-          // whichever HWND is next in the Z-order — which may NOT be the
-          // user's target app, especially if it was previously fullscreen
-          // (Mudrik's panel breaks the fullscreen state on some configs).
-          // Symptom: AI sees "active window != Excel" and keeps telling
-          // the user to "click on Excel to make it active." Fix: explicitly
-          // re-foreground the user's app HWND, captured on the original
-          // Alt+Space and stored on currentContext.windowInfo.hwnd.
-          const targetHwnd = currentContext?.windowInfo?.hwnd || 0;
-          if (targetHwnd) {
-            try {
-              const { setForegroundHwnd, getActiveHwnd } = await import("./guide/active-window");
-              const ok = await setForegroundHwnd(targetHwnd);
-              log(`guide follow-up: setForegroundHwnd(${targetHwnd}) -> ${ok}`);
-              // Wait a beat for Windows to settle the foreground transition,
-              // then verify. If the foreground isn't what we asked for
-              // (Windows blocked us, the app spawned a child window, etc.),
-              // try once more — the second call usually succeeds because
-              // we now have "recent input" rights from the first call.
-              await new Promise((r) => setTimeout(r, 200));
-              const fg = await getActiveHwnd();
-              if (fg !== targetHwnd) {
-                log(`guide follow-up: foreground mismatch (got ${fg}, want ${targetHwnd}) — retrying setForegroundHwnd`);
-                const ok2 = await setForegroundHwnd(targetHwnd);
-                log(`guide follow-up: setForegroundHwnd retry -> ${ok2}`);
-                await new Promise((r) => setTimeout(r, 150));
-              } else {
-                await new Promise((r) => setTimeout(r, 150));
-              }
-            } catch (e: any) {
-              log(`guide follow-up: setForegroundHwnd failed (${e?.message || e}) — proceeding anyway`);
-              await new Promise((r) => setTimeout(r, 350));
+        }
+        // Always restore the user's app to foreground before capture. If the
+        // panel was already hidden (pre-hide on mousedown, or guide controller
+        // auto-hide), the current foreground may be the wrong window — Windows'
+        // default Z-order transitions are unreliable after hide().
+        const targetHwnd = currentContext?.windowInfo?.hwnd || 0;
+        if (targetHwnd) {
+          try {
+            const { setForegroundHwnd, getActiveHwnd } = await import("./guide/active-window");
+            const ok = await setForegroundHwnd(targetHwnd);
+            log(`guide follow-up: setForegroundHwnd(${targetHwnd}) -> ${ok}`);
+            await new Promise((r) => setTimeout(r, 200));
+            const fg = await getActiveHwnd();
+            if (fg !== targetHwnd) {
+              log(`guide follow-up: foreground mismatch (got ${fg}, want ${targetHwnd}) — retrying setForegroundHwnd`);
+              const ok2 = await setForegroundHwnd(targetHwnd);
+              log(`guide follow-up: setForegroundHwnd retry -> ${ok2}`);
+              await new Promise((r) => setTimeout(r, 150));
+            } else {
+              await new Promise((r) => setTimeout(r, 150));
             }
-          } else {
-            // No stored HWND — fall back to the original 350ms wait
-            // and let Windows' default foreground transition pick.
+          } catch (e: any) {
+            log(`guide follow-up: setForegroundHwnd failed (${e?.message || e}) — proceeding anyway`);
             await new Promise((r) => setTimeout(r, 350));
           }
+        } else {
+          await new Promise((r) => setTimeout(r, 350));
         }
+        // Show a semi-transparent loading indicator on the overlay window
+        // (always-on-top, click-through, fullscreen transparent) so the
+        // user sees progress during the 1-4 second capture gap. The panel
+        // stays hidden — otherwise it would appear in the screenshot and
+        // UIA would read Mudrik's own tree instead of the target app.
+        overlayMod.showOverlayLoading();
         const point =
           actionDesc.kind === "click"
             ? { x: actionDesc.x, y: actionDesc.y }
@@ -448,6 +432,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         ]);
         imagePath = shot;
         fresh = ctx;
+        overlayMod.hideOverlayLoading();
         // Always re-show after capture so the AI's follow-up response is
         // visible. The button mousedown already pre-hides the panel (so
         // wasVisible is false here) — without this unconditional show,
@@ -458,6 +443,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         log(`guide follow-up: capture complete — screenshot=${imagePath ? "yes" : "no"} uia=${fresh ? `yes (active="${fresh.windowInfo?.title || "?"}")` : "no"}`);
       } catch (err: any) {
         log(`guide follow-up: capture path errored (${err?.message || err}) — proceeding without`);
+        overlayMod.hideOverlayLoading();
       }
 
       // Build prompt from the FRESH capture (panel-hidden window). Falls

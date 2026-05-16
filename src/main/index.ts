@@ -376,36 +376,19 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
   lastCursorX = cursorPos.x;
   lastCursorY = cursorPos.y;
 
-  // Edge case: Mudrik panel is currently focused (user pressed Alt+Space
-  // while typing in our chat input). Without intervention, getActiveHwnd
-  // inside readContextAtPoint returns Mudrik's own HWND, and the PS
-  // script walks Mudrik's panel tree (chat input, owl logo, settings
-  // button) — useless to the user, who meant "refresh context from
-  // whatever I was working on."
-  //
-  // Fix: detect the case, hide the panel, force the cached user-app
-  // HWND to foreground, brief settle wait, THEN capture. This matches
-  // the user's mental model — Alt+Space always reads "what's underneath
-  // / behind me," not Mudrik itself.
+  // Capture the target app's HWND BEFORE showing the panel. Once the panel
+  // is visible and focused, getActiveHwnd() returns Mudrik's own HWND and
+  // the PS script walks Mudrik's tree instead of the target app.
+  let targetHwnd = 0;
   try {
-    const { getPanelWindow } = await import("./ipc-handlers");
-    const panel = getPanelWindow();
-    if (panel && panel.isVisible() && panel.isFocused()) {
-      const { getLastUserAppHwnd, setForegroundHwnd } = await import("./guide/active-window");
-      const cachedHwnd = getLastUserAppHwnd();
-      log(`Alt+Space fired while Mudrik was focused; cached user-app HWND=${cachedHwnd}`);
-      try { panel.blur(); } catch { /* best-effort */ }
-      panel.hide();
-      if (cachedHwnd) {
-        try { await setForegroundHwnd(cachedHwnd); } catch { /* best-effort */ }
-      }
-      // Brief wait for Windows to transition foreground back. The
-      // remainder of the capture will see the user's app as foreground
-      // via the standard `getActiveHwnd` path inside readContextAtPoint.
-      await new Promise((r) => setTimeout(r, 250));
+    if (mainWindow && mainWindow.isVisible()) {
+      mainWindow.hide();
     }
+    const { getActiveHwnd } = await import("./guide/active-window");
+    targetHwnd = await getActiveHwnd();
+    log(`Captured target HWND before panel show: ${targetHwnd}`);
   } catch (err: any) {
-    log(`Mudrik-as-foreground detection failed (${err?.message || err}) — continuing with live foreground`);
+    log(`HWND capture failed (${err?.message || err}) — proceeding without`);
   }
 
   // Show panel IMMEDIATELY with a loading indicator, then capture context
@@ -413,7 +396,7 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
   // while PowerShell + UIA COM round-trips run — feels broken.
   showPanelWithLoading(cursorPos);
 
-  const contextPromise = readContextAtPoint(cursorPos.x, cursorPos.y);
+  const contextPromise = readContextAtPoint(cursorPos.x, cursorPos.y, targetHwnd);
   // When autoAttachImage is on, capture a full-screen screenshot in parallel
   // with the UIA context read. The panel isn't visible yet so the capture is
   // clean. The screenshot will be attached to the first prompt in this session.
@@ -475,9 +458,10 @@ function handleAreaActivate(): void {
     const midX = (px1 + px2) / 2;
     const midY = (py1 + py2) / 2;
     const cursorPos = { x: Math.round(midX), y: Math.round(midY) };
-    // Capture/scan BEFORE showing the highlight — otherwise the glowing
-    // border window is drawn on top of the region and gets baked into the
-    // PowerShell CopyFromScreen capture.
+    // Show panel immediately with loading indicator while scanArea runs
+    // in the background (PS capture takes 1-3 seconds). Previously the
+    // user saw nothing until scanArea resolved.
+    showPanelWithLoading(cursorPos);
     scanArea(px1, py1, px2, py2).then(({ elements, imagePath }) => {
       if (myActivation !== activationSeq) {
         log(`Area scan for #${myActivation} superseded by #${activationSeq} — discarding result`);
@@ -487,9 +471,12 @@ function handleAreaActivate(): void {
       log(`Area scan found ${elements.length} elements, image=${imagePath ? "captured" : "none"}`);
       showAreaHighlight(rect);
       const context = setAreaContext(elements, rect, cursorPos, imagePath);
-      showPanel(context);
+      updatePanelContext(context);
     }).catch((err) => {
       log(`ERROR scanning area: ${err.message}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC.CONTEXT_LOADING, false);
+      }
     });
   });
 }

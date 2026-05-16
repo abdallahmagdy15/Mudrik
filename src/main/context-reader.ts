@@ -482,21 +482,19 @@ export function getCursorPos(): { x: number; y: number } {
 
 export async function readContextAtPoint(
   x: number,
-  y: number
+  y: number,
+  presetHwnd: number = 0
 ): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string; hwnd?: number }; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
-  log(`readContextAtPoint called: x=${x}, y=${y}`);
+  log(`readContextAtPoint called: x=${x}, y=${y}, presetHwnd=${presetHwnd}`);
 
-  // Capture the target HWND ONCE here, before kicking off the parallel
-  // PowerShell reads. Both readElementAtPoint and readForegroundWindow
-  // need it, and we surface it on windowInfo.hwnd so callers (e.g.
-  // sendFollowUp) can re-foreground the user's app on a later capture
-  // without re-querying.
-  let targetHwnd = 0;
-  try {
-    const { getActiveHwnd } = await import("./guide/active-window");
-    targetHwnd = await getActiveHwnd();
-  } catch (err: any) {
-    log(`readContextAtPoint: getActiveHwnd failed (${err?.message || err}) — proceeding without HWND`);
+  let targetHwnd = presetHwnd;
+  if (!targetHwnd) {
+    try {
+      const { getActiveHwnd } = await import("./guide/active-window");
+      targetHwnd = await getActiveHwnd();
+    } catch (err: any) {
+      log(`readContextAtPoint: getActiveHwnd failed (${err?.message || err}) — proceeding without HWND`);
+    }
   }
 
   try {

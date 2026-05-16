@@ -16,11 +16,16 @@ declare global {
     guideOverlay?: {
       onShow: (h: (p: ShowPayload) => void) => void;
       onHide: (h: () => void) => void;
+      onLoadingShow: (h: () => void) => void;
+      onLoadingHide: (h: () => void) => void;
     };
   }
 }
 
 const owl = document.getElementById("owl") as HTMLDivElement;
+const loading = document.getElementById("loading") as HTMLDivElement;
+
+// --- Owl pointer (unchanged) ---
 
 const OWL_SIZE = 64;
 // Default placement: owl below-right of target so the up-left wing tip
@@ -78,6 +83,14 @@ window.guideOverlay?.onShow(({ target, fromCursor }) => {
 
 window.guideOverlay?.onHide(() => {
   owl.classList.remove("visible", "bob");
+});
+
+window.guideOverlay?.onLoadingShow(() => {
+  loading.classList.add("active");
+});
+
+window.guideOverlay?.onLoadingHide(() => {
+  loading.classList.remove("active");
 });
 
 export {};

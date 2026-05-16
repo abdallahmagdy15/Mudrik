@@ -419,6 +419,15 @@ if (!data?.hasImage) {
 
   const handleSubmit = useCallback((prompt: string) => {
     console.log(`[RENDERER] Submit prompt: "${prompt}"`);
+    // During an active guide step, user's typed text is a custom guide
+    // choice (they chose "Something else…" to type freely). Route through
+    // guideUserChoice so the guide controller handles the recapture.
+    if (guideStateRef.current && guideStateRef.current.phase === "step-active") {
+      setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [] }]);
+      setStreaming(true);
+      window.hoverbuddy.guideUserChoice(prompt);
+      return;
+    }
     lastPromptRef.current = prompt;
     setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], screenshotAttached: screenshotAttached }]);
     setCurrentResponse("");
@@ -1018,7 +1027,7 @@ if (!data?.hasImage) {
         )}
         <div ref={messagesEndRef} />
       </div>
-      {guideState && guideState.options && guideState.options.length > 0 ? (
+      {guideState && guideState.options && guideState.options.length > 0 && (
         <React.Suspense fallback={null}>
           <ChatInputOptions
             caption={guideState.caption || guideState.summary}
@@ -1026,26 +1035,16 @@ if (!data?.hasImage) {
             estStepsLeft={guideState.estStepsLeft}
             options={guideState.options}
             onChoose={(opt) => {
-              // Echo the user's choice into the chat (so the conversation
-              // visibly carries the user's action) and arm the streaming
-              // indicator until the AI's follow-up arrives. Cancel is the
-              // exception — the controller cleans state, no echo needed.
               if (opt !== "Cancel") {
                 setMessages((prev) => [...prev, { role: "user", content: opt, toolUses: [] }]);
                 setStreaming(true);
               }
               window.hoverbuddy.guideUserChoice(opt);
             }}
-            onCustomText={(text) => {
-              setMessages((prev) => [...prev, { role: "user", content: text, toolUses: [] }]);
-              setStreaming(true);
-              window.hoverbuddy.guideUserChoice(text);
-            }}
           />
-        </React.Suspense>
-      ) : (
-        <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming || contextLoading} lang={lang} />
-      )}
-    </div>
-  );
+      </React.Suspense>
+    )}
+    <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming || contextLoading} lang={lang} />
+  </div>
+);
 }

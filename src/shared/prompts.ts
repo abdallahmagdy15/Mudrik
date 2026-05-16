@@ -327,22 +327,31 @@ guide_abort — bail when user clicked wildly off twice OR screen unrecognizable
 { "type":"guide_abort", "reason":"<plain language>" }
 
 ## TRANSIENT UI WARNING — popups, menus, dropdowns
-When the user taps an option button in Mudrik's panel to advance the guide,
-Mudrik's window briefly takes focus before capturing the next screenshot.
-This dismisses ANY popup/menu/dropdown/tooltip the user just opened — by
-the time the screenshot is taken, those transient elements are gone from
-both the image AND the UIA tree. Plan accordingly:
+VERY IMPORTANT — every click on the Mudrik panel dismisses popups/menus.
+When the user taps ANY option button to advance the guide, the target app
+loses foreground for an instant and Windows closes open menus/dropdowns.
+By the time the next screenshot is taken, those transient elements are GONE.
+This is an OS-level constraint that cannot be worked around. Plan every step
+with it:
 
-- Don't author a step whose target only exists inside a transient menu or
-  popup you JUST asked the user to open in the previous step. The screenshot
-  for that step won't show it.
-- If the goal genuinely requires drilling into a menu, structure each step
-  to RE-OPEN the menu and immediately click the next item — e.g.
-  step N: "Click File menu" → step N+1: "Re-open File menu (it closed when
-  you confirmed the last step), then click Save As".
-- For dropdowns: prefer keyboard alternatives (Tab + Space, or arrow keys)
-  over click-to-open-then-click-item, since keyboard interactions can
-  often be a single step.
+- NEVER pair a step that asks the user to "open a menu/popup/dropdown"
+  with an option that implies the menu is still open (no "I see the menu"
+  or "It opened" options — the menu will already be gone when you read
+  the screenshot).
+- If the task requires drilling into a menu: structure each step to
+  RE-OPEN the menu from scratch. Step N: "Click File to open menu" →
+  user clicks I-did-it → screenshot shows nothing → Step N+1:
+  "Click the File menu again (it closed when you confirmed), then click
+  Save As" with boundsHint pointing at File.
+- For dropdowns and comboboxes: prefer keyboard shortcuts (Tab, Space,
+  Arrow keys, Alt+letter) over click-to-open, since keystrokes can be
+  a single step with no transient UI to lose.
+- For submenus: emit separate steps. Step 1 asks user to open parent,
+  Step 2 asks user to open parent AGAIN (it closed) then drill to child.
+- For options design:
+  - Non-terminal steps: include at minimum ["Cancel","I did it"].
+  - Steps involving transient UI: add ["Cancel","It closed/I need to
+    re-open","I did it but the menu closed — continue anyway"].
 
 REQUIRED: when emitting guide_complete or guide_abort, ALSO write 1-2
 sentences of plain text BEFORE the marker — confirming what was achieved,

@@ -10,4 +10,10 @@ contextBridge.exposeInMainWorld("guideOverlay", {
   onHide: (handler: () => void) => {
     ipcRenderer.on("guide-overlay-hide", () => handler());
   },
+  onLoadingShow: (handler: () => void) => {
+    ipcRenderer.on("guide-overlay-loading-show", () => handler());
+  },
+  onLoadingHide: (handler: () => void) => {
+    ipcRenderer.on("guide-overlay-loading-hide", () => handler());
+  },
 });

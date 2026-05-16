@@ -50,14 +50,7 @@ export interface GuideControllerDeps {
     ) => Promise<void>;
     hide: () => void;
   };
-  mouseHook: {
-    start: (opts: { scopeHwnd: number; onClick: (e: ClickEvent) => void }) => Promise<void>;
-    stop: () => void;
-  };
-  /** Returns the current foreground window's HWND (used to scope mouse hook
-   *  and to bind active-window grace-timeout). */
   getActiveHwnd: () => Promise<number>;
-  /** Returns the current cursor position (for the overlay's start position). */
   getCursorPos: () => { x: number; y: number };
   /** Sends a follow-up to OpenCode and streams. Takes the action descriptor
    *  directly; the implementation handles hiding the panel, capturing
@@ -95,27 +88,13 @@ const STEP_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 min
 
 export class GuideController {
   private phase: GuidePhase = "idle";
-  // Latest queued action context — set during STEP_ACTIVE, cleared on transition
   private pendingAction:
     | { kind: "click"; x: number; y: number }
     | { kind: "option"; choice: string }
     | null = null;
-  // The guide_step that's currently displayed (so cancel knows what to abort)
   private currentStep: GuideStepPayload | null = null;
-  // Captured at the start of the active step so the hook scope is correct
-  private currentScopeHwnd: number = 0;
-  // 5-min idle timeout for the active step
   private inactivityTimer: NodeJS.Timeout | null = null;
-  // True while the controller is processing the post-action transitions
-  // (prevents re-entering on a second click between WAITING -> RECAPTURING)
   private processing: boolean = false;
-  // Monotonic generation counter for the active advanceFromStep run. cancel()
-  // bumps it; advanceFromStep captures its value on entry and re-checks at
-  // every await point — if the captured value no longer matches, the user
-  // cancelled mid-flight and we abort BEFORE the screenshot capture / AI
-  // round-trip. Without this, a screen-click that races with the user's
-  // Cancel button would keep the pipeline running and the AI would receive
-  // a "User clicked at..." follow-up the user never wanted to send.
   private runGeneration: number = 0;
 
   constructor(private deps: GuideControllerDeps) {}
@@ -188,7 +167,6 @@ export class GuideController {
   async cancel(): Promise<void> {
     if (this.phase === "idle") return;
     this.runGeneration += 1;
-    this.deps.mouseHook.stop();
     this.deps.overlay.hide();
     this.clearInactivityTimer();
     this.processing = false;
@@ -303,13 +281,8 @@ export class GuideController {
 
   private handleComplete(p: GuideCompletePayload): void {
     if (this.phase === "idle") {
-      // The AI emitted guide_complete with no active guide — usually a
-      // misread of "start over" / "restart" requests where the AI tries to
-      // close a session that's already closed. Reject as a no-op so the
-      // user isn't confused by an empty completion message in chat.
       throw new Error("guide_complete rejected — no active guide. The AI should emit guide_offer to begin a new walkthrough.");
     }
-    this.deps.mouseHook.stop();
     this.deps.overlay.hide();
     this.clearInactivityTimer();
     this.phase = "idle";
@@ -320,7 +293,6 @@ export class GuideController {
   }
 
   private handleAbort(p: GuideAbortPayload): void {
-    this.deps.mouseHook.stop();
     this.deps.overlay.hide();
     this.clearInactivityTimer();
     this.phase = "idle";
@@ -328,14 +300,6 @@ export class GuideController {
     this.pendingAction = null;
     this.processing = false;
     this.deps.onStateUpdate({ phase: "idle", finalMessage: p.reason });
-  }
-
-  private onMouseClick(e: ClickEvent): void {
-    if (this.phase !== "step-active") return;
-    // Coalesce rapid clicks: just store the latest one. advanceFromStep
-    // is idempotent due to processing flag.
-    this.recordPendingAction({ kind: "click", x: e.x, y: e.y });
-    void this.advanceFromStep();
   }
 
   private recordPendingAction(
@@ -348,17 +312,10 @@ export class GuideController {
     if (this.processing) return;
     if (!this.currentStep) return;
     if (!this.pendingAction) return;
-    // Capture the run generation; cancel() bumps it. Re-check at every
-    // await point so a Cancel that races with this run aborts before any
-    // expensive or AI-visible work (screenshot, sendFollowUp).
     const myGen = ++this.runGeneration;
     const isCurrent = () => this.runGeneration === myGen && this.phase !== "idle";
     this.processing = true;
     this.clearInactivityTimer();
-    this.deps.mouseHook.stop();
-    // Hide the owl the moment the user responds — they've already given us
-    // their answer, so the pointer is no longer needed and would otherwise
-    // linger through the waitMs sleep, the recapture, and the AI round-trip.
     this.deps.overlay.hide();
     const waitMs = this.currentStep.waitMs;
     const action = this.pendingAction;

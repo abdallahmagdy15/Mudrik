@@ -75,6 +75,22 @@ export function hideOverlay(): void {
   }, 320);
 }
 
+export function showOverlayLoading(): void {
+  (async () => {
+    if (!overlayWin || overlayWin.isDestroyed()) {
+      overlayWin = await createOverlayWindow();
+    }
+    overlayWin.webContents.send("guide-overlay-loading-show");
+    overlayWin.showInactive();
+  })();
+}
+
+export function hideOverlayLoading(): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.webContents.send("guide-overlay-loading-hide");
+  overlayWin.hide();
+}
+
 export function destroyOverlay(): void {
   if (!overlayWin || overlayWin.isDestroyed()) return;
   overlayWin.destroy();
