@@ -16,8 +16,8 @@ declare global {
     guideOverlay?: {
       onShow: (h: (p: ShowPayload) => void) => void;
       onHide: (h: () => void) => void;
-      onLoadingShow: (h: () => void) => void;
-      onLoadingHide: (h: () => void) => void;
+  onLoadingShow: (h: (payload: { text?: string }) => void) => void;
+  onLoadingHide: (h: () => void) => void;
     };
   }
 }
@@ -85,7 +85,10 @@ window.guideOverlay?.onHide(() => {
   owl.classList.remove("visible", "bob");
 });
 
-window.guideOverlay?.onLoadingShow(() => {
+window.guideOverlay?.onLoadingShow((payload) => {
+  const textEl = loading.querySelector(".loading-text") as HTMLElement;
+  if (payload.text) textEl.textContent = payload.text;
+  else textEl.textContent = "Scanning screen…";
   loading.classList.add("active");
 });
 

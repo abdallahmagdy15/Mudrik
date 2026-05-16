@@ -376,9 +376,6 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
   lastCursorX = cursorPos.x;
   lastCursorY = cursorPos.y;
 
-  // Capture the target app's HWND BEFORE showing the panel. Once the panel
-  // is visible and focused, getActiveHwnd() returns Mudrik's own HWND and
-  // the PS script walks Mudrik's tree instead of the target app.
   let targetHwnd = 0;
   try {
     if (mainWindow && mainWindow.isVisible()) {
@@ -391,54 +388,69 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
     log(`HWND capture failed (${err?.message || err}) — proceeding without`);
   }
 
-  // Show panel IMMEDIATELY with a loading indicator, then capture context
-  // in the background. Without this the user sees nothing for 1-4 seconds
-  // while PowerShell + UIA COM round-trips run — feels broken.
-  showPanelWithLoading(cursorPos);
+  // Start UIA immediately. Target HWND is locked — panel visible/not doesn't matter.
+  const ctxPromise = readContextAtPoint(cursorPos.x, cursorPos.y, targetHwnd);
 
-  const contextPromise = readContextAtPoint(cursorPos.x, cursorPos.y, targetHwnd);
-  // When autoAttachImage is on, capture a full-screen screenshot in parallel
-  // with the UIA context read. The panel isn't visible yet so the capture is
-  // clean. The screenshot will be attached to the first prompt in this session.
-  const imagePromise = config.autoAttachImage
-    ? ((): Promise<string | null> => {
+  if (config.autoAttachImage) {
+    // Screenshot must capture CLEAN desktop (no Mudrik panel in pixels).
+    // Show loading overlay, capture, then reveal panel. UIA races independently.
+    import("./guide/guide-overlay").then(async (overlayMod) => {
+      let imagePath: string | null = null;
+      try {
+        overlayMod.showOverlayLoading();
         const { screen: electronScreen } = require("electron") as typeof import("electron");
         const display = electronScreen.getDisplayNearestPoint(cursorPos);
         const sf = display.scaleFactor || 1;
         const b = display.bounds;
-        return captureAndOptimize(
-          Math.round(b.x * sf),
-          Math.round(b.y * sf),
-          Math.round((b.x + b.width) * sf),
-          Math.round((b.y + b.height) * sf)
+        imagePath = await captureAndOptimize(
+          Math.round(b.x * sf), Math.round(b.y * sf),
+          Math.round((b.x + b.width) * sf), Math.round((b.y + b.height) * sf)
         );
-      })()
-    : Promise.resolve(null);
-
-  Promise.all([contextPromise, imagePromise]).then(
-    ([{ element, surrounding, windowInfo, windowTree, visibleWindows }, imagePath]) => {
-      if (myActivation !== activationSeq) {
-        log(`Pointer activation #${myActivation} superseded by #${activationSeq} — discarding stale read`);
-        if (imagePath) cleanupImage(imagePath);
-        return;
+      } catch (e: any) {
+        log(`auto-attach screenshot failed: ${e?.message || e}`);
       }
-      log(`Context read: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", surrounding=${surrounding.length}, windowTree=${windowTree?.length || 0}, visibleWindows=${visibleWindows?.length || 0}, window="${windowInfo?.title || ""}" app="${windowInfo?.processName || ""}"`);
-      const context: ContextPayload = { element, surrounding, cursorPos, windowInfo, windowTree, visibleWindows };
-      if (imagePath) {
-        attachAutoScreenshot(imagePath);
-        context.hasScreenshot = true;
-      }
+      overlayMod.hideOverlayLoading();
+      showPanelWithLoading(cursorPos);
+      // Wait for UIA, then deliver context WITH screenshot
+      ctxPromise.then((ctx) => {
+        if (myActivation !== activationSeq) {
+          if (imagePath) cleanupImage(imagePath);
+          return;
+        }
+        const context: ContextPayload = { ...ctx, cursorPos };
+        if (imagePath) {
+          attachAutoScreenshot(imagePath);
+          context.hasScreenshot = true;
+        }
+        setContext(context);
+        showElementHighlight(ctx.element.bounds);
+        updatePanelContext(context);
+      }).catch((err) => {
+        if (myActivation !== activationSeq) return;
+        log(`ERROR reading context: ${err.message}`);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.CONTEXT_LOADING, false);
+        }
+      });
+    }).catch(() => {
+      showPanelWithLoading(cursorPos);
+    });
+  } else {
+    showPanelWithLoading(cursorPos);
+    ctxPromise.then((ctx) => {
+      if (myActivation !== activationSeq) return;
+      const context: ContextPayload = { ...ctx, cursorPos };
       setContext(context);
-      showElementHighlight(element.bounds);
+      showElementHighlight(ctx.element.bounds);
       updatePanelContext(context);
-    }
-  ).catch((err) => {
-    log(`ERROR reading context: ${err.message}`);
-    // Still dismiss the loading state so the panel isn't stuck
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(IPC.CONTEXT_LOADING, false);
-    }
-  });
+    }).catch((err) => {
+      if (myActivation !== activationSeq) return;
+      log(`ERROR reading context: ${err.message}`);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC.CONTEXT_LOADING, false);
+      }
+    });
+  }
 }
 
 function handleAreaActivate(): void {

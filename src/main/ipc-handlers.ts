@@ -416,30 +416,29 @@ async function initGuideControllerIfNeeded(): Promise<void> {
           actionDesc.kind === "click"
             ? { x: actionDesc.x, y: actionDesc.y }
             : ctxReader.getCursorPos();
-        // Run screenshot + UIA in parallel — both take ~500-1500ms via
-        // PowerShell, so saving a sequential leg cuts total step latency.
-        const [shot, ctx] = await Promise.all([
-          visionMod.captureAndOptimize(
-            Math.round(display.bounds.x * sf),
-            Math.round(display.bounds.y * sf),
-            Math.round((display.bounds.x + display.bounds.width) * sf),
-            Math.round((display.bounds.y + display.bounds.height) * sf),
-          ).catch((e) => { log(`guide follow-up: screenshot failed (${e?.message || e})`); return null as string | null; }),
-          ctxReader.readContextAtPoint(point.x, point.y).catch((e) => {
-            log(`guide follow-up: UIA capture failed (${e?.message || e}) — falling back to cached context`);
-            return null;
-          }),
-        ]);
+        // Run screenshot + UIA in parallel. Show panel as soon as the
+        // CLEAN screenshot is captured — don't wait for UIA to finish.
+        // UIA locks onto the target HWND, so panel visibility doesn't
+        // affect its results. Panel appears with internal loading state
+        // until updatePanelContext delivers the real data.
+        const shotPromise = visionMod.captureAndOptimize(
+          Math.round(display.bounds.x * sf),
+          Math.round(display.bounds.y * sf),
+          Math.round((display.bounds.x + display.bounds.width) * sf),
+          Math.round((display.bounds.y + display.bounds.height) * sf),
+        ).catch((e: any) => { log(`guide follow-up: screenshot failed (${e?.message || e})`); return null as string | null; });
+        const ctxPromise = ctxReader.readContextAtPoint(point.x, point.y).catch((e: any) => {
+          log(`guide follow-up: UIA capture failed (${e?.message || e}) — falling back to cached context`);
+          return null;
+        });
+        // Reveal panel the moment the clean screenshot is captured
+        shotPromise.then(() => {
+          overlayMod.hideOverlayLoading();
+          if (!win.isDestroyed()) win.show();
+        });
+        const [shot, ctx] = await Promise.all([shotPromise, ctxPromise]);
         imagePath = shot;
         fresh = ctx;
-        overlayMod.hideOverlayLoading();
-        // Always re-show after capture so the AI's follow-up response is
-        // visible. The button mousedown already pre-hides the panel (so
-        // wasVisible is false here) — without this unconditional show,
-        // the panel stays hidden and the user never sees the AI's reply.
-        if (!win.isDestroyed()) {
-          win.show();
-        }
         log(`guide follow-up: capture complete — screenshot=${imagePath ? "yes" : "no"} uia=${fresh ? `yes (active="${fresh.windowInfo?.title || "?"}")` : "no"}`);
       } catch (err: any) {
         log(`guide follow-up: capture path errored (${err?.message || err}) — proceeding without`);
@@ -1296,9 +1295,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     }
 
     // For pointer / no-context, always grab a FRESH full-screen capture
-    // with the panel hidden. Reusing the pointer flow's focus crop gave the
-    // user a confusing "this isn't what I just selected" experience; a
-    // fresh hide → capture → show round-trip matches user expectation.
+    // with the panel hidden. Show overlay loading spinner while capturing.
     log("ATTACH_SCREENSHOT — capturing full screen (fresh, panel hidden)");
     try {
       const { screen: electronScreen } = require("electron");
@@ -1314,14 +1311,20 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const panelWasVisible = !!(win && !win.isDestroyed() && win.isVisible());
       if (panelWasVisible && win) {
         win.hide();
-        // Give the Windows compositor a moment to actually remove the
-        // frame before we call GDI+ CopyFromScreen. 80ms is empirically
-        // enough on Win10/11; shorter occasionally leaves ghost pixels.
         await new Promise((r) => setTimeout(r, 80));
       }
 
+      // Show overlay loading spinner so the user knows a screenshot is being taken
+      import("./guide/guide-overlay").then((overlayMod) => {
+        overlayMod.showOverlayLoading("Capturing screenshot…");
+      });
+
       const imagePath = await captureAndOptimize(x1, y1, x2, y2);
 
+      // Hide overlay, re-show panel
+      import("./guide/guide-overlay").then((overlayMod) => {
+        overlayMod.hideOverlayLoading();
+      });
       if (panelWasVisible && win && !win.isDestroyed()) {
         win.show();
       }

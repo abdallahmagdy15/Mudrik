@@ -75,12 +75,12 @@ export function hideOverlay(): void {
   }, 320);
 }
 
-export function showOverlayLoading(): void {
+export function showOverlayLoading(text?: string): void {
   (async () => {
     if (!overlayWin || overlayWin.isDestroyed()) {
       overlayWin = await createOverlayWindow();
     }
-    overlayWin.webContents.send("guide-overlay-loading-show");
+    overlayWin.webContents.send("guide-overlay-loading-show", { text });
     overlayWin.showInactive();
   })();
 }
