@@ -64,6 +64,7 @@ export async function showOverlay(target: Bounds, fromCursor: { x: number; y: nu
   }
   overlayWin.webContents.send("guide-overlay-show", { target, fromCursor });
   overlayWin.showInactive();
+  overlayWin.moveTop();
 }
 
 export function hideOverlay(): void {
@@ -82,6 +83,7 @@ export function showOverlayLoading(text?: string): void {
     }
     overlayWin.webContents.send("guide-overlay-loading-show", { text });
     overlayWin.showInactive();
+    overlayWin.moveTop();
   })();
 }
 
