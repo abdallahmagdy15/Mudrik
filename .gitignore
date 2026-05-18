@@ -11,7 +11,5 @@ scripts/out/
 # Local-only working dirs (planning notes, scratch, agent state)
 .claude/
 .local/
-.impeccable/
-.opencode/
 docs/superpowers/
 docs/ROADMAP.md
