@@ -1132,25 +1132,29 @@ export async function executeHeavyAction(action: Action, ctx: HeavyExecContext):
         const guideBounds = await resolveElementBounds(action.selector, autoId, boundsHint);
         if (!guideBounds) {
           if (storedBounds) {
-            const cx = Math.round(storedBounds.x + storedBounds.width / 2);
-            const cy = Math.round(storedBounds.y + storedBounds.height / 2);
-            await smoothMoveCursorTo(cx, cy);
-            if (!action.autoClick) {
-              await showPulseHighlight(storedBounds);
-            } else {
+            if (action.autoClick) {
+              const cx = Math.round(storedBounds.x + storedBounds.width / 2);
+              const cy = Math.round(storedBounds.y + storedBounds.height / 2);
+              await smoothMoveCursorTo(cx, cy);
               robot.mouseClick();
+            } else {
+              const { showOverlay, hideOverlay } = await import("../guide/guide-overlay");
+              await showOverlay(storedBounds, robot.getMousePos());
+              setTimeout(() => hideOverlay(), 3000);
             }
             return { success: true };
           }
           return { success: false, error: "Could not find element to guide to" };
         }
-        const cx = Math.round(guideBounds.x + guideBounds.width / 2);
-        const cy = Math.round(guideBounds.y + guideBounds.height / 2);
-        await smoothMoveCursorTo(cx, cy);
         if (action.autoClick) {
+          const cx = Math.round(guideBounds.x + guideBounds.width / 2);
+          const cy = Math.round(guideBounds.y + guideBounds.height / 2);
+          await smoothMoveCursorTo(cx, cy);
           robot.mouseClick();
         } else {
-          await showPulseHighlight(guideBounds);
+          const { showOverlay, hideOverlay } = await import("../guide/guide-overlay");
+          await showOverlay(guideBounds, robot.getMousePos());
+          setTimeout(() => hideOverlay(), 3000);
         }
         return { success: true };
       }
