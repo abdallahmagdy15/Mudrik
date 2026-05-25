@@ -6,7 +6,7 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[CTX-READER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-read-context-v21.ps1";
+const SCRIPT_NAME = "hoverbuddy-read-context-v31-chromium-screenshot.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
@@ -24,13 +24,19 @@ function getScriptContent(): string {
   lines.push('Add-Type -TypeDefinition @"');
   lines.push('using System;');
   lines.push('using System.Runtime.InteropServices;');
-  lines.push('public class DpiHelper {');
-  lines.push('    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();');
-  lines.push('    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();');
-  lines.push('    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr result);');
-  lines.push('    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);');
-  lines.push('    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWnd, IntPtr lpEnumFunc, IntPtr lParam);');
-  lines.push('}');
+lines.push('public class DpiHelper {');
+lines.push('    [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();');
+lines.push('    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();');
+lines.push('    [DllImport("user32.dll", EntryPoint="SendMessageTimeoutW", CharSet=CharSet.Unicode)] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeoutMs, out IntPtr lResult);');
+lines.push('    [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);');
+lines.push('    [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);');
+lines.push('    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr hWndParent, EnumWindowsProc lpEnumFunc, IntPtr lParam);');
+lines.push('    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);');
+lines.push('    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);');
+lines.push('    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);');
+lines.push('    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);');
+lines.push('    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }');
+lines.push('}');
   lines.push('"@');
   lines.push('[DpiHelper]::SetProcessDPIAware() | Out-Null');
   lines.push('$ErrorActionPreference = "Stop"');
@@ -54,14 +60,8 @@ function getScriptContent(): string {
   lines.push('    $UiaRootObjectId = [IntPtr](-25)');
   lines.push('    $OBJID_CLIENT = [IntPtr](-4)');
   lines.push('    $r = [IntPtr]::Zero');
-  // SMTO_ABORTIFHUNG=2 — never hang if the target process is busy
   lines.push('    [DpiHelper]::SendMessageTimeout($hwnd, $WM_GETOBJECT, [IntPtr]::Zero, $UiaRootObjectId, 0x0002, 200, [ref]$r) | Out-Null');
   lines.push('    [DpiHelper]::SendMessageTimeout($hwnd, $WM_GETOBJECT, [IntPtr]::Zero, $OBJID_CLIENT, 0x0002, 200, [ref]$r) | Out-Null');
-  lines.push('    # Also send to the top-level Chromium browser HWND if different from the')
-  lines.push('    # foreground (Chromium hosts content in child windows; the renderer that');
-  lines.push('    # owns the tree may not be the foreground frame).');
-  lines.push('    $sb = New-Object System.Text.StringBuilder 256');
-  lines.push('    [DpiHelper]::GetClassName($hwnd, $sb, 256) | Out-Null');
   lines.push('    return $true');
   lines.push('}');
   lines.push('');
@@ -104,25 +104,111 @@ function getScriptContent(): string {
   lines.push('        return $sum');
   lines.push('    } catch { return 0 }');
   lines.push('}');
-  lines.push('$POPULATED_THRESHOLD = 10');
+  // Chromium wake-up detection. A plain element count > 10 is NOT enough:
+  // Chromium browser frames (tab bar, address bar, toolbar buttons) already
+  // expose 15-40 UIA elements even when the PAGE accessibility tree is
+  // completely empty. We must look for ControlType.Document (the page content
+  // container) to know the renderer actually populated. This is the same
+  // heuristic Narrator/JAWS use to decide whether to start reading.
+  lines.push('function HasDocumentElement($node) {');
+  lines.push('    try {');
+  lines.push('        $cond = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElementIdentifiers]::ControlTypeProperty, [System.Windows.Automation.ControlType]::Document)');
+  lines.push('        $found = $node.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)');
+  lines.push('        return ($found -ne $null)');
+  lines.push('    } catch { return $false }');
+  lines.push('}');
+  lines.push('$isChromium = $false');
+  lines.push('try {');
+  lines.push('    $sbCls = New-Object System.Text.StringBuilder 256');
+  lines.push('    [DpiHelper]::GetClassName($fgHwnd, $sbCls, 256) | Out-Null');
+  lines.push('    $cls = $sbCls.ToString()');
+  lines.push('    if ($cls -like "*Chrome*" -or $cls -like "*Mozilla*" -or $cls -like "*CEF*" -or $cls -like "*Edge*") { $isChromium = $true }');
+  lines.push('} catch {}');
   lines.push('$root_for_probe = $null');
   lines.push('try { if ($fgHwnd -ne [IntPtr]::Zero) { $root_for_probe = [System.Windows.Automation.AutomationElement]::FromHandle($fgHwnd) } } catch {}');
-  lines.push('$initialCount = if ($root_for_probe) { ShallowCount $root_for_probe } else { 0 }');
-  lines.push('if ($initialCount -le $POPULATED_THRESHOLD) {');
-  lines.push('    WakeAccessibility $fgHwnd | Out-Null');
-  lines.push('    $lastCount = $initialCount');
-  lines.push('    $elapsed = 0');
-  lines.push('    $POLL_MS = 100');
-  lines.push('    $CAP_MS = 2000');
-  lines.push('    while ($elapsed -lt $CAP_MS) {');
-  lines.push('        Start-Sleep -Milliseconds $POLL_MS');
-  lines.push('        $elapsed += $POLL_MS');
-  lines.push('        $current = if ($root_for_probe) { ShallowCount $root_for_probe } else { 0 }');
-  lines.push('        if ($current -gt $POPULATED_THRESHOLD -and $current -eq $lastCount) { break }');
-  lines.push('        $lastCount = $current');
-  lines.push('    }');
-  lines.push('}');
-  lines.push('');
+lines.push('$needsWake = $true');
+lines.push('if ($root_for_probe) {');
+lines.push('    if ($isChromium) {');
+// Always wake Chromium — even when the main page Document is already
+// populated. Iframe renderers (OOPIF) run in separate child windows and
+// each needs its own WM_GETOBJECT to populate. The main Document being
+// alive does NOT mean the iframe content is accessible. Wake is cheap:
+// SendMessageTimeout with SMTO_ABORTIFHUNG+0ms returns instantly. EXPERIMENT v29:
+lines.push('        $needsWake = $true');
+lines.push('    } else {');
+lines.push('        $needsWake = (ShallowCount $root_for_probe) -le 10');
+lines.push('    }');
+lines.push('}');
+lines.push('if ($needsWake) {');
+lines.push('    WakeAccessibility $fgHwnd | Out-Null');
+lines.push('    $lastCount = if ($root_for_probe) { ShallowCount $root_for_probe } else { 0 }');
+lines.push('    $lastHasDoc = if ($root_for_probe) { HasDocumentElement $root_for_probe } else { $false }');
+lines.push('    $elapsed = 0');
+lines.push('    $POLL_MS = 100');
+lines.push('    $CAP_MS = 2500');
+lines.push('    while ($elapsed -lt $CAP_MS) {');
+lines.push('        Start-Sleep -Milliseconds $POLL_MS');
+lines.push('        $elapsed += $POLL_MS');
+lines.push('        $currentCount = if ($root_for_probe) { ShallowCount $root_for_probe } else { 0 }');
+lines.push('        $currentHasDoc = if ($root_for_probe) { HasDocumentElement $root_for_probe } else { $false }');
+lines.push('        if ($isChromium) {');
+lines.push('            if ($currentHasDoc -and $currentHasDoc -eq $lastHasDoc -and $currentCount -gt 0) { break }');
+lines.push('        } else {');
+lines.push('            if ($currentCount -gt 10 -and $currentCount -eq $lastCount) { break }');
+lines.push('        }');
+lines.push('        $lastCount = $currentCount');
+lines.push('        $lastHasDoc = $currentHasDoc');
+lines.push('    }');
+lines.push('}');
+lines.push('');
+// ========== OOPIF CHILD-IFRAME EXPERIMENT (v29) ==========
+// After waking the main Chromium HWND, enumerate all child HWNDs
+// of the main window. OOPIF renderers run as child windows under
+// the parent Chromium frame. Each needs its own WM_GETOBJECT to
+// populate its UIA accessibility tree.
+// IMPORTANT: OOPIF children have DIFFERENT PIDs from the parent
+// (out-of-process), so we must NOT filter by PID — use child-enum.
+lines.push('if ($isChromium) {');
+lines.push('    try {');
+lines.push('        $childHwnds = New-Object System.Collections.ArrayList');
+lines.push('        $enumCallback = [DpiHelper+EnumWindowsProc] { param([IntPtr]$hwnd, [IntPtr]$lParam)');
+lines.push('            try { [void]$childHwnds.Add($hwnd) } catch {}');
+lines.push('            return $true');
+lines.push('        }');
+lines.push('        [DpiHelper]::EnumChildWindows($fgHwnd, $enumCallback, [IntPtr]::Zero) | Out-Null');
+lines.push('        $script:extraCount = 0');
+lines.push('        $script:extraDetails = @()');
+lines.push('        foreach ($ch in $childHwnds) {');
+lines.push('            if ($ch -eq [IntPtr]::Zero) { continue }');
+lines.push('            if (-not [DpiHelper]::IsWindowVisible($ch)) { continue }');
+lines.push('            $rc2 = New-Object DpiHelper+RECT');
+lines.push('            try { if (-not [DpiHelper]::GetWindowRect($ch, [ref]$rc2)) { continue } } catch { continue }');
+lines.push('            if (($rc2.Right - $rc2.Left) -le 0 -or ($rc2.Bottom - $rc2.Top) -le 0) { continue }');
+lines.push('            try { WakeAccessibility $ch | Out-Null } catch {}');
+lines.push('            try {');
+lines.push('                $childRoot = [System.Windows.Automation.AutomationElement]::FromHandle($ch)');
+lines.push('                if ($childRoot -and $childRoot.Current.ControlType.ProgrammaticName -eq "ControlType.Window") {');
+lines.push('                    $preCount = $script:treeElements.Count');
+lines.push('                    CollectWindowTree $childRoot 0 15 $null');
+lines.push('                    $newCount = $script:treeElements.Count');
+lines.push('                    $extra = $newCount - $preCount');
+lines.push('                    if ($extra -gt 0) {');
+lines.push('                        $script:extraCount += $extra');
+lines.push('                        for ($j = $preCount; $j -lt $newCount; $j++) {');
+lines.push('                            $script:treeElements[$j]["_oopif"] = $true');
+lines.push('                        }');
+lines.push('                    }');
+lines.push('                    $childCls = ""');
+lines.push('                    try { $childClsBuf = New-Object System.Text.StringBuilder 256; [DpiHelper]::GetClassName($ch, $childClsBuf, 256) | Out-Null; $childCls = $childClsBuf.ToString() } catch {}');
+lines.push('                    $script:extraDetails += @{ hwnd=[int]$ch; class=$childCls; rect=@{x=[int]$rc2.Left;y=[int]$rc2.Top;w=[int]($rc2.Right-$rc2.Left);h=[int]($rc2.Bottom-$rc2.Top)}; extraElements=$extra }');
+lines.push('                }');
+lines.push('            } catch {}');
+lines.push('        }');
+lines.push('        $result["_oopifExtra"] = $script:extraCount');
+lines.push('        $result["_oopifDetails"] = $script:extraDetails');
+lines.push('    } catch {}');
+lines.push('}');
+lines.push('');
   // Per-element text caps. TextPattern in particular was capped at 500
   // chars which is way too short to answer "what does this doc say".
   // Bumped to 15000 — covers most editor / Notepad / Word / VS Code
@@ -134,24 +220,11 @@ function getScriptContent(): string {
   // full content (URLs, addresses, long descriptions) should arrive
   // intact. The full payload size is still bounded by the 500-element
   // tree cap + the wall-clock walk budget.
-  lines.push('$TEXT_PATTERN_CAP = 15000');
   lines.push('function ElDict($el) {');
   lines.push('    $dict = @{}');
   lines.push('    try { $dict["name"] = $el.Current.Name } catch { $dict["name"] = "" }');
   lines.push('    try { $dict["type"] = $el.Current.ControlType.ProgrammaticName } catch { $dict["type"] = "Unknown" }');
-  lines.push('    try {');
-  lines.push('        $val = $null');
-  lines.push('        $ok = $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$val)');
-  lines.push('        if ($ok -and $val) {');
-  lines.push('            $dict["value"] = $val.Current.Value');
-  lines.push('        }');
-  lines.push('        else {');
-  lines.push('            $txt = $null');
-  lines.push('            $ok2 = $el.TryGetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern, [ref]$txt)');
-  lines.push('            if ($ok2 -and $txt) { try { $dict["value"] = $txt.DocumentRange.GetText($TEXT_PATTERN_CAP) } catch { $dict["value"] = "" } }');
-  lines.push('            else { $dict["value"] = "" }');
-  lines.push('        }');
-  lines.push('    } catch { $dict["value"] = "" }');
+  lines.push('    $dict["value"] = ""');
   lines.push('    try {');
   lines.push('        $r = $el.Current.BoundingRectangle');
   lines.push('        $dict["bounds"] = @{ x = [int]$r.X; y = [int]$r.Y; width = [int]$r.Width; height = [int]$r.Height }');
@@ -191,7 +264,19 @@ function getScriptContent(): string {
   lines.push('    return $deepVal');
   lines.push('}');
   lines.push('');
-  lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom")');
+  lines.push('function GetChildren($el) {');
+  lines.push('    $children = @()');
+  lines.push('    try {');
+  lines.push('        $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetFirstChild($el)');
+  lines.push('        while ($child -ne $null) {');
+  lines.push('            $children += $child');
+  lines.push('            $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetNextSibling($child)');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('    return $children');
+  lines.push('}');
+  lines.push('');
+  lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom", "ControlType.Document")');
   lines.push('');
   lines.push('function IsBoringContainer($el) {');
   lines.push('    $type = ""');
@@ -230,7 +315,7 @@ function getScriptContent(): string {
   lines.push('        if (-not $isBoring) { return $el }');
   lines.push('    }');
   lines.push('    try {');
-  lines.push('        $children = $el.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        $children = GetChildren $el');
   lines.push('        $bestChild = $null');
   lines.push('        $bestScore = [double]::MaxValue');
   lines.push('        foreach ($child in $children) {');
@@ -314,7 +399,7 @@ function getScriptContent(): string {
   // as UIA elements, each with its own children — even with caps, the
   // walk can chew several seconds of UIA COM round-trips. Cap total walk
   // time so Alt+Space stays bounded.
-  lines.push('$script:TREE_BUDGET_MS = 2500');
+  lines.push('$script:TREE_BUDGET_MS = 5000');
   // Element-count cap. Raised from 500 to 2000 (user decision 2026-05-13)
   // for Excel-style apps where the user wants the full sheet visible —
   // not just cells around the cursor. Other apps stop naturally at their
@@ -341,7 +426,7 @@ function getScriptContent(): string {
   lines.push('    if ($script:treeElements.Count -ge $script:ELEMENT_CAP) { return }');
   lines.push('    if (((Get-Date) - $script:treeStart).TotalMilliseconds -gt $script:TREE_BUDGET_MS) { return }');
   lines.push('    try {');
-  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        $children = GetChildren $root');
   lines.push('        foreach ($child in $children) {');
   lines.push('            if ($script:treeElements.Count -ge $script:ELEMENT_CAP) { return }');
   lines.push('            if (((Get-Date) - $script:treeStart).TotalMilliseconds -gt $script:TREE_BUDGET_MS) { return }');
@@ -355,9 +440,13 @@ function getScriptContent(): string {
   // Empty-scaffolding skip: type is a wrapper (Pane/Group/Custom) AND
   // it has no name, no value, no automationId, AND it is NOT the
   // user's cursor target (target always included regardless).
+  // NEVER skip Document elements — they represent iframe containers
+  // and must always be visible so we can detect empty iframes.
   lines.push('                $childType = $d["type"]');
   lines.push('                $isScaffolding = $false');
-  lines.push('                foreach ($st in $script:scaffoldingTypes) { if ($childType -eq $st) { $isScaffolding = $true; break } }');
+  lines.push('                if ($childType -ne "ControlType.Document") {');
+  lines.push('                    foreach ($st in $script:scaffoldingTypes) { if ($childType -eq $st) { $isScaffolding = $true; break } }');
+  lines.push('                }');
   lines.push('                $isEmpty = (-not $d["name"]) -and (-not $d["value"]) -and (-not $d["autoId"])');
   lines.push('                $isTarget = $d.ContainsKey("isTarget") -and $d["isTarget"]');
   lines.push('                if (-not ($isScaffolding -and $isEmpty) -or $isTarget) {');
@@ -414,6 +503,8 @@ function getScriptContent(): string {
   lines.push('    $element = FindDeepestElement $rawElement $X $Y 0');
   lines.push('');
   lines.push('    $result = @{}');
+  lines.push('    $result["_isChromium"] = $isChromium');
+  lines.push('    $result["_windowClass"] = $cls');
   lines.push('    $result["element"] = ElDict $element');
   lines.push('    $deepValue = GetDeepValue $element');
   lines.push('    if ($deepValue) { $result["element"]["value"] = $deepValue }');
@@ -484,7 +575,7 @@ export async function readContextAtPoint(
   x: number,
   y: number,
   presetHwnd: number = 0
-): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string; hwnd?: number }; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
+): Promise<{ element: UIElement; surrounding: UIElement[]; windowInfo?: { title: string; processName: string; processPath: string; hwnd?: number }; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[]; shouldAutoScreenshot?: boolean }> {
   log(`readContextAtPoint called: x=${x}, y=${y}, presetHwnd=${presetHwnd}`);
 
   let targetHwnd = presetHwnd;
@@ -503,10 +594,10 @@ export async function readContextAtPoint(
       readForegroundWindow(),
     ]);
 
-    const { element, surrounding, windowTree, visibleWindows } = ctxResult;
+    const { element, surrounding, windowTree, visibleWindows, shouldAutoScreenshot } = ctxResult;
     const windowInfo = winResult ? { ...winResult, hwnd: targetHwnd || undefined } : undefined;
     log(`Context read: element type="${element.type}" name="${element.name}" process="${winResult?.processName || ""}" title="${winResult?.title || ""}" hwnd=${targetHwnd}`);
-    return { element, surrounding, windowInfo, windowTree, visibleWindows };
+    return { element, surrounding, windowInfo, windowTree, visibleWindows, shouldAutoScreenshot };
   } catch (err: any) {
     log(`readContextAtPoint FAILED: ${err.message}`);
     const { element, surrounding } = makeError(x, y, err.message || String(err));
@@ -514,7 +605,7 @@ export async function readContextAtPoint(
   }
 }
 
-async function readElementAtPoint(x: number, y: number, presetHwnd: number = 0): Promise<{ element: UIElement; surrounding: UIElement[]; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[] }> {
+async function readElementAtPoint(x: number, y: number, presetHwnd: number = 0): Promise<{ element: UIElement; surrounding: UIElement[]; windowTree?: UIElement[]; visibleWindows?: VisibleWindow[]; shouldAutoScreenshot?: boolean }> {
   const startTime = Date.now();
   try {
     const script = ensureScriptFile();
@@ -583,8 +674,15 @@ const element = dotNetToUIElement(parsed.element);
         })).filter((w: VisibleWindow) => !w.isMinimized && w.bounds.width > 0 && w.bounds.height > 0)
       : [];
 
-    log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", drilled=${!!parsed.element?._drilledFromContainer}, windowTree=${windowTree.length} elements, visibleWindows=${visibleWindows.length}, automationId="${element.automationId || ""}", windowTitle="${element.windowTitle || ""}"`);
-    return { element, surrounding: rawSurrounding, windowTree, visibleWindows };
+    if (parsed._oopifExtra !== undefined) {
+      log(`OOPIF experiment: extraElements=${parsed._oopifExtra}, details=${JSON.stringify(parsed._oopifDetails || []).slice(0, 300)}`);
+    }
+
+    const isChromium = !!parsed._isChromium;
+    const windowClass = parsed._windowClass || "";
+    const shouldScreenshot = shouldAutoScreenshot(windowTree, isChromium);
+    log(`Context read success: element type="${element.type}" name="${element.name}" value="${String(element.value).slice(0, 80)}", drilled=${!!parsed.element?._drilledFromContainer}, windowTree=${windowTree.length} elements, visibleWindows=${visibleWindows.length}, automationId="${element.automationId || ""}", windowTitle="${element.windowTitle || ""}", isChromium=${isChromium}, windowClass="${windowClass}", shouldAutoScreenshot=${shouldScreenshot}`);
+    return { element, surrounding: rawSurrounding, windowTree, visibleWindows, shouldAutoScreenshot: shouldScreenshot };
   } catch (err: any) {
     log(`readElementAtPoint FAILED: ${err.message}`);
     return makeError(x, y, err.message || String(err));
@@ -672,6 +770,12 @@ function dotNetToUIElement(d: any): UIElement {
     parentChain: parentChain.length > 0 ? parentChain : undefined,
     windowTitle: d?.windowTitle || undefined,
   };
+}
+
+function shouldAutoScreenshot(tree: UIElement[], isChromium: boolean): boolean {
+  if (!tree || tree.length === 0) return true;
+  if (isChromium) return true;
+  return false;
 }
 
 function makeError(

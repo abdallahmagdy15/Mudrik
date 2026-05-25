@@ -11,7 +11,8 @@ Compact, high-signal notes for OpenCode sessions working in this repo. For full 
 - `npm run dev` — webpack watch mode. Re-run `electron .` manually to pick up main/preload changes; renderer changes hot-reload on window reload.
 - `npm test` — vitest, `src/**/*.test.ts` only. No linter or formatter is configured.
 - `npm run pack:dir` — unsigned unpackaged build (`release/win-unpacked/`). Faster than `dist` for manual QA.
-- `npx tsc --noEmit` — standalone typecheck. CI runs this **before** `npm run build`.
+- `npx tsc --noEmit -p .` — standalone typecheck. CI runs this **before** `npm run build`.
+- `npx vitest run <path>` — run a single test file (e.g. `src/main/action-executor.test.ts`).
 
 ## Architecture (the non-obvious parts)
 

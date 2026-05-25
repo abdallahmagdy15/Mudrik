@@ -5,7 +5,7 @@ import * as os from "os";
 import * as koffi from "koffi";
 import { createTrayWithShow, destroyTray } from "./tray";
 import { Config, DEFAULT_CONFIG, ContextPayload, IPC } from "../shared/types";
-import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly, attachAutoScreenshot } from "./ipc-handlers";
+import { registerIpcHandlers, setContext, setAreaContext, getLastContext, patchConfigPersistOnly, attachAutoScreenshot, setScreenshotMode, resetScreenshotMode } from "./ipc-handlers";
 import { startHotkeyListener, stopHotkeyListener, applyHotkeys } from "./hotkey";
 import { loadConfig, saveConfig, isFirstRun, ensureAgentInWorkingDir, migrateLegacyConfig } from "./config-store";
 import { initUpdater, stopUpdater } from "./updater";
@@ -369,6 +369,7 @@ let lastCursorY: number | null = null;
 // faster second read and overwrite the live context with stale data — the
 // user sees the panel "stuck on" the previous element.
 let activationSeq = 0;
+let lastShouldAutoScreenshot = false;
 
 async function handlePointerActivate(cursorPos: { x: number; y: number }): Promise<void> {
   const myActivation = ++activationSeq;
@@ -396,12 +397,18 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
     // Show loading overlay, capture, then reveal panel. UIA races independently.
     import("./guide/guide-overlay").then(async (overlayMod) => {
       let imagePath: string | null = null;
+      let capturedScreenWidth = 0;
+      let capturedScreenHeight = 0;
+      let capturedScaleFactor = 1;
       try {
         overlayMod.showOverlayLoading();
         const { screen: electronScreen } = require("electron") as typeof import("electron");
         const display = electronScreen.getDisplayNearestPoint(cursorPos);
         const sf = display.scaleFactor || 1;
         const b = display.bounds;
+        capturedScreenWidth = Math.round(b.width * sf);
+        capturedScreenHeight = Math.round(b.height * sf);
+        capturedScaleFactor = sf;
         imagePath = await captureAndOptimize(
           Math.round(b.x * sf), Math.round(b.y * sf),
           Math.round((b.x + b.width) * sf), Math.round((b.y + b.height) * sf)
@@ -417,10 +424,17 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
           if (imagePath) cleanupImage(imagePath);
           return;
         }
+        lastShouldAutoScreenshot = !!ctx.shouldAutoScreenshot;
         const context: ContextPayload = { ...ctx, cursorPos };
         if (imagePath) {
           attachAutoScreenshot(imagePath);
           context.hasScreenshot = true;
+          if (capturedScreenWidth > 0) {
+            const mode = ctx.shouldAutoScreenshot ? "chromium-auto" as const : "manual" as const;
+            setScreenshotMode(mode, { physicalWidth: capturedScreenWidth, physicalHeight: capturedScreenHeight, scaleFactor: capturedScaleFactor });
+          }
+        } else {
+          resetScreenshotMode();
         }
         setContext(context);
         showElementHighlight(ctx.element.bounds);
@@ -437,11 +451,48 @@ async function handlePointerActivate(cursorPos: { x: number; y: number }): Promi
     });
   } else {
     showPanelWithLoading(cursorPos);
-    ctxPromise.then((ctx) => {
+    ctxPromise.then(async (ctx) => {
       if (myActivation !== activationSeq) return;
       const context: ContextPayload = { ...ctx, cursorPos };
       setContext(context);
       showElementHighlight(ctx.element.bounds);
+
+      if (ctx.shouldAutoScreenshot) {
+        log(`Chromium/electron window detected — auto-capturing screenshot (UIA may miss web content)`);
+        try {
+          const wasVisible = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
+          if (wasVisible && mainWindow) {
+            mainWindow.hide();
+            await new Promise((r) => setTimeout(r, 80));
+          }
+          const { screen: electronScreen } = require("electron") as typeof import("electron");
+          const display = electronScreen.getDisplayNearestPoint(cursorPos);
+          const sf = display.scaleFactor || 1;
+          const b = display.bounds;
+          const screenshotPath = await captureAndOptimize(
+            Math.round(b.x * sf), Math.round(b.y * sf),
+            Math.round((b.x + b.width) * sf), Math.round((b.y + b.height) * sf)
+          );
+          if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+          }
+          if (screenshotPath) {
+            attachAutoScreenshot(screenshotPath);
+            setScreenshotMode("chromium-auto", { physicalWidth: Math.round(b.width * sf), physicalHeight: Math.round(b.height * sf), scaleFactor: sf });
+            context.hasScreenshot = true;
+            log(`Chromium screenshot attached: ${screenshotPath.slice(-40)} (screen ${Math.round(b.width * sf)}x${Math.round(b.height * sf)} physical @${sf}x)`);
+          } else {
+            log(`Chromium screenshot capture returned null`);
+          }
+        } catch (err: any) {
+          log(`Chromium screenshot fallback failed: ${err?.message || err}`);
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+        }
+      } else {
+        resetScreenshotMode();
+      }
+      lastShouldAutoScreenshot = !!ctx.shouldAutoScreenshot;
+
       updatePanelContext(context);
     }).catch((err) => {
       if (myActivation !== activationSeq) return;
@@ -470,11 +521,8 @@ function handleAreaActivate(): void {
     const midX = (px1 + px2) / 2;
     const midY = (py1 + py2) / 2;
     const cursorPos = { x: Math.round(midX), y: Math.round(midY) };
-    // Show panel immediately with loading indicator while scanArea runs
-    // in the background (PS capture takes 1-3 seconds). Previously the
-    // user saw nothing until scanArea resolved.
     showPanelWithLoading(cursorPos);
-    scanArea(px1, py1, px2, py2).then(({ elements, imagePath }) => {
+    scanArea(px1, py1, px2, py2).then(async ({ elements, imagePath }) => {
       if (myActivation !== activationSeq) {
         log(`Area scan for #${myActivation} superseded by #${activationSeq} — discarding result`);
         if (imagePath) cleanupImage(imagePath);
@@ -482,6 +530,41 @@ function handleAreaActivate(): void {
       }
       log(`Area scan found ${elements.length} elements, image=${imagePath ? "captured" : "none"}`);
       showAreaHighlight(rect);
+
+      const { screen: electronScreen } = require("electron") as typeof import("electron");
+      const display = electronScreen.getDisplayNearestPoint(cursorPos);
+      const sf = display.scaleFactor || 1;
+      const b = display.bounds;
+
+      if (lastShouldAutoScreenshot) {
+        try {
+          log(`Area selection on Chromium window — capturing full-screen screenshot alongside area image`);
+          const wasVisible = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible();
+          if (wasVisible && mainWindow) {
+            mainWindow.hide();
+            await new Promise((r) => setTimeout(r, 80));
+          }
+          const fullScreenshotPath = await captureAndOptimize(
+            Math.round(b.x * sf), Math.round(b.y * sf),
+            Math.round((b.x + b.width) * sf), Math.round((b.y + b.height) * sf)
+          );
+          if (wasVisible && mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.show();
+          }
+          if (fullScreenshotPath) {
+            attachAutoScreenshot(fullScreenshotPath);
+            log(`Area+Chromium: full-screen screenshot attached: ${fullScreenshotPath.slice(-40)}`);
+          }
+          setScreenshotMode("area-chromium", { physicalWidth: Math.round(b.width * sf), physicalHeight: Math.round(b.height * sf), scaleFactor: sf });
+        } catch (err: any) {
+          log(`Area+Chromium full-screen capture failed: ${err?.message || err}`);
+          setScreenshotMode("area", { physicalWidth: Math.round(b.width * sf), physicalHeight: Math.round(b.height * sf), scaleFactor: sf });
+          if (mainWindow && !mainWindow.isDestroyed()) mainWindow.show();
+        }
+      } else {
+        setScreenshotMode("area", { physicalWidth: Math.round(b.width * sf), physicalHeight: Math.round(b.height * sf), scaleFactor: sf });
+      }
+
       const context = setAreaContext(elements, rect, cursorPos, imagePath);
       updatePanelContext(context);
     }).catch((err) => {

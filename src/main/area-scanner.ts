@@ -7,14 +7,24 @@ import { runPowerShell } from "./powershell-runner";
 
 const log = (msg: string) => console.log(`[AREA-SCANNER] ${msg}`);
 
-const SCRIPT_NAME = "hoverbuddy-area-scan-v8.ps1";
+const SCRIPT_NAME = "hoverbuddy-area-scan-v11.ps1";
 
 function getScriptContent(): string {
   const lines: string[] = [];
   lines.push('param([int]$X1, [int]$Y1, [int]$X2, [int]$Y2, [string]$OutputFile)');
   lines.push('Add-Type -AssemblyName PresentationCore');
   lines.push('Add-Type -AssemblyName UIAutomationClient');
+  lines.push('Add-Type -AssemblyName UIAutomationTypes');
   lines.push('$ErrorActionPreference = "Stop"');
+  // Register a UIA focus event handler so Chromium detects UiaClientsAreListening
+  // and populates its accessibility tree. Without this, Chrome exposes only a
+  // skeleton tree and iframes are invisible.
+  lines.push('try {');
+  lines.push('    $focusHandler = [System.Windows.Automation.AutomationFocusChangedEventHandler]{ param($s, $e) }');
+  lines.push('    [System.Windows.Automation.Automation]::AddAutomationFocusChangedEventHandler($focusHandler)');
+  lines.push('} catch {}');
+  // Give Chromium a moment to populate after detecting the AT client
+  lines.push('Start-Sleep -Milliseconds 300');
   lines.push('');
   lines.push('$selW = $X2 - $X1');
   lines.push('$selH = $Y2 - $Y1');
@@ -78,7 +88,7 @@ function getScriptContent(): string {
   lines.push('    return $false');
   lines.push('}');
   lines.push('');
-  lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom")');
+  lines.push('$containerTypes = @("ControlType.Window", "ControlType.Pane", "ControlType.Group", "ControlType.Custom", "ControlType.Document")');
   lines.push('');
   lines.push('function IsContainerType($t) {');
   lines.push('    foreach ($ct in $containerTypes) {');
@@ -87,11 +97,23 @@ function getScriptContent(): string {
   lines.push('    return $false');
   lines.push('}');
   lines.push('');
+  lines.push('function GetChildren($el) {');
+  lines.push('    $children = @()');
+  lines.push('    try {');
+  lines.push('        $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetFirstChild($el)');
+  lines.push('        while ($child -ne $null) {');
+  lines.push('            $children += $child');
+  lines.push('            $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetNextSibling($child)');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('    return $children');
+  lines.push('}');
+  lines.push('');
   lines.push('function ScanElements($root, $depth, $maxDepth) {');
   lines.push('    if ($depth -gt $maxDepth) { return }');
   lines.push('    if ($script:allElements.Count -ge 120) { return }');
   lines.push('    try {');
-  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        $children = GetChildren $root');
   lines.push('        foreach ($child in $children) {');
   lines.push('            try {');
   lines.push('                $r = $child.Current.BoundingRectangle');

@@ -11,6 +11,14 @@ import type {
   Action,
 } from "../../shared/types";
 
+vi.mock("electron", () => ({
+  screen: {
+    getDisplayNearestPoint: vi.fn(() => ({ scaleFactor: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } })),
+    getPrimaryDisplay: vi.fn(() => ({ scaleFactor: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } })),
+    getAllDisplays: vi.fn(() => [{ bounds: { x: 0, y: 0, width: 1920, height: 1080 }, scaleFactor: 1 }]),
+  },
+}));
+
 function makeDeps(overrides: Partial<GuideControllerDeps> = {}): GuideControllerDeps {
   return {
     overlay: { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() },

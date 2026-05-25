@@ -6,6 +6,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Changed
+- **UIA context capture rewritten** — `context-reader.ts` PowerShell script (v22→v28):
+  - `GetChildren` uses pure `TreeWalker` instead of `FindAll(Children)` — reliably traverses iframe fragment boundaries
+  - `CollectWindowTree` never skips `Document` elements as scaffolding — iframe containers always visible in tree
+  - Chromium wake-up always fires (was skipping when main Document already existed, preventing iframe renderer wake)
+  - `DpiHelper` C# class simplified to 3 methods (was 7) — removed `EnumChildWindows`, `WakeAllChildren`, `GetClassName`, delegate
+  - `TREE_BUDGET_MS` raised from 2500 to 5000ms
+  - `TextPattern`/`ValuePattern` removed from `ElDict` for tree-walk elements (only cursor gets deep text via `GetDeepValue`)
+  - Fixed missing `"@` here-string terminator that caused entire script to fail
+- **Area-scanner** (`area-scanner.ts` v8→v11):
+  - `GetChildren` uses pure `TreeWalker`
+  - Added UIA focus handler registration for standalone Chromium wake-up
+  - `ControlType.Document` added to container types
+- **Action executor** (`action-executor-heavy.ts`):
+  - `GetChildren` uses pure `TreeWalker` in both find-element (v9→v10) and UIA-action (v4→v5) scripts
+- **Calibration tool simplified** — removed multi-strategy diagnostic (desktop scan), restored single-strategy with 50 samples
+
+### Fixed
+- `HasDocumentElement` used invalid `[ControlTypeCondition]::Document` syntax — always threw, causing Chromium wake-up to wait full 2500ms. Fixed to use `PropertyCondition`.
+- OOPIF fragment walk from `RootElement` was unnecessary complexity — test proved `TreeWalker` from `FromHandle(hwnd)` already captures iframe content for normal pages
+- Area-scanner had no wake-up logic — Chromium returned skeleton tree (5 elements). Added focus handler registration.
+
 ## [0.9.0] — 2026-04-24 (Preview)
 
 First public preview release. Pre-v1 — breaking changes possible while the API surface stabilises and we collect feedback.

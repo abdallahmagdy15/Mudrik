@@ -51,7 +51,12 @@ export interface Action {
   selector?: string;
   combination?: string;
   automationId?: string;
+  /** @deprecated Use uiaBounds (from UIA tree) or guessBounds (from screenshot estimate) instead */
   boundsHint?: { x: number; y: number; width: number; height: number };
+  /** Bounds copied from UIA tree — high confidence, pixel-perfect. Preferred over guessBounds. */
+  uiaBounds?: { x: number; y: number; width: number; height: number };
+  /** Bounds estimated from screenshot — used when UIA tree is blind (Chromium/Electron). */
+  guessBounds?: { x: number; y: number; width: number; height: number };
   parentChain?: string[];
   autoClick?: boolean;
 }
@@ -67,20 +72,27 @@ export interface GuideStepPayload {
   type: "guide_step";
   caption: string;
   /**
-   * Target presence is now binary. The AI sets it ONLY when it picks an
-   * element from the UIA candidates list Mudrik provided in the previous
-   * follow-up — in which case `boundsHint` is real UIA bounds and the
-   * runtime shows the owl pointer there. If the AI can't pick from the
-   * list (target not present, ambiguous, or step doesn't have a single
-   * point target), it sets `target: null` and the user navigates from
-   * the caption + options alone — NO cursor is placed. Earlier versions
-   * had a "low confidence" path that placed the cursor at the AI's
-   * screenshot guess; that was unreliable and is now removed.
+   * Dual-bounds target system:
+   * - uiaBounds: copied from UIA candidate list (pixel-perfect, high confidence)
+   * - guessBounds: estimated from screenshot (for Chromium/web where UIA is blind)
+   * Resolution priority (runtime decides):
+   *   1. Try UIA exact match by selector/automationId (score ≥ 85)
+   *   2. If found → use UIA bounds (pixel-perfect)
+   *   3. If not found AND guessBounds provided → use guessBounds
+   *   4. If neither → no pointer shown (better no guide than wrong guide)
+   *
+   * Set target: null when the step has no single point target (typing,
+   * scrolling, keyboard shortcuts) OR when you're unsure of position.
    */
   target: {
     selector: string;
     automationId?: string;
+    /** @deprecated Use uiaBounds or guessBounds */
     boundsHint?: { x: number; y: number; width: number; height: number };
+    /** Bounds copied from UIA tree — high confidence, pixel-perfect. */
+    uiaBounds?: { x: number; y: number; width: number; height: number };
+    /** Bounds estimated from screenshot — used when UIA is blind. */
+    guessBounds?: { x: number; y: number; width: number; height: number };
   } | null;
   options: string[];
   trackable: boolean;

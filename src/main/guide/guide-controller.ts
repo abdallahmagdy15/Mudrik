@@ -14,6 +14,22 @@ import {
   GuideCompletePayload,
   GuideAbortPayload,
 } from "../../shared/types";
+import { screen } from "electron";
+import { log } from "../logger";
+
+function boundsHintToPhysical(bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
+  // The AI's boundsHint is in logical (DIP) pixels because the candidates
+  // list we send is converted to logical. showOverlay expects physical
+  // screen pixels, so we multiply by the display scale factor.
+  const display = screen.getDisplayNearestPoint({ x: bounds.x, y: bounds.y });
+  const sf = display?.scaleFactor || screen.getPrimaryDisplay().scaleFactor || 1;
+  return {
+    x: Math.round(bounds.x * sf),
+    y: Math.round(bounds.y * sf),
+    width: Math.round(bounds.width * sf),
+    height: Math.round(bounds.height * sf),
+  };
+}
 
 export type GuidePhase =
   | "idle"
@@ -68,18 +84,19 @@ export interface GuideControllerDeps {
   ) => Promise<void>;
   /** Pushes a state update to the renderer's chat-input options bar. */
   onStateUpdate: (s: GuideStateUpdate) => void;
-  /** Resolves the AI's target hint to ACCURATE pixel bounds via UIA before
-   *  the overlay places the owl. The AI's boundsHint comes from a screenshot
-   *  and is regularly off by tens-to-hundreds of pixels (LLMs are weak at
-   *  exact 2D coordinates). UIA lookup by selector/automationId returns
-   *  pixel-perfect bounds when the element exists. Returns null if the
-   *  lookup fails — the controller then falls back to the AI's boundsHint
-   *  so a stale UIA snapshot doesn't break the flow. */
+  /** Resolves the AI's target to pixel bounds via UIA lookup.
+   *  The new dual-bounds system means the AI provides either:
+   *  - uiaBounds: copied from UIA tree (pixel-perfect, high confidence)
+   *  - guessBounds: estimated from screenshot (for Chromium/web apps)
+   *  This function is a FINAL fallback when the AI didn't provide either.
+   *  Returns null if UIA can't find the element — the controller then
+   *  shows NO owl (better no guide than wrong guide). */
   resolveTargetBounds?: (
     target: {
       selector: string;
       automationId?: string;
-      boundsHint?: { x: number; y: number; width: number; height: number };
+      uiaBounds?: { x: number; y: number; width: number; height: number };
+      guessBounds?: { x: number; y: number; width: number; height: number };
     },
   ) => Promise<{ x: number; y: number; width: number; height: number } | null>;
 }
@@ -231,25 +248,52 @@ export class GuideController {
     });
 
     // Show the overlay (only if we have a target — typing-only steps may have target=null)
-    if (p.target && p.target.boundsHint) {
+    if (p.target) {
       const cursor = this.deps.getCursorPos();
-      // Prefer UIA-resolved bounds (pixel-perfect) over the AI's screenshot
-      // guess (often off by tens-to-hundreds of px). Falls back to the AI
-      // hint if UIA can't find the element — an inaccurate owl is still
-      // better than no owl when the target exists in the wrong tree.
-      let resolved: { x: number; y: number; width: number; height: number } | null = null;
-      if (this.deps.resolveTargetBounds) {
+      // Dual-bounds priority:
+      // 1. uiaBounds: AI copied from UIA tree (pixel-perfect, PHYSICAL pixels)
+      // 2. guessBounds: AI estimated from screenshot (Chromium/web fallback, PHYSICAL)
+      // 3. boundsHint (legacy): might be logical or physical — try direct first
+      // 4. resolveTargetBounds: UIA live lookup as last resort
+      // 5. null: no owl shown (better no guide than wrong guide)
+      let bounds: { x: number; y: number; width: number; height: number } | null = null;
+
+      if (p.target.uiaBounds) {
+        bounds = p.target.uiaBounds;
+        log(`guide_step: using uiaBounds from AI for "${p.target.selector}" @(${bounds.x},${bounds.y})`);
+      } else if (p.target.guessBounds) {
+        bounds = p.target.guessBounds;
+        log(`guide_step: using guessBounds from AI for "${p.target.selector}" @(${bounds.x},${bounds.y})`);
+      } else if (p.target.boundsHint) {
+        // Legacy fallback: boundsHint might be logical (from old prompts) or physical.
+        // The candidate list in the guide follow-up now shows physical pixels,
+        // so modern sessions should use uiaBounds. This path handles old sessions.
+        bounds = p.target.boundsHint;
+        log(`guide_step: using legacy boundsHint for "${p.target.selector}" @(${bounds.x},${bounds.y})`);
+      } else if (this.deps.resolveTargetBounds) {
         try {
-          resolved = await this.deps.resolveTargetBounds({
+          bounds = await this.deps.resolveTargetBounds({
             selector: p.target.selector,
             automationId: p.target.automationId,
-            boundsHint: p.target.boundsHint,
           });
+          if (bounds) {
+            log(`guide_step: resolved "${p.target.selector}" via UIA live lookup @(${bounds.x},${bounds.y})`);
+          }
         } catch {
-          // best-effort — fall through to AI's hint
+          // best-effort
         }
       }
-      await this.deps.overlay.show(resolved || p.target.boundsHint, cursor);
+
+      if (bounds) {
+        // All coordinate paths now deliver PHYSICAL screen pixels. The overlay
+        // window consumes physical pixels directly (the renderer positions
+        // elements in CSS pixels that map 1:1 to physical via the conversion
+        // in showOverlay).
+        await this.deps.overlay.show(bounds, cursor);
+      } else {
+        log(`guide_step: no bounds for "${p.target.selector}" — hiding owl (better no guide than wrong guide)`);
+        this.deps.overlay.hide();
+      }
     } else {
       // No target → no overlay; user just acts in the underlying app
       this.deps.overlay.hide();

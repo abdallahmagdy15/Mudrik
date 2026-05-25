@@ -107,6 +107,7 @@ let lastFailedAction: Action | null = null;
 let isAreaContext: boolean = false;
 let areaElements: any[] = [];
 let areaImagePath: string = "";
+let areaRect: { x1: number; y1: number; x2: number; y2: number } | null = null;
 let lastContextHash: string = "";
 let contextNeedsSending: boolean = false;
 let hasSentFirstMessage: boolean = false;
@@ -144,6 +145,9 @@ export function getPanelWindow(): BrowserWindow | null {
   return null;
 }
 let attachScreenshotNext: boolean = false;
+type ScreenshotMode = "none" | "chromium-auto" | "manual" | "area" | "area-chromium";
+let screenshotMode: ScreenshotMode = "none";
+let screenInfo: { physicalWidth: number; physicalHeight: number; scaleFactor: number } | null = null;
 
 export function setContext(context: ContextPayload): void {
   const newHash = computeContextHash(context, false, []);
@@ -220,6 +224,17 @@ export function attachAutoScreenshot(imagePath: string): void {
   log(`attachAutoScreenshot: image=${imagePath.slice(-40)}`);
 }
 
+export function setScreenshotMode(mode: ScreenshotMode, info: { physicalWidth: number; physicalHeight: number; scaleFactor: number }): void {
+  screenshotMode = mode;
+  screenInfo = info;
+  log(`Screenshot mode: ${mode}, screen=${info.physicalWidth}x${info.physicalHeight} @${info.scaleFactor}x`);
+}
+
+export function resetScreenshotMode(): void {
+  screenshotMode = "none";
+  screenInfo = null;
+}
+
 /**
  * Returns the context that is *currently* active (i.e. the one most recently
  * set via setContext or setAreaContext). Used by deferred async work (like
@@ -240,7 +255,10 @@ export function setAreaContext(elements: any[], rect: { x1: number; y1: number; 
   isAreaContext = true;
   areaElements = elements;
   areaImagePath = imagePath || "";
+  areaRect = rect;
   attachScreenshotNext = false;
+  screenshotMode = "none";
+  screenInfo = null;
 
   const primaryElement = elements.length > 0 ? elements[0] : {
     name: "Area Selection",
@@ -380,10 +398,30 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       //   focus reverts to the app the user was being guided through, and
       //   UIA reads the right tree.
       const { screen: electronScreen } = require("electron") as typeof import("electron");
-      const display = electronScreen.getPrimaryDisplay();
+      // CRITICAL: use the display where the user's app actually is, NOT
+      // getPrimaryDisplay(). On multi-monitor setups the app may be on
+      // an extended monitor; capturing the primary would show the wrong
+      // screen and every coordinate would be offset or on the wrong display.
+      const cursor = getCursorPos();
+      // getCursorPos() returns PHYSICAL pixels (robotjs/Win32). getDisplayNearestPoint
+      // expects LOGICAL/DIP pixels. Passing physical to it selects the wrong display
+      // on multi-monitor setups with different DPI scales. We must find the display
+      // by checking which physical bounds contain the cursor.
+      let display = electronScreen.getPrimaryDisplay();
+      for (const d of electronScreen.getAllDisplays()) {
+        const left = Math.round(d.bounds.x * d.scaleFactor);
+        const top = Math.round(d.bounds.y * d.scaleFactor);
+        const right = Math.round((d.bounds.x + d.bounds.width) * d.scaleFactor);
+        const bottom = Math.round((d.bounds.y + d.bounds.height) * d.scaleFactor);
+        if (cursor.x >= left && cursor.x < right && cursor.y >= top && cursor.y < bottom) {
+          display = d;
+          break;
+        }
+      }
       const sf = display.scaleFactor || 1;
-      const lw = display.bounds.width;
-      const lh = display.bounds.height;
+      const pw = Math.round(display.bounds.width * sf);
+      const ph = Math.round(display.bounds.height * sf);
+      log(`guide follow-up: capture display="${display.label}" bounds=${display.bounds.width}x${display.bounds.height} logical, ${pw}x${ph} physical @${sf}x, cursor=(${cursor.x},${cursor.y})`);
 
         let imagePath: string | null = null;
       let fresh: Awaited<ReturnType<typeof import("./context-reader").readContextAtPoint>> | null = null;
@@ -561,21 +599,25 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         }
         if (selected.length > 0) {
           const lines = selected.map((el: any, i: number) => {
-            const lx = Math.round(el.bounds.x / sf);
-            const ly = Math.round(el.bounds.y / sf);
-            const lw2 = Math.round(el.bounds.width / sf);
-            const lh2 = Math.round(el.bounds.height / sf);
+            // Show PHYSICAL coordinates (same space as screenshot and screen info).
+            // The AI estimates from the screenshot in this same physical pixel space.
+            const bx = el.bounds.x;
+            const by = el.bounds.y;
+            const bw = el.bounds.width;
+            const bh = el.bounds.height;
             const t = el.type.replace(/^ControlType\./, "");
             const name = (el.name || "").replace(/\s+/g, " ").slice(0, 60);
             const aid = el.automationId ? ` automationId="${el.automationId}"` : "";
-            return `[${i}] ${t} "${name}"${aid} at (${lx},${ly},${lw2}x${lh2})`;
+            return `[${i}] ${t} "${name}"${aid} @(${bx},${by} ${bw}x${bh})`;
           });
-          candidatesBlock = `\n\nUIA CLICKABLE CANDIDATES in the active window (the AUTHORITATIVE list — pick one for target.selector/automationId/boundsHint, or set target:null):\n${lines.join("\n")}\n`;
+          candidatesBlock = `\n\nUIA CLICKABLE CANDIDATES in the active window (the AUTHORITATIVE list — pick one for target.selector/automationId/uiaBounds, or set target:null):\n${lines.join("\n")}\n`;
           log(`guide follow-up: enumerated ${selected.length} clickable candidates (from ${allClickables.length} total) via per-tier quotas`);
         }
       }
 
-      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached. The user's screen is ${lw}×${lh} logical pixels.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.boundsHint. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n\nDo NOT guess bounds from the screenshot when the target isn't in the list. Do NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+      const cellW = Math.max(60, Math.round(pw / 20));
+      const cellH = Math.max(60, Math.round(ph / 20));
+      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions from the screenshot, count grid cells from the top-left for accuracy: x ≈ column × ${cellW}, y ≈ row × ${cellH}. The user's screen is ${pw}×${ph} pixels (DPI scale ${sf}×). Coordinates in the candidates list above and in the screenshot are in the SAME physical pixel space.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.uiaBounds. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n3. For Chromium/Electron apps where UIA is blind: estimate the position from the screenshot by counting grid cells and set target.guessBounds with your estimate.\n\nNEVER set both uiaBounds and guessBounds. Pick one: uiaBounds when the target IS in the UIA list, guessBounds when estimating from the screenshot, null when unsure.\n\nDo NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
 
       // Stream tokens to the renderer for visibility; accumulate the response
       // text; parse + dispatch guide markers when the subprocess exits.
@@ -625,22 +667,20 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       }
     },
     resolveTargetBounds: async (target) => {
-      // The AI now ONLY emits target.boundsHint when picking from the UIA
-      // candidates list we sent in the previous follow-up — those bounds
-      // are real UIA bounds (converted to logical px when we built the
-      // list), so we trust them verbatim and skip the UIA round-trip.
-      //
-      // The previous version had a "low confidence" fallback path that
-      // ran a UIA exact-match plus spatial fallback when the AI guessed.
-      // That was both slow and unreliable (an arbitrarily-placed cursor
-      // is worse than no cursor — the user gets misled). Per design
-      // change 2026-05-10: AI either picks from the list (cursor shows)
-      // or sets target:null (caption-only step, no cursor).
-      if (target.boundsHint) {
-        log(`resolveTargetBounds: trusting AI bounds verbatim (from candidates list)`);
-        return target.boundsHint;
+      // Dual-bounds system (2026-05-24):
+      // - uiaBounds: AI copied from UIA candidate list (pixel-perfect)
+      // - guessBounds: AI estimated from screenshot (Chromium/web fallback)
+      // Priority: uiaBounds > guessBounds > null
+      // The AI should NEVER set both — pick one based on source.
+      if (target.uiaBounds) {
+        log(`resolveTargetBounds: trusting uiaBounds from UIA candidate list`);
+        return target.uiaBounds;
       }
-      log(`resolveTargetBounds: no boundsHint — AI didn't pick from UIA list, no cursor will be shown`);
+      if (target.guessBounds) {
+        log(`resolveTargetBounds: trusting guessBounds from screenshot estimate`);
+        return target.guessBounds;
+      }
+      log(`resolveTargetBounds: no uiaBounds or guessBounds — no cursor will be shown`);
       return null;
     },
   });
@@ -746,6 +786,7 @@ export function registerIpcHandlers(
       const { execFile } = require("child_process");
       const cwd = appConfig.workingDir || os.homedir();
       const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
+      env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
       const raw = await new Promise<string>((res, rej) => {
         execFile("node", [opencodeBin, "models"], { encoding: "utf-8", timeout: 30000, cwd, env, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
@@ -949,7 +990,22 @@ export function registerIpcHandlers(
           contextBlock += `\n${line}`;
         }
         if (areaImagePath) {
-          contextBlock += `\n\n[A screenshot of this area is attached as an image]`;
+          const areaW = areaRect ? areaRect.x2 - areaRect.x1 : 0;
+          const areaH = areaRect ? areaRect.y2 - areaRect.y1 : 0;
+          if (screenshotMode === "area-chromium" && screenInfo) {
+            const si = screenInfo;
+            contextBlock += `\n\n[A screenshot of the selected area AND a full-screen screenshot are attached. This is a Chromium/Electron app — the UIA tree may NOT show web content (chat, scroll areas, inner pages). THE FULL-SCREEN SCREENSHOT IS THE PRIMARY SOURCE for what's on screen. Selected area: (${areaRect?.x1},${areaRect?.y1}) to (${areaRect?.x2},${areaRect?.y2}), size ${areaW}×${areaH} pixels. Full screen: ${si.physicalWidth}×${si.physicalHeight} pixels (DPI scale ${si.scaleFactor}×). Coordinates: left≈0, right≈${si.physicalWidth}, top≈0, bottom≈${si.physicalHeight}. Estimate pixel positions from the screenshots for any element. The UIA layout tree above may only show shell chrome — trust the screenshots for actual page content.]`;
+          } else if (areaRect) {
+            const areaInfo = `Selected area: (${areaRect.x1},${areaRect.y1}) to (${areaRect.x2},${areaRect.y2}), size ${areaW}×${areaH} pixels.`;
+            if (screenInfo) {
+              const si = screenInfo;
+              contextBlock += `\n\n[A screenshot of the selected area is attached. ${areaInfo} Full screen: ${si.physicalWidth}×${si.physicalHeight} pixels @${si.scaleFactor}× DPI scale. If a target element isn't in the UIA list above, estimate its position from the image.]`;
+            } else {
+              contextBlock += `\n\n[A screenshot of the selected area is attached. ${areaInfo} If a target element isn't in the UIA list above, estimate its position from the image.]`;
+            }
+          } else {
+            contextBlock += `\n\n[A screenshot of this area is attached as an image]`;
+          }
         }
         contextBlock += `\n--- END CONTEXT ---\n`;
       } else if (currentContext) {
@@ -1002,7 +1058,19 @@ contextBlock += `\n  ${formatElementType(el.type)}`;
         }
 
         if (attachScreenshotNext && (currentContext.imagePath || areaImagePath)) {
-          contextBlock += `\n\n[A screenshot showing what you pointed at is attached as an image]`;
+          if (screenshotMode === "chromium-auto" && screenInfo) {
+            const si = screenInfo;
+            const cellW = Math.max(60, Math.round(si.physicalWidth / 20));
+            const cellH = Math.max(60, Math.round(si.physicalHeight / 20));
+            contextBlock += `\n\n[A full-screen screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions from the screenshot, count grid cells from the top-left for accuracy: x ≈ column × ${cellW}, y ≈ row × ${cellH}. This is a Chromium/Electron app — the UIA accessibility tree may NOT expose web content. THE SCREENSHOT IS THE PRIMARY SOURCE. Screen: ${si.physicalWidth}×${si.physicalHeight} pixels (DPI scale ${si.scaleFactor}×). Coordinate frame: left≈0, right≈${si.physicalWidth}, top≈0, bottom≈${si.physicalHeight}. The UIA layout tree above may only show shell chrome — trust the screenshot for actual page content.]`;
+          } else if (screenInfo) {
+            const si = screenInfo;
+            const cellW = Math.max(60, Math.round(si.physicalWidth / 20));
+            const cellH = Math.max(60, Math.round(si.physicalHeight / 20));
+            contextBlock += `\n\n[A screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions, count grid cells from the top-left: x ≈ column × ${cellW}, y ≈ row × ${cellH}. Screen: ${si.physicalWidth}×${si.physicalHeight} pixels @${si.scaleFactor}× DPI scale.]`;
+          } else {
+            contextBlock += `\n\n[A screenshot showing what you pointed at is attached as an image]`;
+          }
         }
 contextBlock += `\n--- END CONTEXT ---\n`;
       }
@@ -1064,6 +1132,8 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       }
     }
     attachScreenshotNext = false;
+    screenshotMode = "none";
+    screenInfo = null;
 
     let receivedAnyText = false;
     let timeoutFired = false;
@@ -1399,6 +1469,8 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       areaImagePath = "";
     }
     attachScreenshotNext = false;
+    screenshotMode = "none";
+    screenInfo = null;
     // Reset the session so the old image's context doesn't leak into the next send
     client.resetSession();
     contextNeedsSending = true;
@@ -1421,6 +1493,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const { execFile } = require("child_process");
       const cwd = config.workingDir || os.homedir();
       const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
+      env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
       const listRaw = await new Promise<string>((res, rej) => {
         execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
@@ -1437,7 +1510,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const sessionId = ourSessions[0].id;
       log(`restoreSession: latest=${sessionId.slice(0, 30)}`);
       const exportRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, env, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, env: { ...env, XDG_DATA_HOME: path.join(cwd, "opencode-data") }, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
       const jsonStart = exportRaw.indexOf("{");
       if (jsonStart < 0) { log("restoreSession: no json"); return null; }
@@ -1510,6 +1583,7 @@ function cleanupOldSessions(): void {
   const { execFile } = require("child_process");
   const cwd = appConfig.workingDir || os.homedir();
   const env = buildCleanOpenCodeEnv(process.env, appConfig.apiKeys);
+  env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
 
   execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "100"], { encoding: "utf-8", timeout: 15000, cwd, env, maxBuffer: 2*1024*1024 }, async (err: any, stdout: string) => {
     if (err) { log(`cleanupSessions list error: ${err.message}`); return; }

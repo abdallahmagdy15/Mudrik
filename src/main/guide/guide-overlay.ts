@@ -28,12 +28,18 @@ function getPreloadPath(): string {
 }
 
 async function createOverlayWindow(): Promise<BrowserWindow> {
-  const display = screen.getPrimaryDisplay();
+  // Cover the entire virtual desktop so the overlay works on any monitor
+  // in a multi-display setup. Uses the union of all display bounds.
+  const displays = screen.getAllDisplays();
+  const minX = Math.min(...displays.map((d) => d.bounds.x));
+  const minY = Math.min(...displays.map((d) => d.bounds.y));
+  const maxX = Math.max(...displays.map((d) => d.bounds.x + d.bounds.width));
+  const maxY = Math.max(...displays.map((d) => d.bounds.y + d.bounds.height));
   const w = new BrowserWindow({
-    x: 0,
-    y: 0,
-    width: display.bounds.width,
-    height: display.bounds.height,
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
@@ -54,15 +60,56 @@ async function createOverlayWindow(): Promise<BrowserWindow> {
   // for any future hover-driven affordances; the user clicks pass to the
   // app underneath.
   w.setIgnoreMouseEvents(true, { forward: true });
-  log("guide-overlay window created");
+  log(`guide-overlay window created covering virtual desktop ${minX},${minY} ${maxX - minX}x${maxY - minY} (${displays.length} display${displays.length > 1 ? "s" : ""})`);
   return w;
+}
+
+/** Find the display that contains a physical-screen point. Falls back to
+ *  getDisplayNearestPoint with an approximate logical conversion. */
+function getDisplayForPhysicalPoint(px: number, py: number): Electron.Display {
+  const displays = screen.getAllDisplays();
+  for (const d of displays) {
+    const left = Math.round(d.bounds.x * d.scaleFactor);
+    const top = Math.round(d.bounds.y * d.scaleFactor);
+    const right = Math.round((d.bounds.x + d.bounds.width) * d.scaleFactor);
+    const bottom = Math.round((d.bounds.y + d.bounds.height) * d.scaleFactor);
+    if (px >= left && px < right && py >= top && py < bottom) {
+      return d;
+    }
+  }
+  // Fallback: convert to approximate logical using primary scale factor
+  const primarySf = screen.getPrimaryDisplay().scaleFactor || 1;
+  return screen.getDisplayNearestPoint({ x: Math.round(px / primarySf), y: Math.round(py / primarySf) });
 }
 
 export async function showOverlay(target: Bounds, fromCursor: { x: number; y: number }): Promise<void> {
   if (!overlayWin || overlayWin.isDestroyed()) {
     overlayWin = await createOverlayWindow();
   }
-  overlayWin.webContents.send("guide-overlay-show", { target, fromCursor });
+  const winBounds = overlayWin.getBounds();
+
+  // Convert physical screen coords → logical, then window-relative.
+  // Callers (UIA / robotjs) give physical pixels; the overlay window
+  // is sized in logical (DIP) pixels and positioned at the virtual-desktop
+  // origin (may be negative on multi-monitor setups).
+  const targetDisplay = getDisplayForPhysicalPoint(target.x, target.y);
+  const targetSf = targetDisplay?.scaleFactor || screen.getPrimaryDisplay().scaleFactor || 1;
+  const relTarget = {
+    x: Math.round(target.x / targetSf) - winBounds.x,
+    y: Math.round(target.y / targetSf) - winBounds.y,
+    width: Math.round(target.width / targetSf),
+    height: Math.round(target.height / targetSf),
+  };
+  log(`showOverlay: target physical=(${target.x},${target.y}) display="${targetDisplay.label}" sf=${targetSf} logical=(${Math.round(target.x / targetSf)},${Math.round(target.y / targetSf)}) rel=(${relTarget.x},${relTarget.y}) winBounds=(${winBounds.x},${winBounds.y})`);
+
+  const cursorDisplay = getDisplayForPhysicalPoint(fromCursor.x, fromCursor.y);
+  const cursorSf = cursorDisplay?.scaleFactor || screen.getPrimaryDisplay().scaleFactor || 1;
+  const relCursor = {
+    x: Math.round(fromCursor.x / cursorSf) - winBounds.x,
+    y: Math.round(fromCursor.y / cursorSf) - winBounds.y,
+  };
+
+  overlayWin.webContents.send("guide-overlay-show", { target: relTarget, fromCursor: relCursor });
   overlayWin.showInactive();
   overlayWin.moveTop();
 }

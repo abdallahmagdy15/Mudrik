@@ -139,6 +139,29 @@ Full design rationale, state machine, prompt content, and edge cases live in `Mu
 
 Scripts write their JSON output to a temp file (`-OutputFile`) rather than stdout. `runPowerShell` in `powershell-runner.ts` reads and deletes this file. Do not switch PS scripts back to stdout without understanding the encoding issues this pattern avoids.
 
+### UIA context capture — how it works and what we learned
+
+The core capture flow (`context-reader.ts`):
+
+1. **Wake Chromium**: Register a no-op UIA focus event handler → flips `UiaClientsAreListening()` to true in Chrome's process. Then send `WM_GETOBJECT` to the foreground HWND via `SendMessageTimeout`. This triggers Chrome to populate its full accessibility tree.
+2. **Poll until stable**: `ShallowCount` (count elements at depth 0+1) every 100ms. Breaks when count stabilizes (same twice in a row) or after 5000ms.
+3. **Find deepest element**: `FromPoint(X, Y)` gets the element at cursor, then `FindDeepestElement` drills into containers (Pane/Group/Custom/Document) to find the actual interactive element.
+4. **Walk tree**: `CollectWindowTree` uses `TreeWalker.RawViewWalker` (not `FindAll`) to traverse children. `TreeWalker` crosses UIA fragment boundaries that `FindAll` misses — critical for iframes.
+5. **Return**: element at cursor + full window tree + visible windows list.
+
+**Key findings from iframe testing (2026-05-20):**
+
+Test page with 7 iframes (srcdoc, local file, external domain, data:, javascript:, about:blank):
+- **All 7 iframes had content in the UIA tree** — 254 total elements, 220 clickables
+- Cross-origin iframes (example.com, Wikipedia) appear as **named Documents** (e.g. "Example Domain")
+- Same-origin iframes appear as **unnamed Documents** but their children ARE in the tree
+- `TreeWalker` is essential — `FindAll(Children)` misses iframe content in some Chromium versions
+- The `DpiHelper` C# class only needs `SendMessageTimeout` + `GetForegroundWindow` + `SetProcessDPIAware`. `EnumChildWindows`/`WakeAllChildren` were tested and proven unnecessary.
+
+**Known limitation — Dynamics CRM on-premise v8**: The CRM iframe (`contentIFrame0`) appears as `Document "Content Area"` with only 8 nested elements (container scaffolding only). The actual form fields are NOT exposed to UIA. This is a Dynamics-specific rendering issue, not a general iframe problem. The CRM uses ASP.NET WebForms + UpdatePanels with dynamic JS injection that Chrome's UIA provider doesn't track.
+
+**Deep-dive reference**: `D:\SandBoX\Mudrik-Plan\UIA-Chromium-Expert-Reference.md` — full UIA architecture, Chromium internals, wake-up mechanism, tree walking strategies, edge cases, CDP as alternative.
+
 ### OpenCode client + session continuity
 
 `opencode-client.ts` spawns the `opencode` CLI binary (from `npm i -g opencode-ai` or `@opencode-ai/sdk`) as a child process per message, always with `--agent readonly`. `resetSession()` clears the session ID so the next send omits `--continue`; `setRestoredSession(id)` re-attaches to a prior session. `activeProcess` tracks the current child so `STOP_RESPONSE` can kill it mid-stream.

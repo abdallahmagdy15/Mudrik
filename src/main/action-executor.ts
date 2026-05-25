@@ -165,14 +165,30 @@ export function validateAction(
   if (typeof p.combination === "string") action.combination = p.combination;
   if (typeof p.automationId === "string") action.automationId = p.automationId;
   if (typeof p.autoClick === "boolean") action.autoClick = p.autoClick;
-  if (p.boundsHint && typeof p.boundsHint === "object") {
-    const b = p.boundsHint as any;
-    if (
-      typeof b.x === "number" && typeof b.y === "number" &&
-      typeof b.width === "number" && typeof b.height === "number"
-    ) {
-      action.boundsHint = { x: b.x, y: b.y, width: b.width, height: b.height };
+
+  // Normalize bounds fields: accept x/y or left/top aliases
+  function normalizeBounds(b: any): { x: number; y: number; width: number; height: number } | undefined {
+    const x = typeof b.x === "number" ? b.x : typeof b.left === "number" ? b.left : undefined;
+    const y = typeof b.y === "number" ? b.y : typeof b.top === "number" ? b.top : undefined;
+    const w = typeof b.width === "number" ? b.width : undefined;
+    const h = typeof b.height === "number" ? b.height : undefined;
+    if (x !== undefined && y !== undefined && w !== undefined && h !== undefined) {
+      return { x, y, width: w, height: h };
     }
+    return undefined;
+  }
+
+  if (p.boundsHint && typeof p.boundsHint === "object") {
+    const nb = normalizeBounds(p.boundsHint);
+    if (nb) action.boundsHint = nb;
+  }
+  if (p.uiaBounds && typeof p.uiaBounds === "object") {
+    const nb = normalizeBounds(p.uiaBounds);
+    if (nb) action.uiaBounds = nb;
+  }
+  if (p.guessBounds && typeof p.guessBounds === "object") {
+    const nb = normalizeBounds(p.guessBounds);
+    if (nb) action.guessBounds = nb;
   }
   if (Array.isArray(p.parentChain) && p.parentChain.every((s) => typeof s === "string")) {
     action.parentChain = p.parentChain as string[];
@@ -211,11 +227,22 @@ function validateGuideAction(p: Record<string, unknown>): { action: Action } | {
       // Without a target+boundsHint the mouse hook would arm globally with no
       // overlay, intercepting the next click anywhere on the desktop.
       if (p.trackable === true) {
-        const t = p.target as { boundsHint?: { x: number; y: number; width: number; height: number } } | null | undefined;
-        const b = t?.boundsHint;
-        if (!b || typeof b.x !== "number" || typeof b.y !== "number" ||
-            typeof b.width !== "number" || typeof b.height !== "number") {
-          return { error: "guide_step.target.boundsHint is required when trackable=true" };
+        const t = p.target as {
+          boundsHint?: Record<string, unknown>;
+          uiaBounds?: Record<string, unknown>;
+          guessBounds?: Record<string, unknown>;
+        } | null | undefined;
+        function hasValidBounds(b: Record<string, unknown> | undefined): boolean {
+          if (!b) return false;
+          const x = typeof b.x === "number" ? b.x : typeof b.left === "number" ? b.left : undefined;
+          const y = typeof b.y === "number" ? b.y : typeof b.top === "number" ? b.top : undefined;
+          const w = typeof b.width === "number" ? b.width : undefined;
+          const h = typeof b.height === "number" ? b.height : undefined;
+          return x !== undefined && y !== undefined && w !== undefined && h !== undefined;
+        }
+        const hasBounds = hasValidBounds(t?.boundsHint) || hasValidBounds(t?.uiaBounds) || hasValidBounds(t?.guessBounds);
+        if (!hasBounds) {
+          return { error: "guide_step.target must have uiaBounds or guessBounds when trackable=true (fields: x/left, y/top, width, height)" };
         }
       }
       // closeOptions is optional; if present it must be a subset of options
@@ -302,7 +329,27 @@ export function parseActionsFromResponse(text: string): ParsedActions {
         combination: parsed.combination,
       };
       if (parsed.automationId) action.automationId = parsed.automationId;
-      if (parsed.boundsHint) action.boundsHint = parsed.boundsHint;
+
+      function tryParseBounds(raw: unknown): { x: number; y: number; width: number; height: number } | undefined {
+        if (!raw || typeof raw !== "object") return undefined;
+        const b = raw as any;
+        const x = typeof b.x === "number" ? b.x : typeof b.left === "number" ? b.left : undefined;
+        const y = typeof b.y === "number" ? b.y : typeof b.top === "number" ? b.top : undefined;
+        const w = typeof b.width === "number" ? b.width : undefined;
+        const h = typeof b.height === "number" ? b.height : undefined;
+        if (x !== undefined && y !== undefined && w !== undefined && h !== undefined) {
+          return { x, y, width: w, height: h };
+        }
+        return undefined;
+      }
+
+      const boundsHint = tryParseBounds(parsed.boundsHint);
+      if (boundsHint) action.boundsHint = boundsHint;
+      const uiaBounds = tryParseBounds(parsed.uiaBounds);
+      if (uiaBounds) action.uiaBounds = uiaBounds;
+      const guessBounds = tryParseBounds(parsed.guessBounds);
+      if (guessBounds) action.guessBounds = guessBounds;
+
       if (parsed.parentChain) action.parentChain = parsed.parentChain;
       if (parsed.autoClick !== undefined) action.autoClick = parsed.autoClick;
       actions.push(action);

@@ -16,8 +16,8 @@ import { Action } from "../../shared/types";
 import { runPowerShell } from "../powershell-runner";
 import { log } from "../logger";
 
-const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v9.ps1";
-const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v4.ps1";
+const FIND_SCRIPT_NAME = "hoverbuddy-find-element-v10.ps1";
+const UIA_SCRIPT_NAME = "hoverbuddy-uia-action-v5.ps1";
 
 export interface ActionResult {
   success: boolean;
@@ -321,12 +321,24 @@ function getFindScriptContent(): string {
   lines.push('    return [Math]::Pow($cx1 - $cx2, 2) + [Math]::Pow($cy1 - $cy2, 2)');
   lines.push('}');
   lines.push('');
+  lines.push('function GetChildren($el) {');
+  lines.push('    $children = @()');
+  lines.push('    try {');
+  lines.push('        $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetFirstChild($el)');
+  lines.push('        while ($child -ne $null) {');
+  lines.push('            $children += $child');
+  lines.push('            $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetNextSibling($child)');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('    return $children');
+  lines.push('}');
+  lines.push('');
   lines.push('$script:found = @()');
   lines.push('');
   lines.push('function FindElement($root, $depth, $maxDepth) {');
   lines.push('    if ($depth -gt $maxDepth) { return }');
   lines.push('    try {');
-  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        $children = GetChildren $root');
   lines.push('        foreach ($child in $children) {');
   lines.push('            try {');
   lines.push('                $name = $child.Current.Name');
@@ -425,7 +437,7 @@ function getFindScriptContent(): string {
   lines.push('            } catch {}');
   lines.push('        }');
   lines.push('        try {');
-  lines.push('            $children = $node.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('            $children = GetChildren $node');
   lines.push('            foreach ($c in $children) {');
   lines.push('                if ($script:realized) { return }');
   lines.push('                TryRealizeVirtualized $c $autoIdToFind ($depth+1) $maxDepth');
@@ -489,61 +501,20 @@ function getFindScriptContent(): string {
   lines.push('');
   lines.push('    FindElement $root 0 20');
   lines.push('');
-  // Spatial fallback. When the AI's selector/automationId don't match the
-  // live UIA tree (common with screenshot-eyeball selectors like "File"
-  // when the real UIA name is "MenuBarItem 0" or similar) AND the AI
-  // provided a boundsHint, walk the tree again and pick the clickable
-  // element whose center is closest to the AI's bounds center. This
-  // turns a "near but not accurate" AI guess into a pixel-perfect lookup
-  // for the auto-guide owl pointer.
-  lines.push('    function FindClosestSpatial($node, $hint, $depth, $maxDepth) {');
-  lines.push('        if ($depth -gt $maxDepth) { return }');
-  lines.push('        try {');
-  lines.push('            $children = $node.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
-  lines.push('            foreach ($child in $children) {');
-  lines.push('                try {');
-  lines.push('                    $r = $child.Current.BoundingRectangle');
-  lines.push('                    if ($r.Width -le 0 -or $r.Height -le 0) { FindClosestSpatial $child $hint ($depth+1) $maxDepth; continue }');
-  lines.push('                    # Only consider elements that are interactable enough to point at —');
-  lines.push('                    # filtering out giant container Panes / Groups that would always win');
-  lines.push('                    # by virtue of containing the cursor.');
-  lines.push('                    $ct = "" ; try { $ct = $child.Current.LocalizedControlType } catch {}');
-  lines.push('                    $invokable = $false');
-  lines.push('                    try { $tmp = $null; $invokable = $child.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$tmp) } catch {}');
-  lines.push('                    $isClickable = $invokable -or ($ct -match "button|menu item|list item|tab|hyperlink|check|radio|edit|combo|tree item|header")');
-  lines.push('                    if ($isClickable) {');
-  lines.push('                        $cx = $r.X + $r.Width / 2');
-  lines.push('                        $cy = $r.Y + $r.Height / 2');
-  lines.push('                        $hcx = $hint.x + $hint.width / 2');
-  lines.push('                        $hcy = $hint.y + $hint.height / 2');
-  lines.push('                        $dx = $cx - $hcx; $dy = $cy - $hcy');
-  lines.push('                        $dist = [Math]::Sqrt($dx*$dx + $dy*$dy)');
-  lines.push('                        $cName = "" ; try { $cName = $child.Current.Name } catch {}');
-  lines.push('                        $cAuto = "" ; try { $cAuto = $child.Current.AutomationId } catch {}');
-  lines.push('                        $script:spatial += @{ name=$cName; type=$ctrlTypeName.Invoke($child); autoId=$cAuto; dist=$dist; bounds=@{ x=[int]$r.X; y=[int]$r.Y; width=[int]$r.Width; height=[int]$r.Height } }');
-  lines.push('                    }');
-  lines.push('                } catch {}');
-  lines.push('                FindClosestSpatial $child $hint ($depth+1) $maxDepth');
-  lines.push('            }');
-  lines.push('        } catch {}');
-  lines.push('    }');
-  lines.push('');
-  lines.push('    if ($script:found.Count -eq 0 -and $boundsHint) {');
-  lines.push('        $script:spatial = @()');
-  lines.push('        $ctrlTypeName = { param($n) try { return $n.Current.LocalizedControlType } catch { return "" } }');
-  lines.push('        FindClosestSpatial $root $boundsHint 0 20');
-  lines.push('        if ($script:spatial.Count -gt 0) {');
-  lines.push('            $best = $script:spatial | Sort-Object -Property dist | Select-Object -First 1');
-  lines.push('            # Score 60 to indicate "spatial fallback won, no name match"');
-  lines.push('            $script:found += @{ name=$best.name; type=$best.type; autoId=$best.autoId; value=""; score=60; bounds=$best.bounds }');
-  lines.push('        }');
-  lines.push('    }');
-  lines.push('');
-  lines.push('    if ($script:found.Count -eq 0) {');
-  lines.push('        @{ error="No element found matching selector: $selector"; selector=$selector } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  // NO spatial fallback. The old FindClosestSpatial picked arbitrary nearby
+  // clickable elements when name/ID matching failed, leading to completely
+  // wrong cursor placement (e.g., x=18 instead of x=1085). The new strategy:
+  //   1. Try UIA exact match by name/automationId (score >= 85)
+  //   2. If found → return real UIA bounds (pixel-perfect)
+  //   3. If not found → let caller use AI's guessBounds from screenshot
+  //   4. If neither → no pointer/action (better safe than misleading)
+
+    lines.push('    $MIN_SCORE = 85');
+  lines.push('    $qualified = $script:found | Where-Object { $_.score -ge $MIN_SCORE } | Sort-Object -Property score -Descending | Select-Object -First 5');
+  lines.push('    if ($qualified.Count -eq 0) {');
+  lines.push('        @{ error="No element found matching selector with sufficient confidence (score < $MIN_SCORE): $selector"; selector=$selector; totalFound=$script:found.Count; bestScore=($script:found | Sort-Object score -Descending | Select-Object -First 1).score } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
   lines.push('    } else {');
-  lines.push('        $sorted = $script:found | Sort-Object -Property score -Descending | Select-Object -First 5');
-  lines.push('        @{ matches=$sorted; totalFound=$script:found.Count } | ConvertTo-Json -Depth 4 -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
+  lines.push('        @{ matches=$qualified; totalFound=$script:found.Count; qualifiedCount=$qualified.Count } | ConvertTo-Json -Depth 4 -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
   lines.push('    }');
   lines.push('} catch {');
   lines.push('    @{ error=$_.Exception.Message } | ConvertTo-Json -Compress | Out-File -FilePath $OutputFile -Encoding utf8');
@@ -707,13 +678,25 @@ function getUIAScriptContent(): string {
   lines.push('    return [Math]::Pow($cx1 - $cx2, 2) + [Math]::Pow($cy1 - $cy2, 2)');
   lines.push('}');
   lines.push('');
+  lines.push('function GetChildren($el) {');
+  lines.push('    $children = @()');
+  lines.push('    try {');
+  lines.push('        $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetFirstChild($el)');
+  lines.push('        while ($child -ne $null) {');
+  lines.push('            $children += $child');
+  lines.push('            $child = [System.Windows.Automation.TreeWalker]::RawViewWalker.GetNextSibling($child)');
+  lines.push('        }');
+  lines.push('    } catch {}');
+  lines.push('    return $children');
+  lines.push('}');
+  lines.push('');
   lines.push('$script:bestTarget = $null');
   lines.push('$script:bestScore = 0');
   lines.push('');
   lines.push('function FindTarget($root, $depth, $maxDepth) {');
   lines.push('    if ($depth -gt $maxDepth) { return }');
   lines.push('    try {');
-  lines.push('        $children = $root.FindAll([System.Windows.Automation.TreeScope]::Children, [System.Windows.Automation.Condition]::TrueCondition)');
+  lines.push('        $children = GetChildren $root');
   lines.push('        foreach ($child in $children) {');
   lines.push('            try {');
   lines.push('                $name = $child.Current.Name');
@@ -916,35 +899,134 @@ async function uiaAction(op: string, selector: string, value?: string, automatio
   }
 }
 
+const MIN_ACCEPTABLE_MATCH_SCORE = 85;
+/** If UIA match center diverges from guessBounds by more than this fraction of the display size, the UIA match is likely a wrong container — trust the AI's visual estimate instead. */
+const MAX_ACCEPTABLE_DIVERGENCE_PCT = 0.15;
+
+function boundsCenterDistance(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number }
+): { dx: number; dy: number } {
+  const ca = { x: a.x + a.width / 2, y: a.y + a.height / 2 };
+  const cb = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  return { dx: Math.abs(ca.x - cb.x), dy: Math.abs(ca.y - cb.y) };
+}
+
+/**
+ * Dual-bounds resolution strategy:
+ * 1. If uiaBounds provided by AI → use it directly (pixel-perfect copy from UIA tree)
+ * 2. If selector provided, try UIA live lookup by selector/automationId (score >= 85)
+ *    a. If guessBounds also provided → compare UIA result with guessBounds.
+ *       If divergence > 15% of display dimensions, UIA likely matched the wrong
+ *       container (e.g. "RootWebArea"). Trust guessBounds and log a warning.
+ *    b. If divergence is small → use UIA bounds (default, most accurate).
+ * 3. If UIA failed and guessBounds provided → use guessBounds
+ * 4. If nothing → return null (better no guide than wrong guide)
+ */
 async function resolveElementBounds(
   selector?: string,
   automationId?: string,
-  boundsHint?: { x: number; y: number; width: number; height: number }
+  uiaBounds?: { x: number; y: number; width: number; height: number },
+  guessBounds?: { x: number; y: number; width: number; height: number }
 ): Promise<{ x: number; y: number; width: number; height: number } | null> {
-  if (!selector) return boundsHint || null;
+  // Highest trust: AI explicitly copied exact bounds from the UIA candidate list
+  if (uiaBounds) {
+    log(`resolveElementBounds: using AI-provided uiaBounds ${JSON.stringify(uiaBounds)}`);
+    return uiaBounds;
+  }
+
+  if (!selector) {
+    if (guessBounds) {
+      log(`resolveElementBounds: no selector, using guessBounds ${JSON.stringify(guessBounds)}`);
+      return guessBounds;
+    }
+    log(`resolveElementBounds: no selector and no bounds — returning null`);
+    return null;
+  }
+
+  // Default: try UIA live lookup by selector/automationId
   const selectorNorm = selector.normalize("NFC").trim();
   const candidates = [selectorNorm];
   const colonIdx = selectorNorm.indexOf(":");
   if (colonIdx > 0) candidates.push(selectorNorm.substring(colonIdx + 1));
   const slashIdx = selectorNorm.lastIndexOf("/");
   if (slashIdx > 0 && slashIdx < selectorNorm.length - 1) candidates.push(selectorNorm.substring(slashIdx + 1));
+
   for (const sel of [...new Set(candidates)]) {
-    const match = await findElementBounds(sel, automationId, boundsHint);
+    const match = await findElementBounds(sel, automationId, undefined);
     if (match && match.width > 0 && match.height > 0) {
-      return { x: match.x, y: match.y, width: match.width, height: match.height };
+      if (match.score >= MIN_ACCEPTABLE_MATCH_SCORE) {
+        const uiaResult = { x: match.x, y: match.y, width: match.width, height: match.height };
+
+        // GUARD: if AI also provided guessBounds, compare divergence.
+        // If UIA matched a huge container (e.g. RootWebArea) the center will be
+        // far from the AI's visual estimate. In that case trust the screenshot.
+        if (guessBounds) {
+          const { screen: electronScreen } = require("electron");
+          const display = electronScreen.getDisplayNearestPoint({
+            x: Math.round(uiaResult.x / (electronScreen.getPrimaryDisplay().scaleFactor || 1)),
+            y: Math.round(uiaResult.y / (electronScreen.getPrimaryDisplay().scaleFactor || 1)),
+          });
+          const dw = (display?.bounds.width || 1920) * (display?.scaleFactor || 1);
+          const dh = (display?.bounds.height || 1080) * (display?.scaleFactor || 1);
+          const dist = boundsCenterDistance(uiaResult, guessBounds);
+          const dxPct = dist.dx / dw;
+          const dyPct = dist.dy / dh;
+
+          if (dxPct > MAX_ACCEPTABLE_DIVERGENCE_PCT || dyPct > MAX_ACCEPTABLE_DIVERGENCE_PCT) {
+            log(
+              `resolveElementBounds: GUARD TRIGGERED — UIA match "${match.name}" ` +
+              `bounds=${JSON.stringify(uiaResult)} diverges from guessBounds=${JSON.stringify(guessBounds)} ` +
+              `by ${(dxPct * 100).toFixed(1)}% x ${(dyPct * 100).toFixed(1)}% of display ` +
+              `(>${MAX_ACCEPTABLE_DIVERGENCE_PCT * 100}%). Using guessBounds.`
+            );
+            return guessBounds;
+          }
+          log(
+            `resolveElementBounds: UIA match "${match.name}" bounds=${JSON.stringify(uiaResult)} ` +
+            `within ${(dxPct * 100).toFixed(1)}% x ${(dyPct * 100).toFixed(1)}% of guessBounds — using UIA.`
+          );
+        }
+
+        log(`resolveElementBounds: using UIA match "${match.name}" score=${match.score}`);
+        return uiaResult;
+      }
+      log(`resolveElementBounds: rejecting low-score match "${match.name}" score=${match.score} < ${MIN_ACCEPTABLE_MATCH_SCORE}`);
     }
   }
+
+  // UIA exact match failed — fall back to AI-provided bounds
+  if (guessBounds) {
+    log(`resolveElementBounds: UIA search failed, using guessBounds ${JSON.stringify(guessBounds)}`);
+    return guessBounds;
+  }
+
+  log(`resolveElementBounds: no UIA match and no bounds provided — returning null`);
   return null;
 }
 
 async function showPulseHighlight(bounds: { x: number; y: number; width: number; height: number }): Promise<void> {
   const { screen: electronScreen, BrowserWindow } = require("electron");
-  const sf = electronScreen.getPrimaryDisplay().scaleFactor;
+  // bounds are physical pixels (from UIA or AI estimate). BrowserWindow
+  // coordinates are logical/DIP, so we must convert.
+  const displays = electronScreen.getAllDisplays();
+  let targetDisplay = displays[0];
+  for (const d of displays) {
+    const left = Math.round(d.bounds.x * d.scaleFactor);
+    const top = Math.round(d.bounds.y * d.scaleFactor);
+    const right = Math.round((d.bounds.x + d.bounds.width) * d.scaleFactor);
+    const bottom = Math.round((d.bounds.y + d.bounds.height) * d.scaleFactor);
+    if (bounds.x >= left && bounds.x < right && bounds.y >= top && bounds.y < bottom) {
+      targetDisplay = d;
+      break;
+    }
+  }
+  const sf = targetDisplay?.scaleFactor || electronScreen.getPrimaryDisplay().scaleFactor || 1;
   const pulseWin = new BrowserWindow({
-    x: bounds.x,
-    y: bounds.y,
-    width: bounds.width,
-    height: bounds.height,
+    x: Math.round(bounds.x / sf),
+    y: Math.round(bounds.y / sf),
+    width: Math.round(bounds.width / sf),
+    height: Math.round(bounds.height / sf),
     transparent: true,
     frame: false,
     alwaysOnTop: true,
@@ -1006,7 +1088,7 @@ async function clickElement(selector: string, automationId?: string, boundsHint?
  *  via setLastContextElement — used as a fallback selector source when the
  *  Action itself doesn't carry an automationId/boundsHint. */
 export async function executeHeavyAction(action: Action, ctx: HeavyExecContext): Promise<ActionResult> {
-  log(`executeHeavyAction: type=${action.type}, selector=${action.selector || "(none)"}, text=${action.text?.slice(0, 50) || "(none)"}`);
+  log(`executeHeavyAction: type=${action.type}, selector=${action.selector || "(none)"}, text=${action.text?.slice(0, 50) || "(none)"}, uiaBounds=${JSON.stringify(action.uiaBounds)}, guessBounds=${JSON.stringify(action.guessBounds)}, boundsHint=${JSON.stringify(action.boundsHint)}, ctxBounds=${JSON.stringify(ctx.bounds)}`);
 
   const autoId = action.automationId || ctx.automationId;
   const boundsHint = action.boundsHint || ctx.bounds;
@@ -1115,7 +1197,18 @@ export async function executeHeavyAction(action: Action, ctx: HeavyExecContext):
 
       case "click_element":
         if (action.selector) {
-          return await clickElement(action.selector, autoId, boundsHint);
+          log(`click_element: resolving selector="${action.selector}" uiaBounds=${JSON.stringify(action.uiaBounds)} guessBounds=${JSON.stringify(action.guessBounds)}`);
+          const clickBounds = await resolveElementBounds(action.selector, autoId, action.uiaBounds, action.guessBounds);
+          if (clickBounds) {
+            const cx = Math.round(clickBounds.x + clickBounds.width / 2);
+            const cy = Math.round(clickBounds.y + clickBounds.height / 2);
+            log(`click_element: resolved bounds=${JSON.stringify(clickBounds)} -> cursor=(${cx},${cy})`);
+            robot.moveMouse(cx, cy);
+            await sleep(80);
+            robot.mouseClick();
+            return { success: true };
+          }
+          return { success: false, error: `Could not locate "${action.selector}" for click` };
         } else if (storedBounds) {
           if (!clickAtBounds(storedBounds)) return { success: false, error: "Invalid stored bounds" };
           return { success: true };
@@ -1129,31 +1222,24 @@ export async function executeHeavyAction(action: Action, ctx: HeavyExecContext):
         return { success: true };
 
       case "guide_to": {
-        const guideBounds = await resolveElementBounds(action.selector, autoId, boundsHint);
+        log(`guide_to: resolving selector="${action.selector}" uiaBounds=${JSON.stringify(action.uiaBounds)} guessBounds=${JSON.stringify(action.guessBounds)}`);
+        const guideBounds = await resolveElementBounds(action.selector, autoId, action.uiaBounds, action.guessBounds);
         if (!guideBounds) {
-          if (storedBounds) {
-            if (action.autoClick) {
-              const cx = Math.round(storedBounds.x + storedBounds.width / 2);
-              const cy = Math.round(storedBounds.y + storedBounds.height / 2);
-              await smoothMoveCursorTo(cx, cy);
-              robot.mouseClick();
-            } else {
-              const { showOverlay, hideOverlay } = await import("../guide/guide-overlay");
-              await showOverlay(storedBounds, robot.getMousePos());
-              setTimeout(() => hideOverlay(), 3000);
-            }
-            return { success: true };
-          }
-          return { success: false, error: "Could not find element to guide to" };
+          log(`guide_to: no bounds resolved for "${action.selector}" — no pointer shown (better no guide than wrong guide)`);
+          return { success: false, error: `Could not locate "${action.selector}" — UIA tree blind and no screenshot estimate provided` };
         }
+        log(`guide_to: using bounds=${JSON.stringify(guideBounds)}`);
         if (action.autoClick) {
           const cx = Math.round(guideBounds.x + guideBounds.width / 2);
           const cy = Math.round(guideBounds.y + guideBounds.height / 2);
+          log(`guide_to: autoClick cursor=(${cx},${cy})`);
           await smoothMoveCursorTo(cx, cy);
           robot.mouseClick();
         } else {
+          const mousePos = robot.getMousePos();
+          log(`guide_to: showOverlay bounds=${JSON.stringify(guideBounds)} cursor=(${mousePos.x},${mousePos.y})`);
           const { showOverlay, hideOverlay } = await import("../guide/guide-overlay");
-          await showOverlay(guideBounds, robot.getMousePos());
+          await showOverlay(guideBounds, mousePos);
           setTimeout(() => hideOverlay(), 3000);
         }
         return { success: true };
