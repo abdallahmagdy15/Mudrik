@@ -5,7 +5,7 @@
 // the target. Created lazily on first showOverlay() call; reused for
 // subsequent steps; destroyed when the guide ends or the app quits.
 
-import { BrowserWindow, screen, app } from "electron";
+import { BrowserWindow, screen, app, ipcMain } from "electron";
 import * as path from "node:path";
 import { log } from "../logger";
 
@@ -123,6 +123,26 @@ export function hideOverlay(): void {
   }, 320);
 }
 
+export function showBubble(caption: string, options: string[], theme: string = "light"): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.webContents.send("guide-overlay-bubble-show", { caption, options, theme });
+}
+
+export function hideBubble(): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.webContents.send("guide-overlay-bubble-hide");
+}
+
+export function fadeBubble(opacity: number): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.webContents.send("guide-overlay-bubble-fade", { opacity });
+}
+
+export function setOverlayIgnoreMouseEvents(ignore: boolean): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.setIgnoreMouseEvents(ignore, { forward: true });
+}
+
 export function showOverlayLoading(text?: string): void {
   (async () => {
     if (!overlayWin || overlayWin.isDestroyed()) {
@@ -145,6 +165,11 @@ export function destroyOverlay(): void {
   overlayWin.destroy();
   overlayWin = null;
 }
+
+// Handle renderer requests to toggle click-through mode
+ipcMain.on("guide-overlay-set-ignore-mouse-events", (_event, ignore: boolean) => {
+  setOverlayIgnoreMouseEvents(ignore);
+});
 
 // Ensure overlay window is destroyed on app quit so it doesn't linger
 app.on("before-quit", destroyOverlay);

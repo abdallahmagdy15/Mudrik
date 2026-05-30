@@ -14,6 +14,127 @@
       user-select: none;
       -webkit-app-region: no-drag;
     }
+
+    /* --- Guide Speech Bubble --- */
+    .guide-bubble {
+      position: absolute;
+      min-width: 140px;
+      max-width: 280px;
+      padding: 10px 14px;
+      border-radius: 12px;
+      font-family: -apple-system, Segoe UI, system-ui, sans-serif;
+      font-size: 13px;
+      line-height: 1.4;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+      transition: opacity 300ms ease, transform 300ms ease;
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: auto;
+      z-index: 100;
+      display: none;
+    }
+    .guide-bubble.visible {
+      opacity: 1;
+      transform: translateY(0);
+      display: block;
+    }
+    .guide-bubble.faded {
+      opacity: 0.3;
+    }
+
+    /* Light theme */
+    .guide-bubble.light {
+      background: rgba(255, 255, 255, 0.95);
+      color: #1a1a1a;
+      border: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .guide-bubble.light .guide-bubble-tail {
+      background: rgba(255, 255, 255, 0.95);
+      border-right: 1px solid rgba(0, 0, 0, 0.08);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    }
+
+    /* Dark theme */
+    .guide-bubble.dark {
+      background: rgba(30, 30, 30, 0.92);
+      color: #f0f0f0;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .guide-bubble.dark .guide-bubble-tail {
+      background: rgba(30, 30, 30, 0.92);
+      border-right: 1px solid rgba(255, 255, 255, 0.1);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    .guide-bubble-caption {
+      margin-bottom: 8px;
+      word-wrap: break-word;
+    }
+
+    .guide-bubble-buttons {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .guide-bubble-btn {
+      padding: 5px 12px;
+      border-radius: 16px;
+      border: none;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: transform 100ms, opacity 150ms;
+      font-family: inherit;
+      pointer-events: auto;
+    }
+    .guide-bubble-btn:hover {
+      transform: scale(1.05);
+    }
+    .guide-bubble-btn:active {
+      transform: scale(0.95);
+    }
+
+    .guide-bubble-btn.primary {
+      background: #18BFE1;
+      color: white;
+    }
+    .guide-bubble-btn.secondary {
+      background: transparent;
+      color: inherit;
+      border: 1px solid rgba(128, 128, 128, 0.4);
+    }
+    .guide-bubble-btn.cancel {
+      background: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+
+    .guide-bubble-tail {
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      transform: rotate(45deg);
+      z-index: -1;
+    }
+
+    .guide-bubble-loading {
+      text-align: center;
+      padding: 8px 0;
+      font-size: 18px;
+      letter-spacing: 2px;
+    }
+    .guide-bubble-loading .dot {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    .guide-bubble-loading .dot:nth-child(2) { animation-delay: 0.2s; }
+    .guide-bubble-loading .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    /* --- Owl (existing) --- */
     .owl {
       position: absolute;
       width: 64px;
@@ -66,6 +187,17 @@
 </head>
 <body>
   <div id="owl" class="owl"></div>
+
+  <!-- Guide Speech Bubble -->
+  <div id="bubble" class="guide-bubble">
+    <div class="guide-bubble-tail"></div>
+    <div class="guide-bubble-caption" id="bubble-caption"></div>
+    <div class="guide-bubble-buttons" id="bubble-buttons"></div>
+    <div class="guide-bubble-loading" id="bubble-loading" style="display:none;">
+      <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
+    </div>
+  </div>
+
   <div id="loading" class="loading">
     <div class="loading-ring"></div>
     <div class="loading-text">Scanning screen…</div>

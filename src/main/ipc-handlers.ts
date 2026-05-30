@@ -664,6 +664,18 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       if (win && !win.isDestroyed()) {
         win.webContents.send(IPC.GUIDE_STATE_UPDATE, state);
       }
+      // Mirror caption/options to overlay bubble
+      const overlayMod = require("./guide/guide-overlay") as typeof import("./guide/guide-overlay");
+      if (state.phase === "step-active" && state.caption) {
+        const theme = appConfig?.theme === "system"
+          ? (require("electron").nativeTheme.shouldUseDarkColors ? "dark" : "light")
+          : (appConfig?.theme || "light");
+        overlayMod.showBubble(state.caption, state.options || [], theme);
+      } else if (state.phase === "waiting" || state.phase === "recapturing" || state.phase === "awaiting-ai") {
+        overlayMod.fadeBubble(0.3);
+      } else if (state.phase === "idle" || state.phase === "offer") {
+        overlayMod.hideBubble();
+      }
     },
     resolveTargetBounds: async (target) => {
       // Dual-bounds system (2026-05-24):
@@ -1481,6 +1493,13 @@ contextBlock += `\n--- END CONTEXT ---\n`;
   });
 
   ipcMain.on(IPC.GUIDE_USER_CHOICE, async (_e, option: string) => {
+    const m = await import("./guide/guide-controller");
+    m.getController().handleUserChoice(option);
+  });
+
+  // Forward bubble button clicks from overlay to guide controller
+  ipcMain.on("guide-overlay-choice", async (_e, option: string) => {
+    log(`guide-overlay-choice received: "${option}"`);
     const m = await import("./guide/guide-controller");
     m.getController().handleUserChoice(option);
   });

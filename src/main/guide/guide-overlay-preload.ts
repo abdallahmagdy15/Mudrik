@@ -16,4 +16,19 @@ contextBridge.exposeInMainWorld("guideOverlay", {
   onLoadingHide: (handler: () => void) => {
     ipcRenderer.on("guide-overlay-loading-hide", () => handler());
   },
+  onBubbleShow: (handler: (payload: { caption: string; options: string[]; theme: string }) => void) => {
+    ipcRenderer.on("guide-overlay-bubble-show", (_event, payload) => handler(payload));
+  },
+  onBubbleHide: (handler: () => void) => {
+    ipcRenderer.on("guide-overlay-bubble-hide", () => handler());
+  },
+  onBubbleFade: (handler: (payload: { opacity: number }) => void) => {
+    ipcRenderer.on("guide-overlay-bubble-fade", (_event, payload) => handler(payload));
+  },
+  sendChoice: (choice: string) => {
+    ipcRenderer.send("guide-overlay-choice", choice);
+  },
+  setIgnoreMouseEvents: (ignore: boolean) => {
+    ipcRenderer.send("guide-overlay-set-ignore-mouse-events", ignore);
+  },
 });
