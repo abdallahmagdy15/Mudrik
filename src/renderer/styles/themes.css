@@ -26,6 +26,7 @@
   /* Light Theme (default) */
   --bg-page: #141a24;
   --bg-panel: #f0f4f8;
+  --bg-overlay: #f5f8fb;
   --bg-surface: #e8eef4;
   --bg-inset: #dde5ee;
   --bg-elevated: #f5f8fb;
@@ -56,6 +57,7 @@
 [data-theme="dark"] {
   --bg-page: #0a0e14;
   --bg-panel: #111820;
+  --bg-overlay: #141d28;
   --bg-surface: #0e161f;
   --bg-inset: #0a1118;
   --bg-elevated: #141d28;
