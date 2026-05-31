@@ -1,0 +1,120 @@
+/* ──────────────────────────────────────────────────────────────
+   Mudrik Design System — CSS Custom Properties
+   Light/Dark themes with CSS variables
+   ────────────────────────────────────────────────────────────── */
+
+:root {
+  /* Brand Colors */
+  --cyan-deep: #4F7399;
+  --cyan: #7499C2;
+  --cyan-light: #9DB8D6;
+  --gold: #F2C94C;
+  --beak: #F2A93A;
+  --ink: #0C2530;
+
+  /* Light Theme (default) */
+  --bg-page: #141a24;
+  --bg-panel: #f0f4f8;
+  --bg-surface: #e8eef4;
+  --bg-inset: #dde5ee;
+  --bg-elevated: #f5f8fb;
+  --bg-msg: #e8eef4;
+  --text: #1a2530;
+  --text-subtle: #3d5266;
+  --text-muted: #6b7f94;
+  --text-ghost: #9aaabf;
+  --border: rgba(116, 153, 194, 0.18);
+  --border-bright: rgba(116, 153, 194, 0.32);
+  --success: #4a8f6b;
+  --error: #c45a5a;
+
+  /* Radii */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 5px;
+
+  /* Animation Easing */
+  --ease-out: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  /* Font size is read from Config.fontSize and written by the renderer
+     as an inline style on :root. 14 is the fallback before config
+     loads — matches DEFAULT_CONFIG.fontSize. */
+  --font-size-base: 14px;
+}
+
+[data-theme="dark"] {
+  --bg-page: #0a0e14;
+  --bg-panel: #111820;
+  --bg-surface: #0e161f;
+  --bg-inset: #0a1118;
+  --bg-elevated: #141d28;
+  --bg-msg: #0d141c;
+  --text: #d8e2eb;
+  --text-subtle: #8aa0b5;
+  --text-muted: #5a6f80;
+  --text-ghost: #3d5263;
+  --border: rgba(90, 122, 156, 0.10);
+  --border-bright: rgba(90, 122, 156, 0.22);
+  --success: #4a8b5f;
+  --error: #b05050;
+}
+
+/* ── Animations ── */
+@keyframes msgSlide {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideInRight {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes targetPulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.3; }
+}
+
+@keyframes owlBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.025); }
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes sectionSlide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
+}
+
+@keyframes badgeIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes cursorPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}

@@ -1,146 +1,9 @@
+@import "./themes.css";
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-}
-
-/* ──────────────────────────────────────────────────────────────
-   Owl-derived palette. All UI accents are tied to these tokens.
-     Cyan 300/500/700   — owl body, primary accent family
-     Teal Ink           — desaturated cyan for panel chrome
-     Orange 300/500     — beak + feet, warm CTA family
-   ────────────────────────────────────────────────────────────── */
-:root {
-  /* Owl primitives */
-  --owl-cyan-300: #5FD8F0;
-  --owl-cyan-500: #18BFE1;
-  --owl-cyan-700: #0FA8C9;
---owl-teal-ink: #081A22;
-  --owl-orange-500: #F2A93A;
-  --owl-orange-300: #FFC06A;
-  --owl-ink: #1C1C1C;
-  --owl-white: #FFFFFF;
-  --owl-sky-100: #E6F4F7;
-  --owl-sky-300: #8FBFCD;
-  --owl-sky-500: #556A77;
-
-  /* Semantic surfaces — deep dark teal, near-black with a cool undertone.
-     Not using Windows acrylic (dims on blur) nor CSS backdrop-filter
-     (can't sample desktop through Electron's transparent window). */
---bg-surface:  rgba(8, 18, 28, 0.94);
-    --bg-overlay:  rgba(6, 14, 24, 0.97);
-    --bg-inset:    rgba(4, 10, 18, 0.88);
-    --bg-elevated: rgba(14, 36, 50, 0.92);
-    --msg-fade:    rgba(8, 18, 28, 0.96);
-
-  /* Text */
-  --text:        var(--owl-sky-100);
-  --text-subtle: var(--owl-sky-300);
-  --text-muted:  var(--owl-sky-500);
-  --icon-fg:     rgba(120, 175, 195, 0.75);
-
-  /* Accent family — cyan */
-  --accent:        var(--owl-cyan-500);
-  --accent-bright: var(--owl-cyan-300);
-  --accent-deep:   var(--owl-cyan-700);
-  --accent-glow:        rgba(24, 191, 225, 0.10);
-  --accent-glow-strong: rgba(24, 191, 225, 0.22);
-
-  /* Warm family — orange (beak / feet) */
-  --warm:       var(--owl-orange-500);
-  --warm-bright: var(--owl-orange-300);
-  --warm-glow:  rgba(242, 169, 58, 0.14);
-
-  /* Status */
-  --green: #6EE7B7;
-  --green-glow: rgba(110, 231, 183, 0.10);
-  --red:   #FB7185;
-  --red-glow: rgba(251, 113, 133, 0.10);
-  --yellow: var(--owl-orange-500);
-
-  /* Borders */
-  --border:        rgba(95, 216, 240, 0.10);
-  --border-bright: rgba(24, 191, 225, 0.32);
-
-  /* Brand gradient — owl body → beak */
-  --gradient-accent: linear-gradient(135deg, var(--owl-cyan-500), var(--owl-cyan-300) 55%, var(--owl-orange-500));
-  --gradient-accent-faded: linear-gradient(135deg, rgba(24, 191, 225, 0.14), rgba(95, 216, 240, 0.10) 55%, rgba(242, 169, 58, 0.14));
-  --gradient-green:  linear-gradient(135deg, var(--green), var(--owl-cyan-300));
-
-  --radius: 8px;
-  --radius-sm: 8px;
-
-  /* Font size is read from Config.fontSize and written by the renderer
-     as an inline style on :root. 14 is the fallback before config
-     loads — matches DEFAULT_CONFIG.fontSize. */
-  --font-size-base: 14px;
-
-  /* Panel chrome tint — translucent so Windows acrylic blur shows through.
-     Acrylic provides the desktop blur; this is the tint layer on top. */
-  --panel-paint:  rgba(6, 14, 24, 0.35);
-  --panel-border: rgba(95, 216, 240, 0.22);
-
-  --app-gradient: none;
-
-  --btn-attach-bg: rgba(14, 36, 50, 0.78);
-  --btn-attach-hover: var(--bg-elevated);
-  --btn-attach-text: #FFFFFF;
-  --badge-muted-text: rgba(255, 255, 255, 0.55);
-
-  /* Copy chips — neutral dark grey */
-  --chip-bg:     rgba(28, 36, 44, 0.60);
-  --chip-fg:     rgba(210, 218, 224, 0.92);
-  --chip-border: rgba(120, 132, 140, 0.30);
-  --chip-bg-hover:     rgba(36, 46, 56, 0.75);
-  --chip-border-hover: rgba(150, 162, 170, 0.50);
-}
-
-/* ── Light palette (system theme switch) ── */
-@media (prefers-color-scheme: light) {
-  :root {
---bg-surface:  rgba(255, 255, 255, 0.92);
-     --bg-overlay:  rgba(250, 252, 253, 0.96);
-     --bg-inset:    rgba(240, 248, 251, 0.90);
-     --bg-elevated: rgba(255, 255, 255, 0.94);
-     --msg-fade:    rgba(245, 247, 249, 0.95);
-
-    --text:        #0C2530;
-    --text-subtle: #3B6070;
-    --text-muted:  #6F8A97;
-    /* Darker icon tone in light mode so gear/+/-/× don't wash out
-     against near-white chrome. */
-    --icon-fg:     #1F4655;
-
-    --accent:        var(--owl-cyan-700);
-    --accent-bright: var(--owl-cyan-500);
-    --accent-deep:   var(--owl-cyan-700);
-    --accent-glow:        rgba(15, 168, 201, 0.16);
-    --accent-glow-strong: rgba(15, 168, 201, 0.30);
-
-    --warm:        var(--owl-orange-500);
-    --warm-bright: var(--owl-orange-300);
-
-    --border:        rgba(15, 168, 201, 0.20);
-    --border-bright: rgba(15, 168, 201, 0.45);
-
-     --panel-paint:  rgba(252, 254, 255, 0.30);
-     --panel-border: rgba(15, 168, 201, 0.32);
-
---app-gradient: none;
-     --gradient-accent-faded: linear-gradient(135deg, rgba(15, 168, 201, 0.18), rgba(95, 216, 240, 0.14) 55%, rgba(242, 169, 58, 0.18));
-
---btn-attach-bg: rgba(230, 238, 242, 0.80);
-  --btn-attach-hover: var(--bg-elevated);
-  --btn-attach-text: #0C2530;
-  --badge-muted-text: rgba(0, 0, 0, 0.5);
-
-    /* Light-mode chips: soft pebble grey on the pale chrome. */
-    --chip-bg:     rgba(230, 234, 238, 0.85);
-    --chip-fg:     #3A4750;
-    --chip-border: rgba(130, 145, 155, 0.35);
-    --chip-bg-hover:     rgba(218, 224, 230, 0.95);
-    --chip-border-hover: rgba(95, 110, 120, 0.55);
-  }
 }
 
 html, body, #root {
@@ -152,7 +15,7 @@ html, body, #root {
 }
 
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  font-family: "Plus Jakarta Sans", "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: var(--font-size-base);
   background: transparent;
   color: var(--text);
@@ -165,37 +28,43 @@ body {
 .app[dir="rtl"] .app-brand { flex-direction: row-reverse; }
 
 /* ── Scrollbar ── */
-::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar { width: 6px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(24,191,225,0.20); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(24,191,225,0.38); }
+::-webkit-scrollbar-thumb {
+  background: rgba(116, 153, 194, 0.2);
+  border-radius: 3px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(116, 153, 194, 0.35);
+}
 
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  padding: 8px;
-  gap: 6px;
-  background: var(--app-gradient), var(--panel-paint);
-  border: 1px solid var(--panel-border);
+  padding: 10px;
+  gap: 8px;
+  background: var(--bg-panel);
   overflow: hidden;
 }
 
 /* ── Header ── */
-/* Solid opaque bar so owl + buttons are always crisp above the blur. */
 .app-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 6px 6px 6px;
+  padding: 8px 10px;
   background: var(--bg-surface);
-  border: 0;
-  border-radius: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   cursor: grab;
   user-select: none;
   -webkit-app-region: drag;
   flex-shrink: 0;
   position: relative;
+  backdrop-filter: blur(12px);
 }
 
 .app-header:active { cursor: grabbing; }
@@ -204,98 +73,118 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  /* Inherit drag region from .app-header — the owl svg + title are all
-     part of the drag handle. */
 }
 
 .app-brand svg {
-  pointer-events: none;  /* don't swallow clicks / drag starts */
+  pointer-events: none;
 }
 
 .app-title {
-  font-weight: 700;
-  font-size: 16px;
-  background: var(--gradient-accent);
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  background: linear-gradient(90deg, var(--cyan-deep) 0%, var(--cyan) 60%, var(--gold) 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  letter-spacing: 0.5px;
+  background-clip: text;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  margin-left: 5px;
+  background: rgba(116, 153, 194, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(116, 153, 194, 0.18);
+}
+
+.status-pill .dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--cyan);
+  animation: pulse 2s var(--ease-out) infinite;
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   -webkit-app-region: no-drag;
 }
 
-/* Header control buttons — default tone is the higher-contrast
-   `--icon-fg` token so the gear/+/-/× read clearly on both light
-   wallpapers and dark ones. Hover adds accent colour + soft glow. */
-.btn-dismiss, .btn-minimize, .btn-new-session, .btn-settings {
+/* Header control buttons */
+.btn-icon,
+.btn-dismiss,
+.btn-minimize,
+.btn-new-session,
+.btn-settings {
   background: none;
   border: 1px solid transparent;
-  color: var(--icon-fg);
+  color: var(--text-ghost);
   cursor: pointer;
-  padding: 3px 8px;
-  border-radius: var(--radius-sm);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
   font-size: 15px;
   line-height: 1;
-  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+  transition: all 0.15s var(--ease-out);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.btn-new-session { font-size: 18px; font-weight: 600; }
+.btn-icon:hover,
+.btn-new-session:hover,
+.btn-settings:hover {
+  color: var(--cyan-deep);
+  border-color: var(--border);
+  background: rgba(116, 153, 194, 0.08);
+}
 
 .btn-dismiss:hover {
-  color: var(--red);
-  border-color: rgba(251,113,133,0.3);
-  background: var(--red-glow);
+  color: var(--error);
+  border-color: rgba(196, 90, 90, 0.2);
+  background: rgba(196, 90, 90, 0.06);
 }
 
 .btn-minimize:hover {
-  color: var(--yellow);
-  border-color: rgba(251,191,36,0.3);
-  background: rgba(251,191,36,0.08);
+  color: var(--beak);
+  border-color: rgba(242, 169, 58, 0.2);
+  background: rgba(242, 169, 58, 0.06);
 }
 
-.btn-new-session:hover {
-  color: var(--accent-bright);
-  border-color: var(--border-bright);
-  background: var(--accent-glow);
-}
-
-.btn-settings {
-  font-size: 14px;
-}
-
-.btn-settings:hover {
-  color: var(--accent-bright);
-  border-color: var(--border-bright);
-  background: var(--accent-glow);
-}
+.btn-new-session { font-size: 16px; }
 
 .btn-settings.active {
-  color: var(--accent);
-  background: var(--accent-glow);
+  color: var(--cyan);
+  background: rgba(116, 153, 194, 0.08);
+  border-color: var(--border);
 }
 
+/* ── Settings ── */
 .settings-dropdown {
   position: absolute;
   top: 100%;
   right: 8px;
   margin-top: 6px;
   background: var(--bg-overlay);
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--border-bright);
   border-radius: var(--radius);
   padding: 10px 12px;
   z-index: 100;
-  min-width: 240px;
-  /* Fit within the panel: header (~48px) + app padding (8px top + 8px bottom)
-     + gap (6px) + small buffer (6px) = ~76px. Dropdown scrolls when taller. */
+  min-width: 260px;
   max-height: calc(100vh - 76px);
   overflow-y: auto;
-  box-shadow: 0 12px 32px rgba(6, 14, 24, 0.55);
+  box-shadow: 0 16px 48px rgba(6, 14, 24, 0.55);
   -webkit-app-region: no-drag;
-  animation: msgSlide 0.15s ease;
+  animation: overlayIn 0.2s var(--ease-out);
 }
 
 .settings-section {
@@ -330,6 +219,16 @@ body {
   flex-shrink: 0;
 }
 
+.settings-section-icon {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .settings-section-meta {
   flex: 1;
   font-size: 10px;
@@ -338,7 +237,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "Segoe UI Mono", Consolas, monospace;
+  font-family: "JetBrains Mono", "Segoe UI Mono", Consolas, monospace;
 }
 
 .settings-chevron {
@@ -358,11 +257,6 @@ body {
 .settings-section-body {
   padding-bottom: 10px;
   animation: sectionSlide 0.15s ease;
-}
-
-@keyframes sectionSlide {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 .settings-label {
@@ -385,25 +279,26 @@ body {
   margin-top: 2px;
 }
 
+/* Model options */
 .model-option {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 12px;
   color: var(--text-subtle);
-  transition: background 0.15s ease;
+  transition: background 0.15s var(--ease-out);
 }
 
 .model-option:hover {
-  background: var(--accent-glow);
+  background: rgba(116, 153, 194, 0.06);
 }
 
 .model-active {
   color: var(--text);
-  background: var(--accent-glow-strong);
+  background: rgba(116, 153, 194, 0.1);
 }
 
 .model-remove,
@@ -416,17 +311,12 @@ body {
   padding: 2px 6px;
   border-radius: 3px;
   opacity: 0;
-  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+  transition: opacity 0.15s var(--ease-out), background 0.15s var(--ease-out), color 0.15s var(--ease-out);
   font-family: inherit;
 }
 
-.model-remove {
-  font-size: 14px;
-}
-
-.model-edit-key {
-  font-size: 11px;
-}
+.model-remove { font-size: 14px; }
+.model-edit-key { font-size: 11px; }
 
 .model-option:hover .model-remove,
 .model-option:hover .model-edit-key {
@@ -434,13 +324,13 @@ body {
 }
 
 .model-edit-key:hover {
-  background: var(--accent-glow, rgba(116, 153, 194, 0.15));
-  color: var(--accent, #7499C2);
+  background: rgba(116, 153, 194, 0.1);
+  color: var(--cyan);
 }
 
 .model-remove:hover {
-  background: var(--red, rgba(255, 80, 80, 0.15));
-  color: var(--red, #ff6a6a);
+  background: rgba(196, 90, 90, 0.1);
+  color: var(--error);
 }
 
 .model-input-btn-secondary {
@@ -448,9 +338,7 @@ body {
   font-size: 10px !important;
 }
 
-.model-name {
-  font-weight: 500;
-}
+.model-name { font-weight: 500; }
 
 .model-provider {
   font-size: 10px;
@@ -459,7 +347,7 @@ body {
 }
 
 .model-check {
-  color: var(--accent);
+  color: var(--cyan);
   font-size: 12px;
   font-weight: 700;
 }
@@ -474,7 +362,7 @@ body {
   flex: 1;
   background: var(--bg-inset);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   color: var(--text);
   font-size: 11px;
   padding: 3px 6px;
@@ -483,7 +371,7 @@ body {
 }
 
 .model-input:focus {
-  border-color: var(--accent);
+  border-color: var(--cyan);
 }
 
 .model-input::placeholder {
@@ -494,16 +382,16 @@ body {
   background: var(--bg-inset);
   border: 1px solid var(--border);
   color: var(--text-subtle);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   padding: 3px 8px;
   font-size: 11px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s var(--ease-out);
   font-family: inherit;
 }
 
 .model-input-btn:hover:not(:disabled) {
-  border-color: var(--accent);
+  border-color: var(--cyan);
   color: var(--text);
 }
 
@@ -514,7 +402,7 @@ body {
 
 .model-error {
   font-size: 10px;
-  color: var(--red);
+  color: var(--error);
   margin-top: 4px;
   line-height: 1.3;
 }
@@ -522,9 +410,9 @@ body {
 .api-key-prompt {
   margin-top: 10px;
   padding: 10px;
-  background: var(--panel-alt, rgba(255, 255, 255, 0.04));
-  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -532,19 +420,19 @@ body {
 
 .api-key-label {
   font-size: 11px;
-  color: var(--muted, #a0a8b4);
+  color: var(--text-subtle);
   letter-spacing: 0.02em;
 }
 
 .api-key-provider {
-  color: var(--accent, #7499C2);
+  color: var(--cyan);
   font-weight: 600;
-  font-family: "Segoe UI Mono", Consolas, monospace;
+  font-family: "JetBrains Mono", "Segoe UI Mono", Consolas, monospace;
 }
 
 .api-key-hint {
   font-size: 10px;
-  color: var(--muted, #8088a0);
+  color: var(--text-muted);
   line-height: 1.3;
   font-style: italic;
 }
@@ -581,12 +469,12 @@ body {
   background: var(--bg-inset);
   color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   outline: none;
 }
 
 .hotkey-input:focus {
-  border-color: var(--accent);
+  border-color: var(--cyan);
 }
 
 .theme-picker {
@@ -603,9 +491,9 @@ body {
   color: var(--text-subtle);
   background: var(--bg-inset);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s var(--ease-out);
 }
 
 .theme-option:hover {
@@ -614,8 +502,8 @@ body {
 }
 
 .theme-option.theme-active {
-  color: var(--accent-bright);
-  background: var(--accent-glow);
+  color: var(--cyan);
+  background: rgba(116, 153, 194, 0.08);
   border-color: var(--border-bright);
 }
 
@@ -637,18 +525,20 @@ body {
   outline: none;
   cursor: pointer;
 }
+
 .font-size-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--cyan);
   border: 2px solid var(--bg-surface);
   box-shadow: 0 0 0 1px var(--border-bright);
   cursor: pointer;
-  transition: transform 0.1s ease;
+  transition: transform 0.1s var(--ease-out);
 }
+
 .font-size-slider::-webkit-slider-thumb:hover {
   transform: scale(1.15);
 }
@@ -659,14 +549,14 @@ body {
   background: var(--bg-inset);
   border-radius: 10px;
   position: relative;
-  transition: background 0.2s ease;
+  transition: background 0.2s var(--ease-out);
   border: 1px solid var(--border);
   cursor: pointer;
 }
 
 .toggle-switch.on {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--cyan);
+  border-color: var(--cyan);
 }
 
 .toggle-knob {
@@ -677,7 +567,7 @@ body {
   position: absolute;
   top: 1px;
   left: 1px;
-  transition: left 0.2s ease;
+  transition: left 0.2s var(--ease-out);
 }
 
 .toggle-switch.on .toggle-knob {
@@ -688,7 +578,7 @@ body {
 .context-preview {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
   max-height: 130px;
   overflow-y: auto;
@@ -701,7 +591,7 @@ body {
   position: absolute;
   top: 0; left: 0; right: 0;
   height: 1px;
-  background: var(--gradient-accent);
+  background: linear-gradient(90deg, var(--cyan-deep), var(--cyan) 60%, var(--gold));
   opacity: 0.4;
 }
 
@@ -709,14 +599,14 @@ body {
 
 .context-type {
   display: inline-block;
-  background: var(--accent-glow);
-  color: var(--accent-bright);
+  background: rgba(116, 153, 194, 0.08);
+  color: var(--cyan);
   padding: 1px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   font-size: 10px;
   font-weight: 600;
   margin-right: 6px;
-  border: 1px solid rgba(24,191,225,0.18);
+  border: 1px solid rgba(116, 153, 194, 0.15);
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
@@ -732,9 +622,9 @@ body {
   max-height: 40px;
   overflow-y: auto;
   background: var(--bg-inset);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   padding: 3px 6px;
-  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
 }
 
 .context-surrounding { margin-top: 6px; font-size: 12px; }
@@ -751,30 +641,30 @@ body {
 
 .context-sibling {
   padding: 3px 0;
-  border-top: 1px solid rgba(80,80,120,0.15);
+  border-top: 1px solid var(--border);
 }
 
 /* ── Attach Screenshot ── */
 .btn-attach-screenshot {
   display: block;
   width: 100%;
-  background: var(--gradient-accent-faded);
-  color: var(--btn-attach-text);
+  background: linear-gradient(135deg, rgba(79, 115, 153, 0.14), rgba(116, 153, 194, 0.1) 55%, rgba(242, 169, 58, 0.14));
+  color: var(--text);
   border: 1px solid var(--border-bright);
-  border-radius: var(--radius);
+  border-radius: var(--radius-xs);
   padding: 7px 8px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
   text-align: center;
-  transition: all 0.2s ease;
+  transition: all 0.2s var(--ease-out);
   flex-shrink: 0;
 }
 
 .btn-attach-screenshot:hover {
   filter: brightness(1.15);
-  border-color: var(--accent);
-  box-shadow: 0 0 12px rgba(24,191,225,0.18);
+  border-color: var(--cyan);
+  box-shadow: 0 0 12px rgba(116, 153, 194, 0.18);
 }
 
 .btn-attach-screenshot:disabled {
@@ -785,16 +675,16 @@ body {
 }
 
 .screenshot-badge {
-  background: var(--gradient-accent-faded);
-  color: var(--badge-muted-text);
+  background: linear-gradient(135deg, rgba(79, 115, 153, 0.14), rgba(116, 153, 194, 0.1) 55%, rgba(242, 169, 58, 0.14));
+  color: var(--text-muted);
   border: 1px solid var(--border-bright);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   padding: 5px 8px;
   font-size: 11px;
   font-weight: 600;
   text-align: center;
   letter-spacing: 0.3px;
-  animation: badgeIn 0.3s ease;
+  animation: badgeIn 0.3s var(--ease-out);
   flex-shrink: 0;
   user-select: none;
   display: flex;
@@ -806,23 +696,18 @@ body {
 .screenshot-badge-x {
   background: none;
   border: none;
-  color: var(--badge-muted-text);
+  color: var(--text-muted);
   font-size: 14px;
   font-weight: 400;
   line-height: 1;
   cursor: pointer;
   padding: 0 0 0 2px;
   opacity: 0.6;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s var(--ease-out);
 }
 
 .screenshot-badge-x:hover {
   opacity: 1;
-}
-
-@keyframes badgeIn {
-  from { opacity: 0; transform: translateY(-3px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ── Messages ── */
@@ -830,23 +715,24 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 8px;
-  background: var(--bg-surface);
+  padding: 10px;
+  background: var(--bg-msg);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: var(--radius-xs);
   scroll-behavior: smooth;
   position: relative;
 }
+
 .messages::before {
   content: '';
   position: sticky;
-  top: -8px;
+  top: -10px;
   left: 0;
   right: 0;
   display: block;
   height: 24px;
-  margin: -8px -8px 0 -8px;
-  background: linear-gradient(to bottom, var(--msg-fade), transparent);
+  margin: -10px -10px 0 -10px;
+  background: linear-gradient(to bottom, var(--bg-msg), transparent);
   pointer-events: none;
   z-index: 1;
 }
@@ -862,6 +748,62 @@ body {
   opacity: 0.7;
 }
 
+/* Empty State */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 40px 16px;
+  text-align: center;
+  height: 100%;
+  color: var(--text-subtle);
+}
+
+.empty-state .owl-wrap {
+  width: 88px;
+  height: 88px;
+  filter: drop-shadow(0 4px 12px rgba(116, 153, 194, 0.2));
+  animation: breathe 3.5s var(--ease-out) infinite;
+}
+
+.empty-state .wordmark {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: linear-gradient(90deg, var(--cyan-deep) 0%, var(--cyan) 60%, var(--gold) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.empty-state .hint {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  max-width: 220px;
+}
+
+.empty-state .caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.empty-state .cap-chip {
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 100px;
+  background: rgba(116, 153, 194, 0.08);
+  border: 1px solid rgba(116, 153, 194, 0.15);
+  color: var(--text-subtle);
+  font-weight: 500;
+}
+
+/* Loading */
 .loading-bar-container {
   display: flex;
   flex-direction: row;
@@ -872,39 +814,39 @@ body {
 }
 
 .btn-stop {
-  background: rgba(251,113,133,0.1);
-  color: var(--red);
-  border: 1px solid rgba(251,113,133,0.3);
+  background: rgba(196, 90, 90, 0.08);
+  color: var(--error);
+  border: 1px solid rgba(196, 90, 90, 0.2);
   padding: 2px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 10px;
   font-weight: 500;
   flex-shrink: 0;
-  transition: all 0.15s ease;
+  transition: all 0.15s var(--ease-out);
 }
 
 .btn-stop:hover {
-  background: rgba(251,113,133,0.2);
-  border-color: var(--red);
+  background: rgba(196, 90, 90, 0.15);
+  border-color: var(--error);
 }
 
 .btn-stop-inline {
-  background: rgba(251,113,133,0.1);
-  color: var(--red);
-  border: 1px solid rgba(251,113,133,0.3);
+  background: rgba(196, 90, 90, 0.08);
+  color: var(--error);
+  border: 1px solid rgba(196, 90, 90, 0.2);
   padding: 2px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 10px;
   font-weight: 500;
   margin-top: 4px;
-  transition: all 0.15s ease;
+  transition: all 0.15s var(--ease-out);
 }
 
 .btn-stop-inline:hover {
-  background: rgba(251,113,133,0.2);
-  border-color: var(--red);
+  background: rgba(196, 90, 90, 0.15);
+  border-color: var(--error);
 }
 
 .loading-bar {
@@ -912,7 +854,7 @@ body {
   min-width: 60px;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, transparent, var(--owl-cyan-500), var(--owl-cyan-300), var(--owl-orange-500), var(--owl-cyan-500), transparent);
+  background: linear-gradient(90deg, transparent, var(--cyan), var(--cyan-light), var(--beak), var(--cyan), transparent);
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
   position: relative;
@@ -926,82 +868,53 @@ body {
   left: -50%;
   width: 50%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
-  animation: glide 1.5s ease-in-out infinite;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  animation: shimmer 1.5s ease-in-out infinite;
 }
 
 .loading-text {
   font-size: 11px;
-  color: var(--accent);
+  color: var(--cyan);
   font-weight: 500;
   letter-spacing: 0.5px;
-  animation: pulse 2s ease-in-out infinite;
+  animation: cursorPulse 2s ease-in-out infinite;
 }
 
-@keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-@keyframes glide {
-  0% { left: -50%; }
-  100% { left: 150%; }
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.5; }
-  50% { opacity: 1; }
-}
-
+/* Messages */
 .message {
-  margin-bottom: 10px;
-  padding: 8px 10px 8px 13px;
-  border-radius: var(--radius);
-  animation: msgSlide 0.3s ease;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-xs);
+  animation: msgSlide 0.25s var(--ease-out);
   position: relative;
-  overflow: hidden;     /* clip the ::before accent bar to the rounded corners */
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text);
+  transition: background 0.15s var(--ease-out);
 }
 
-/* Accent side-stripe drawn as a pseudo-element so it's clipped by the
-   message's border-radius (native `border-left` with `border-image`
-   disables corner rounding — that's why the stripe was visually taller
-   than the bubble). */
-.message::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  background: var(--accent);
+.message:hover {
+  background: rgba(116, 153, 194, 0.04);
 }
 
-@keyframes msgSlide {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Flat tinted surfaces — no dark-navy gradient that turns into a muddy
-   blob over light-mode text. Both user and assistant bubbles use the
-   same theme-aware `--bg-elevated`; they are distinguished only by the
-   left accent stripe colour. */
 .message-user {
   background: var(--bg-elevated);
+  border: 1px solid rgba(116, 153, 194, 0.12);
 }
-.message-user::before { background: var(--accent); }
 
 .message-assistant {
-  background: var(--bg-elevated);
+  background: rgba(116, 153, 194, 0.06);
+  border: 1px solid rgba(116, 153, 194, 0.10);
 }
-.message-assistant::before { background: var(--green); }
 
 .message-role {
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.8px;
+  letter-spacing: 0.12em;
   color: var(--text-muted);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .message-content {
@@ -1017,11 +930,11 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  color: var(--red);
+  color: var(--error);
   padding: 8px;
-  background: var(--red-glow);
-  border: 1px solid rgba(251,113,133,0.2);
-  border-radius: var(--radius);
+  background: rgba(196, 90, 90, 0.06);
+  border: 1px solid rgba(196, 90, 90, 0.15);
+  border-radius: var(--radius-sm);
   margin-bottom: 8px;
 }
 
@@ -1034,21 +947,21 @@ body {
 
 .btn-retry-response {
   flex-shrink: 0;
-  background: rgba(251,113,133,0.12);
-  color: var(--red);
-  border: 1px solid rgba(251,113,133,0.35);
+  background: rgba(196, 90, 90, 0.08);
+  color: var(--error);
+  border: 1px solid rgba(196, 90, 90, 0.2);
   padding: 3px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-family: inherit;
   font-size: 11px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition: all 0.15s var(--ease-out);
 }
 
 .btn-retry-response:hover:not(:disabled) {
-  background: rgba(251,113,133,0.22);
-  border-color: var(--red);
+  background: rgba(196, 90, 90, 0.15);
+  border-color: var(--error);
 }
 
 .btn-retry-response:disabled {
@@ -1058,57 +971,54 @@ body {
 
 .cursor-blink {
   animation: blink 1s step-end infinite;
-  color: var(--accent-bright);
+  color: var(--cyan);
 }
-
-@keyframes blink { 50% { opacity: 0; } }
 
 /* ── Action Results ── */
 .action-result {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: var(--radius-sm);
-  margin-bottom: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius-xs);
+  margin: 8px 0;
   font-size: 12px;
-  animation: msgSlide 0.2s ease;
+  border: 1px solid;
+  animation: slideInRight 0.3s var(--ease-out);
 }
 
 .action-success {
-  background: var(--green-glow);
-  border-left: 3px solid var(--green);
+  background: rgba(74, 143, 107, 0.06);
+  border-color: rgba(74, 143, 107, 0.15);
+  color: var(--success);
 }
 
 .action-failed {
-  background: var(--red-glow);
-  border-left: 3px solid var(--red);
+  background: rgba(196, 90, 90, 0.06);
+  border-color: rgba(196, 90, 90, 0.15);
+  color: var(--error);
 }
 
 .action-result-label { color: var(--text); font-weight: 500; }
 .action-result-status { font-weight: 700; font-size: 11px; }
-.action-success .action-result-status { color: var(--green); }
-.action-failed .action-result-status { color: var(--red); }
+.action-success .action-result-status { color: var(--success); }
+.action-failed .action-result-status { color: var(--error); }
 
 .btn-retry {
   background: var(--bg-inset);
-  color: var(--yellow);
-  border: 1px solid rgba(251,191,36,0.3);
+  color: var(--beak);
+  border: 1px solid rgba(242, 169, 58, 0.2);
   padding: 1px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 11px;
   font-weight: 500;
-  transition: all 0.15s ease;
+  transition: all 0.15s var(--ease-out);
 }
 
 .btn-retry:hover {
-  background: rgba(251,191,36,0.1);
-  border-color: var(--yellow);
+  background: rgba(242, 169, 58, 0.08);
+  border-color: var(--beak);
 }
 
-.action-result-error { width: 100%; color: var(--red); font-size: 11px; padding: 2px 0; }
+.action-result-error { width: 100%; color: var(--error); font-size: 11px; padding: 2px 0; }
 
 .action-result-output {
   width: 100%;
@@ -1119,7 +1029,7 @@ body {
   max-height: 80px;
   overflow-y: auto;
   background: var(--bg-inset);
-  border-radius: 4px;
+  border-radius: var(--radius-xs);
   padding: 4px 6px;
   margin-top: 2px;
 }
@@ -1130,98 +1040,103 @@ body {
   position: relative;
   display: flex;
   align-items: stretch;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 5px 5px 5px 10px;
+  transition: border-color 0.2s var(--ease-out), box-shadow 0.2s var(--ease-out);
+}
+
+.chat-input:focus-within {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(116, 153, 194, 0.08);
 }
 
 .chat-input textarea {
   flex: 1;
   width: 100%;
-  background: var(--bg-elevated);
+  background: transparent;
   color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  /* Right padding leaves room for the absolutely-positioned send button. */
-  padding: 10px 44px 10px 12px;
+  border: none;
+  padding: 6px 8px 6px 0;
   font-family: inherit;
-  font-size: var(--font-size-base);
+  font-size: 13px;
   resize: none;
   outline: none;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   line-height: 1.5;
 }
 
-.chat-input textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-glow), 0 0 20px rgba(24,191,225,0.12);
+.chat-input textarea::placeholder {
+  color: var(--text-ghost);
 }
 
-.chat-input textarea::placeholder { color: var(--text-muted); }
-.chat-input textarea:disabled { opacity: 0.4; }
+.chat-input textarea:disabled {
+  opacity: 0.4;
+}
 
 .btn-send {
-  position: absolute;
-  right: 6px;
-  bottom: 6px;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  border-radius: 50%;
-  background: var(--gradient-accent);
-  color: var(--owl-teal-ink);
-  border: 1px solid var(--border-bright);
+  border-radius: 6px;
+  background: linear-gradient(135deg, var(--cyan-deep), var(--cyan));
+  color: white;
+  border: none;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(24, 191, 225, 0.25);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+  transition: all 0.15s var(--ease-out);
+  flex-shrink: 0;
+  align-self: flex-end;
+  box-shadow: 0 2px 8px rgba(116, 153, 194, 0.2);
 }
 
 .btn-send:hover:not(:disabled) {
+  filter: brightness(1.15);
   transform: translateY(-1px) scale(1.04);
-  box-shadow: 0 4px 14px rgba(24, 191, 225, 0.4);
+  box-shadow: 0 4px 16px rgba(116, 153, 194, 0.35);
 }
 
 .btn-send:active:not(:disabled) {
-  transform: translateY(0) scale(0.98);
+  transform: translateY(0) scale(0.96);
+  transition-duration: 0.05s;
 }
 
 .btn-send:disabled {
-  opacity: 0.35;
+  opacity: 0.4;
   cursor: not-allowed;
+  transform: none;
   box-shadow: none;
+  filter: saturate(0.6);
 }
 
-.btn-send svg {
-  display: block;
-}
-
+/* ── Copy Chips ── */
 .copy-chip {
-  display: block;
-  width: 100%;
-  background: var(--chip-bg);
-  color: var(--chip-fg);
-  border: 1px solid var(--chip-border);
-  border-radius: 5px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-family: "Cascadia Code", "Fira Code", Consolas, monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-  white-space: pre-wrap;
-  word-break: break-all;
-  margin: 4px 0;
-  text-align: left;
+  margin-top: 8px;
+  transition: all 0.15s var(--ease-out);
+  font-family: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 12px;
+  color: var(--beak);
 }
 
 .copy-chip:hover {
-  background: var(--chip-bg-hover);
-  border-color: var(--chip-border-hover);
+  border-color: var(--gold);
+  background: rgba(242, 201, 76, 0.08);
 }
 
 .copy-chip.copied {
-  background: var(--green-glow);
-  border-color: var(--green);
-  color: var(--green);
+  background: rgba(74, 143, 107, 0.06);
+  border-color: var(--success);
+  color: var(--success);
 }
 
 .session-restoring {
@@ -1229,9 +1144,10 @@ body {
   padding: 8px;
   color: var(--text-muted);
   font-size: 12px;
-  animation: pulse 2s ease-in-out infinite;
+  animation: cursorPulse 2s ease-in-out infinite;
 }
 
+/* ── Crash Screen ── */
 .crash-screen {
   display: flex;
   flex-direction: column;
@@ -1247,7 +1163,7 @@ body {
 .crash-icon {
   font-size: 48px;
   margin-bottom: 16px;
-  color: var(--red);
+  color: var(--error);
 }
 
 .crash-title {
@@ -1264,10 +1180,10 @@ body {
 }
 
 .crash-restart-btn {
-  background: var(--accent);
-  color: #fff;
+  background: var(--cyan);
+  color: white;
   border: none;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   padding: 8px 24px;
   font-size: 14px;
   font-weight: 500;
@@ -1279,98 +1195,111 @@ body {
   opacity: 0.85;
 }
 
-/* ── Chat Input Options (auto-guide offer / step prompts) ──
-   When the AI emits a guide_offer or guide_step marker, the chat input bar
-   transforms into this options bar with a caption + buttons.
-   Layout: 2 options → horizontal row, 3 → vertical list, 4+ → 2-col grid. */
+/* ── Chat Input Options (Guide Dock) ── */
+.guide-dock,
 .chat-input-options {
   flex-shrink: 0;
-  padding: 12px;
+  padding: 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: var(--radius);
-  animation: msgSlide 0.2s ease;
+  border-radius: var(--radius-xs);
+  box-shadow: 0 -4px 20px rgba(12, 37, 48, 0.08);
+  animation: msgSlide 0.2s var(--ease-out);
 }
 
+.guide-dock .step-caption,
 .chat-input-options .step-caption {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
+.guide-dock .step-marker,
 .chat-input-options .step-marker {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.4px;
-  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-weight: 700;
 }
 
+.guide-dock .caption-text,
 .chat-input-options .caption-text {
   font-size: 14px;
   color: var(--text);
   line-height: 1.4;
+  font-weight: 500;
 }
 
-.chat-input-options .options-bar {
+.options-bar {
   display: flex;
   gap: 8px;
 }
 
-.chat-input-options.row  .options-bar { flex-direction: row; }
-.chat-input-options.row  .options-bar .option-btn { flex: 1; }
+.chat-input-options.row .options-bar { flex-direction: row; }
+.chat-input-options.row .options-bar .option-btn { flex: 1; }
 .chat-input-options.list .options-bar { flex-direction: column; }
 .chat-input-options.grid .options-bar {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
-/* Cancel always spans the full row in grid mode so the destructive action
-   stays distinct from the affirmative options pair-grouped below it. */
+
 .chat-input-options.grid .options-bar .option-btn.cancel {
   grid-column: 1 / -1;
 }
 
-.chat-input-options .option-btn {
-  padding: 10px 14px;
-  border-radius: var(--radius-sm);
+.option-btn {
+  padding: 9px 14px;
+  border-radius: var(--radius-xs);
   cursor: pointer;
   font-family: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.15s ease;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.15s var(--ease-out);
+  border: none;
+  text-align: center;
 }
 
-/* Cancel: tinted red, matching .btn-stop (token: --red / --red-glow) so the
-   "exit" affordance is visually distinct from progress-confirming options.
-   Was a muted neutral border; the red tells the user clearly that this
-   button ends the guide locally with no AI round-trip. */
-.chat-input-options .option-btn.cancel {
-  background: var(--red-glow);
-  color: var(--red);
-  border: 1px solid rgba(251, 113, 133, 0.32);
+.option-btn.primary {
+  background: linear-gradient(135deg, var(--cyan-deep), var(--cyan));
+  color: white;
 }
 
-.chat-input-options .option-btn.cancel:hover {
-  background: rgba(251, 113, 133, 0.18);
-  border-color: var(--red);
-}
-
-.chat-input-options .option-btn.primary {
-  background: var(--gradient-accent);
-  color: var(--owl-teal-ink);
-  border: 1px solid var(--border-bright);
-  /* Brand glow tied to --accent-glow-strong (#18BFE1 @ 0.22) so a future
-     palette tweak propagates here without hunting for hardcoded RGBs. */
-  box-shadow: 0 2px 8px var(--accent-glow-strong);
-}
-
-.chat-input-options .option-btn.primary:hover {
+.option-btn.primary:hover {
   filter: brightness(1.08);
-  box-shadow: 0 4px 14px var(--accent-glow-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(116, 153, 194, 0.3);
 }
 
-.chat-input-options .option-btn:active {
+.option-btn.primary:active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 0.05s;
+}
+
+.option-btn.cancel {
+  background: rgba(196, 90, 90, 0.06);
+  color: var(--error);
+  border: 1px solid rgba(196, 90, 90, 0.18);
+}
+
+.option-btn.cancel:hover {
+  background: rgba(196, 90, 90, 0.12);
+}
+
+.option-btn.ghost {
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+}
+
+.option-btn.ghost:hover {
+  color: var(--text-subtle);
+  border-color: var(--border-bright);
+  background: rgba(116, 153, 194, 0.04);
+}
+
+.option-btn:active {
   transform: translateY(1px);
 }

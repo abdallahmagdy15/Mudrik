@@ -155,6 +155,25 @@ export function App() {
     try { localStorage.setItem("mudrik-lang", lang); } catch {}
   }, [lang]);
 
+  // Sync data-theme attribute for CSS theme switching
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.setAttribute("data-theme", "dark");
+    } else if (theme === "light") {
+      root.removeAttribute("data-theme");
+    } else {
+      // system
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      root.setAttribute("data-theme", mq.matches ? "dark" : "");
+      const handler = (e: MediaQueryListEvent) => {
+        root.setAttribute("data-theme", e.matches ? "dark" : "");
+      };
+      mq.addEventListener("change", handler);
+      return () => mq.removeEventListener("change", handler);
+    }
+  }, [theme]);
+
   // Close settings dropdown on click outside. Mousedown (not click) so we
   // intercept before any focus shift that could swallow a click on the
   // dropdown itself. The settings gear and dropdown both opt out via their
@@ -682,7 +701,7 @@ if (!data?.hasImage) {
         const isCopied = copiedChipId === id;
         return (
           <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content, id)}>
-            {isCopied ? "✓ Copied!" : seg.content}
+            {isCopied ? <><i className="fa-solid fa-check"></i> Copied!</> : seg.content}
           </span>
         );
       }
@@ -696,15 +715,27 @@ if (!data?.hasImage) {
         <div className="app-brand">
           <OwlMascot
             state={streaming ? "thinking" : (currentResponse ? "replying" : "idle") as OwlState}
-            size={44}
+            size={32}
           />
           <span className="app-title">{t("appTitle")}</span>
+          <span className="status-pill">
+            <span className="dot"></span>
+            {streaming ? "Thinking" : "Watching"}
+          </span>
         </div>
         <div className="header-actions">
-          <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>&#9881;</button>
-          <button className="btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>+</button>
-          <button className="btn-minimize" onClick={handleMinimize} title={t("minimize")}>&#8211;</button>
-          <button className="btn-dismiss" onClick={handleDismiss} title={t("close")}>&times;</button>
+          <button className="btn-icon btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>
+            <i className="fa-solid fa-plus"></i>
+          </button>
+          <button className="btn-icon btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>
+            <i className="fa-solid fa-gear"></i>
+          </button>
+          <button className="btn-icon btn-minimize" onClick={handleMinimize} title={t("minimize")}>
+            <i className="fa-solid fa-minus"></i>
+          </button>
+          <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("close")}>
+            <i className="fa-solid fa-xmark"></i>
+          </button>
         </div>
         {settingsOpen && (
           <div className="settings-dropdown">
@@ -715,9 +746,10 @@ if (!data?.hasImage) {
                 onClick={() => toggleSection("model")}
                 aria-expanded={openSections.model}
               >
+                <span className="settings-section-icon"><i className="fa-solid fa-brain"></i></span>
                 <span className="settings-label">{t("model")}</span>
                 <span className="settings-section-meta">{currentModel.split("/").pop()}</span>
-                <span className={`settings-chevron ${openSections.model ? "open" : ""}`}>▾</span>
+                <span className={`settings-chevron ${openSections.model ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
               </button>
               {openSections.model && (
                 <div className="settings-section-body">
@@ -729,15 +761,15 @@ if (!data?.hasImage) {
                     >
                       <span className="model-name">{m.split("/").pop()}</span>
                       <span className="model-provider">{m.split("/")[0]}</span>
-                      {m === currentModel && <span className="model-check">&#10003;</span>}
+                      {m === currentModel && <span className="model-check"><i className="fa-solid fa-check"></i></span>}
                       <button
                         type="button"
-                        className="model-edit-key"
-                        onClick={(e) => handleEditProviderKey(m, e)}
-                        title={`Edit API key for ${m.split("/")[0]}`}
-                        aria-label={`Edit key for ${m.split("/")[0]}`}
+                        className="model-remove"
+                        onClick={(e) => handleRemoveModel(m, e)}
+                        title={`Remove ${m} from recent models`}
+                        aria-label={`Remove ${m}`}
                       >
-                        &#9998;
+                        <i className="fa-solid fa-xmark"></i>
                       </button>
                       {recentModels.length > 1 && (
                         <button
@@ -800,7 +832,7 @@ if (!data?.hasImage) {
                           disabled={apiKeySaving}
                           title={t("cancel")}
                         >
-                          ✕
+                          <i className="fa-solid fa-xmark"></i>
                         </button>
                       </div>
                       <div className="api-key-hint">
@@ -818,9 +850,10 @@ if (!data?.hasImage) {
                 onClick={() => toggleSection("hotkeys")}
                 aria-expanded={openSections.hotkeys}
               >
+                <span className="settings-section-icon"><i className="fa-solid fa-keyboard"></i></span>
                 <span className="settings-label">{t("hotkeys")}</span>
                 <span className="settings-section-meta">{hotkeyPointer} · {hotkeyArea.replace("CommandOrControl", "Ctrl")}</span>
-                <span className={`settings-chevron ${openSections.hotkeys ? "open" : ""}`}>▾</span>
+                <span className={`settings-chevron ${openSections.hotkeys ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
               </button>
               {openSections.hotkeys && (
                 <div className="settings-section-body">
@@ -859,9 +892,10 @@ if (!data?.hasImage) {
                 onClick={() => toggleSection("appearance")}
                 aria-expanded={openSections.appearance}
               >
+                <span className="settings-section-icon"><i className="fa-solid fa-palette"></i></span>
                 <span className="settings-label">{t("appearance")}</span>
                 <span className="settings-section-meta">{theme === "system" ? t("themeAuto") : theme === "light" ? t("themeLight") : t("themeDark")} · {fontSize}px</span>
-                <span className={`settings-chevron ${openSections.appearance ? "open" : ""}`}>▾</span>
+                <span className={`settings-chevron ${openSections.appearance ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
               </button>
               {openSections.appearance && (
                 <div className="settings-section-body">
@@ -909,8 +943,9 @@ if (!data?.hasImage) {
                 onClick={() => toggleSection("behavior")}
                 aria-expanded={openSections.behavior}
               >
+                <span className="settings-section-icon"><i className="fa-solid fa-sliders"></i></span>
                 <span className="settings-label">{t("behavior")}</span>
-                <span className={`settings-chevron ${openSections.behavior ? "open" : ""}`}>▾</span>
+                <span className={`settings-chevron ${openSections.behavior ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
               </button>
               {openSections.behavior && (
                 <div className="settings-section-body">
@@ -948,12 +983,12 @@ if (!data?.hasImage) {
            internally but the UI doesn't need to show the raw element data. */}
       {!screenshotAttached ? (
         <button className="btn-attach-screenshot" onClick={handleAttachScreenshot} disabled={streaming}>
-          {t("attachScreenshot")}
+          <i className="fa-solid fa-image"></i> {t("attachScreenshot")}
         </button>
       ) : (
         <div className="screenshot-badge">
-          {t("screenshotAttached")}
-          <button className="screenshot-badge-x" onClick={handleRemoveScreenshot} title={t("removeScreenshot")}>×</button>
+          <i className="fa-solid fa-image"></i> {t("screenshotAttached")}
+          <button className="screenshot-badge-x" onClick={handleRemoveScreenshot} title={t("removeScreenshot")}><i className="fa-solid fa-xmark"></i></button>
         </div>
       )}
       <div className="messages">
@@ -967,11 +1002,22 @@ if (!data?.hasImage) {
           </div>
         )}
         {!restoringSession && !contextLoading && messages.length === 0 && !currentResponse && (
-          <div className="new-conversation-hint">{t("startNewConversation")}</div>
+          <div className="empty-state">
+            <div className="owl-wrap">
+              <OwlMascot state="idle" size={88} />
+            </div>
+            <div className="wordmark">Mudrik</div>
+            <div className="hint">{t("startNewConversation")}</div>
+            <div className="caps">
+              <span className="cap-chip">Explain element</span>
+              <span className="cap-chip">Open settings</span>
+              <span className="cap-chip">Run command</span>
+            </div>
+          </div>
         )}
         {messages.map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
-            <div className="message-role">{msg.role === "user" ? t("you") : t("assistant")}{msg.screenshotAttached ? " 📸" : ""}</div>
+            <div className="message-role">{msg.role === "user" ? t("you") : t("assistant")}{msg.screenshotAttached ? "  " : ""}{msg.screenshotAttached && <i className="fa-solid fa-image" style={{ fontSize: 10 }}></i>}</div>
             <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
