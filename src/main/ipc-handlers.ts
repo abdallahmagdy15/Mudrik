@@ -383,10 +383,22 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     },
     getActiveHwnd: winMod.getActiveHwnd,
     getCursorPos,
+    hidePanel: () => {
+      const win = getPanelWindow();
+      if (win && !win.isDestroyed() && win.isVisible()) {
+        win.hide();
+      }
+    },
+    showPanel: () => {
+      const win = getPanelWindow();
+      if (win && !win.isDestroyed() && !win.isVisible()) {
+        win.show();
+      }
+    },
     sendFollowUp: async (actionDesc) => {
       const win = getPanelWindow();
       if (!win) return;
-      // Keep panel visible during thinking — only hide briefly during screenshot
+      // Panel stays hidden during entire guide session — NEVER show it here
       const { screen: electronScreen } = require("electron") as typeof import("electron");
       // CRITICAL: use the display where the user's app actually is, NOT
       // getPrimaryDisplay(). On multi-monitor setups the app may be on
@@ -473,14 +485,10 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         imagePath = shot;
         fresh = ctx;
         
-        // Re-show panel immediately after capture
-        if (!win.isDestroyed()) win.show();
-        
         log(`guide follow-up: capture complete — screenshot=${imagePath ? "yes" : "no"} uia=${fresh ? `yes (active="${fresh.windowInfo?.title || "?"}")` : "no"}`);
       } catch (err: any) {
         log(`guide follow-up: capture path errored (${err?.message || err}) — proceeding without`);
-        // Ensure panel is re-shown even on error
-        if (!win.isDestroyed()) win.show();
+        // Panel stays hidden during guide session
       }
 
       // Build prompt from the FRESH capture (panel-hidden window). Falls

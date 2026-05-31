@@ -26,6 +26,8 @@ function makeDeps(overrides: Partial<GuideControllerDeps> = {}): GuideController
     getCursorPos: vi.fn().mockReturnValue({ x: 50, y: 50 }),
     sendFollowUp: vi.fn().mockResolvedValue(undefined),
     onStateUpdate: vi.fn(),
+    hidePanel: vi.fn(),
+    showPanel: vi.fn(),
     ...overrides,
   };
 }
@@ -151,14 +153,15 @@ describe("GuideController", () => {
       );
     });
 
-    it("guide_step trackable=false does NOT show overlay (target=null)", async () => {
+    it("guide_step trackable=false shows overlay at cursor (target=null)", async () => {
       const deps = makeDeps();
       const ctrl = new GuideController(deps);
       await ctrl.handleAction(sampleOffer as unknown as Action);
       await ctrl.handleUserChoice("Start guide");
       await ctrl.handleAction(sampleStepNonTrackable as unknown as Action);
       expect(ctrl.getPhase()).toBe("step-active");
-      expect(deps.overlay.show).not.toHaveBeenCalled();
+      // Owl is shown at cursor position even without a target
+      expect(deps.overlay.show).toHaveBeenCalled();
     });
 
     it("user option click during STEP_ACTIVE transitions through WAITING → RECAPTURING → AWAITING_AI", async () => {
@@ -294,6 +297,9 @@ describe("GuideController", () => {
       const sendFollowUpCallsBefore = (deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length;
       await ctrl.handleUserChoice("Done — updates paused");
       expect(ctrl.getPhase()).toBe("idle");
+      // Overlay hide is delayed by 3 seconds for "Done!" animation
+      expect(deps.overlay.hide).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(3000);
       expect(deps.overlay.hide).toHaveBeenCalled();
       // No new follow-up — the whole point of the short-circuit
       expect((deps.sendFollowUp as ReturnType<typeof vi.fn>).mock.calls.length)
@@ -345,6 +351,9 @@ describe("GuideController", () => {
       };
       await ctrl.handleAction(complete as unknown as Action);
       expect(ctrl.getPhase()).toBe("idle");
+      // Overlay hide is delayed by 3 seconds for "Done!" animation
+      expect(deps.overlay.hide).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(3000);
       expect(deps.overlay.hide).toHaveBeenCalled();
       expect(deps.onStateUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ phase: "idle", finalMessage: "Done. PDF saved." }),

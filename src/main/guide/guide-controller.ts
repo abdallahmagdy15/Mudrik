@@ -84,6 +84,9 @@ export interface GuideControllerDeps {
   ) => Promise<void>;
   /** Pushes a state update to the renderer's chat-input options bar. */
   onStateUpdate: (s: GuideStateUpdate) => void;
+  /** Hide/show panel window */
+  hidePanel: () => void;
+  showPanel: () => void;
   /** Resolves the AI's target to pixel bounds via UIA lookup.
    *  The new dual-bounds system means the AI provides either:
    *  - uiaBounds: copied from UIA tree (pixel-perfect, high confidence)
@@ -149,7 +152,15 @@ export class GuideController {
       return;
     }
     if (this.phase === "offer") {
-      // User accepted the offer → ask AI for the first step
+      // User accepted the offer → hide panel and show owl with thinking state
+      this.deps.hidePanel();
+      const cursor = this.deps.getCursorPos();
+      // Show owl at cursor position with "Thinking..." bubble immediately
+      await this.deps.overlay.show(
+        { x: cursor.x - 32, y: cursor.y - 32, width: 64, height: 64 },
+        cursor,
+      );
+      this.deps.onStateUpdate({ phase: "awaiting-ai", caption: "Thinking...", options: [] });
       this.transitionToAwaitingAI();
       await this.deps.sendFollowUp({ kind: "option", choice: option });
       return;
@@ -195,6 +206,9 @@ export class GuideController {
       phase: "idle",
       finalMessage: wasActive ? "Guide cancelled." : undefined,
     });
+    if (wasActive) {
+      this.deps.showPanel();
+    }
   }
 
   // ---------- private state-machine methods ----------
@@ -291,12 +305,20 @@ export class GuideController {
         // in showOverlay).
         await this.deps.overlay.show(bounds, cursor);
       } else {
-        log(`guide_step: no bounds for "${p.target.selector}" — hiding owl (better no guide than wrong guide)`);
-        this.deps.overlay.hide();
+        log(`guide_step: no bounds for "${p.target.selector}" — showing owl at cursor instead`);
+        // Show owl at cursor position so user still has the bubble UI
+        await this.deps.overlay.show(
+          { x: cursor.x - 32, y: cursor.y - 32, width: 64, height: 64 },
+          cursor,
+        );
       }
     } else {
-      // No target → no overlay; user just acts in the underlying app
-      this.deps.overlay.hide();
+      // No target → show owl at cursor with caption bubble
+      const cursor = this.deps.getCursorPos();
+      await this.deps.overlay.show(
+        { x: cursor.x - 32, y: cursor.y - 32, width: 64, height: 64 },
+        cursor,
+      );
     }
 
     // Mouse-hook click detection is intentionally OFF for this phase. The
@@ -327,19 +349,18 @@ export class GuideController {
     if (this.phase === "idle") {
       throw new Error("guide_complete rejected — no active guide. The AI should emit guide_offer to begin a new walkthrough.");
     }
-    this.deps.overlay.hide();
     this.clearInactivityTimer();
     this.phase = "idle";
     this.currentStep = null;
     this.pendingAction = null;
     this.processing = false;
     this.deps.onStateUpdate({ phase: "idle", finalMessage: p.summary });
-    // Ensure panel is visible when guide completes
-    const { getPanelWindow } = require("../ipc-handlers");
-    const win = getPanelWindow();
-    if (win && !win.isDestroyed() && !win.isVisible()) {
-      win.show();
-    }
+    // Show owl "Done!" for 3 seconds, then hide owl and show panel
+    this.deps.onStateUpdate({ phase: "step-active", caption: "Done!", options: [] });
+    setTimeout(() => {
+      this.deps.overlay.hide();
+      this.deps.showPanel();
+    }, 3000);
   }
 
   private handleAbort(p: GuideAbortPayload): void {
@@ -350,12 +371,8 @@ export class GuideController {
     this.pendingAction = null;
     this.processing = false;
     this.deps.onStateUpdate({ phase: "idle", finalMessage: p.reason });
-    // Ensure panel is visible when guide aborts
-    const { getPanelWindow } = require("../ipc-handlers");
-    const win = getPanelWindow();
-    if (win && !win.isDestroyed() && !win.isVisible()) {
-      win.show();
-    }
+    // Show panel when guide aborts
+    this.deps.showPanel();
   }
 
   private recordPendingAction(
@@ -372,13 +389,20 @@ export class GuideController {
     const isCurrent = () => this.runGeneration === myGen && this.phase !== "idle";
     this.processing = true;
     this.clearInactivityTimer();
-    // Keep overlay visible — show thinking state instead of hiding
+
     const waitMs = this.currentStep.waitMs;
     const action = this.pendingAction;
     this.pendingAction = null;
 
-    // WAITING phase
+    // Get cursor position to keep owl visible
+    const cursor = this.deps.getCursorPos();
+
+    // WAITING phase — show owl at cursor with "Waiting..." bubble
     this.phase = "waiting";
+    await this.deps.overlay.show(
+      { x: cursor.x - 32, y: cursor.y - 32, width: 64, height: 64 },
+      cursor,
+    );
     this.deps.onStateUpdate({ phase: "waiting", caption: "Waiting...", options: [] });
     await sleep(waitMs);
     if (!isCurrent()) {
