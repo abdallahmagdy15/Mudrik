@@ -183,7 +183,7 @@ export function App() {
     const handler = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (!target) return;
-      if (target.closest(".settings-dropdown") || target.closest(".btn-settings")) return;
+      if (target.closest(".settings-panel") || target.closest(".btn-settings")) return;
       setSettingsOpen(false);
     };
     document.addEventListener("mousedown", handler);
