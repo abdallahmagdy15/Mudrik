@@ -30,7 +30,7 @@
 
 Hover anywhere on Windows and press **Alt+Space**. A quick floating panel slides in on the **opposite half** of your screen from your cursor — what you're pointing at stays in clear view, and Mudrik's actions land on the real element instead of the panel itself.
 
-Mudrik reads your **whole active window** — every visible button, field, label, value, and the list of other open windows — with the element under your cursor marked as the focal anchor. All of it is preloaded as context — no screenshot needed. From there: ask, translate, fix, summarize — or tell it to *act*: type, paste, click, press a chord, guide your cursor. The AI sees your screen's *structure*, not pixels (unless you attach a screenshot via the 📸 button).
+Mudrik reads your **whole active window** — every visible button, field, label, value, and the list of other open windows — with the element under your cursor marked as the focal anchor. All of it is preloaded as context — no screenshot needed. From there: ask, translate, fix, summarize — or tell it to *act*: type, paste, click, press a chord, or let Mudrik guide you step-by-step through complex tasks with a friendly owl cursor that points exactly where to go.
 
 ## 🚀 Install
 
@@ -42,7 +42,7 @@ Mudrik reads your **whole active window** — every visible button, field, label
 3. Download the latest `.exe` from [Releases](https://github.com/abdallahmagdy15/mudrik/releases) and run it.
 4. Launch → ⚙ → **Model** → pick or type a `provider/model`. Mudrik will prompt for an API key if needed. No terminal.
 
-> Installer is **unsigned** (pre-v1.0) — SmartScreen will warn on first launch. *More info → Run anyway*.
+> Installer is **unsigned** — SmartScreen will warn on first launch. *More info → Run anyway*.
 
 **From source:** `git clone https://github.com/abdallahmagdy15/mudrik && cd mudrik && npm install && npm start`
 
@@ -64,6 +64,7 @@ Two global hotkeys put Mudrik in front of you. Both are rebindable from the ⚙ 
 | 🎯 **Cursor-anchored**       | The panel opens on the opposite half of your screen from your cursor — what you're pointing at stays in clear view. No more switching to a separate AI chat app or browser tab.                               |
 | 🪟 **Reads any Windows app** | Uses Windows UI Automation  to pick up buttons, fields, text, menus, lists. Works in Outlook, Excel, browsers, native dialogs, IDEs — anywhere accessibility reaches.                                         |
 | ⚡ **Acts for you**           | Beyond chat: Mudrik can type, paste, click, press keyboard chords, and invoke accessibility actions.                                                                                                          |
+| 🦉 **Auto-Guide mode**       | Let Mudrik walk you through multi-step tasks. A friendly owl cursor appears on screen, points to each target, and shows a speech bubble with instructions. Toggle in ⚙ settings.                                |
 | 🖼️ **Area capture**         | For when you want Mudrik to focus on a specific area — or when UIA can't see something (charts, images) — drag a rectangle with `Ctrl+Space`. Mudrik captures the pixels *and* scans any UIA elements inside. |
 | 🔌 **Any LLM**               | 18 providers out of the box — Anthropic, OpenAI, Google, DeepSeek, OpenRouter, Ollama, and more. Paste your key in settings — no terminal auth dance.                                                         |
 | 🔒 **Sandboxed**             | The AI cannot run shell commands or write to your filesystem. It can read files inside your working directory and dispatch a fixed allow-list of UI actions. That's the whole capability surface.             |
@@ -78,6 +79,12 @@ Two global hotkeys put Mudrik in front of you. Both are rebindable from the ⚙ 
    ↓  prompt streamed to `opencode run --agent readonly`
    ↓  tokens render live; <!--ACTION:{...}--> markers parsed
    ↓  actions execute via UIA or robotjs
+
+ Auto-Guide mode:
+   ↓  AI emits guide_offer → user accepts
+   ↓  panel hides, owl cursor appears with speech bubble
+   ↓  step-by-step: owl points → user clicks → AI advances
+   ↓  guide_complete → owl shows "Done!" → panel returns
 ```
 
 Full architecture in **[CLAUDE.md](CLAUDE.md)**.
@@ -98,6 +105,12 @@ Mudrik is designed for paranoid desktop use. The AI's capabilities are deliberat
 Full threat model + reporting in **[SECURITY.md](SECURITY.md)**.
 
 ## 🗺 Roadmap
+
+**v1.0.0 — Auto-Guide mode** ✓
+
+- [x] **Auto-Guide** — Multi-step walkthroughs with an owl cursor that points to each target and shows step-by-step instructions in a speech bubble
+- [x] **Coordinate grid overlay** — Numbered grid on screenshots for accurate AI positioning
+- [x] **High-DPI multi-monitor support** — Pixel-perfect coordinates on any display configuration
 
 **Next:**
 
