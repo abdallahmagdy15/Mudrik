@@ -56,9 +56,10 @@ contextBridge.exposeInMainWorld("hoverbuddy", {
     ipcRenderer.on("attach-screenshot", (_e, data) => cb(data)),
   getConfig: () => ipcRenderer.invoke("get-config"),
   setConfig: (config: any) => ipcRenderer.invoke("set-config", config),
-  restoreSession: () => ipcRenderer.invoke("restore-session"),
+  restoreSession: (sessionId?: string) => ipcRenderer.invoke("restore-session", sessionId),
   onSessionHistory: (cb: (messages: any[]) => void) =>
     ipcRenderer.on("session-history", (_e, messages) => cb(messages)),
+  getRecentChats: () => ipcRenderer.invoke("get-recent-chats"),
   stopResponse: () => ipcRenderer.send("stop-response"),
   validateModel: (model: string) => ipcRenderer.invoke("validate-model", model),
   saveApiKey: (provider: string, key: string) =>

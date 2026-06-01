@@ -53,6 +53,9 @@ const en = {
   restart: "Restart",
   areaHint: "Click and drag to select area",
   areaEsc: "Esc to cancel",
+  recentChats: "Recent chats",
+  restoreChat: "Restore chat",
+  noRecentChats: "No recent chats",
 };
 
 const ar: Record<Key, string> = {
@@ -107,6 +110,9 @@ const ar: Record<Key, string> = {
   restart: "إعادة تشغيل",
   areaHint: "انقر واسحب لتحديد المنطقة",
   areaEsc: "Esc للإلغاء",
+  recentChats: "المحادثات الأخيرة",
+  restoreChat: "استعادة المحادثة",
+  noRecentChats: "لا توجد محادثات أخيرة",
 };
 
 const strings: Record<Lang, Record<Key, string>> = { en, ar };

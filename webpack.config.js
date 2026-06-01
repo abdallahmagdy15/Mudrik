@@ -26,6 +26,7 @@ module.exports = [
           { from: "src/main/guide/guide-overlay.html", to: "guide-overlay.html" },
           { from: "src/main/calibrate/calibrate.html", to: "calibrate.html" },
           { from: "assets/owl-wing-pointer.png", to: "owl-wing-pointer.png" },
+          { from: "assets/icon.png", to: "icon.png" },
         ],
       }),
     ],

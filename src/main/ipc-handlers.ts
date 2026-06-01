@@ -111,6 +111,8 @@ let areaRect: { x1: number; y1: number; x2: number; y2: number } | null = null;
 let lastContextHash: string = "";
 let contextNeedsSending: boolean = false;
 let hasSentFirstMessage: boolean = false;
+// Cached recent chats list (cleared on startup and when a new chat starts)
+let recentChatsCache: { id: string; title: string; created: number }[] | null = null;
 // Mirror of the guide controller's phase, updated by onStateUpdate. Lets
 // callers (auto-show suppression, onContext message preservation) gate on
 // guide activity without forcing the lazy-loaded guide module to load.
@@ -380,6 +382,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     overlay: {
       show: overlayMod.showOverlay,
       hide: overlayMod.hideOverlay,
+      setOwlMode: overlayMod.setOwlMode,
     },
     getActiveHwnd: winMod.getActiveHwnd,
     getCursorPos,
@@ -393,6 +396,14 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const win = getPanelWindow();
       if (win && !win.isDestroyed() && !win.isVisible()) {
         win.show();
+      }
+    },
+    showPanelAndFocusInput: () => {
+      const win = getPanelWindow();
+      if (win && !win.isDestroyed()) {
+        if (!win.isVisible()) win.show();
+        win.focus();
+        win.webContents.send(IPC.FOCUS_INPUT);
       }
     },
     sendFollowUp: async (actionDesc) => {
@@ -504,7 +515,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const desc =
         actionDesc.kind === "click"
           ? `User clicked at (${actionDesc.x}, ${actionDesc.y}).`
-          : `User chose option: "${actionDesc.choice}".`;
+          : `"${actionDesc.choice}"`;
       const screen = ctx
         ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
         : "No screen context captured.";
@@ -616,7 +627,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
 
       const cellW = Math.max(60, Math.round(pw / 20));
       const cellH = Math.max(60, Math.round(ph / 20));
-      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions from the screenshot, count grid cells from the top-left for accuracy: x ≈ column × ${cellW}, y ≈ row × ${cellH}. The user's screen is ${pw}×${ph} pixels (DPI scale ${sf}×). Coordinates in the candidates list above and in the screenshot are in the SAME physical pixel space.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.uiaBounds. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n3. For Chromium/Electron apps where UIA is blind: estimate the position from the screenshot by counting grid cells and set target.guessBounds with your estimate.\n\nNEVER set both uiaBounds and guessBounds. Pick one: uiaBounds when the target IS in the UIA list, guessBounds when estimating from the screenshot, null when unsure.\n\nDo NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+      const prompt = `--- USER MESSAGE ---\n${desc}\n--- END MESSAGE ---\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions from the screenshot, count grid cells from the top-left for accuracy: x ≈ column × ${cellW}, y ≈ row × ${cellH}. The user's screen is ${pw}×${ph} pixels (DPI scale ${sf}×). Coordinates in the candidates list above and in the screenshot are in the SAME physical pixel space.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.uiaBounds. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n3. For Chromium/Electron apps where UIA is blind: estimate the position from the screenshot by counting grid cells and set target.guessBounds with your estimate.\n\nNEVER set both uiaBounds and guessBounds. Pick one: uiaBounds when the target IS in the UIA list, guessBounds when estimating from the screenshot, null when unsure.\n\nDo NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
 
       // Stream tokens to the renderer for visibility; accumulate the response
       // text; parse + dispatch guide markers when the subprocess exits.
@@ -681,12 +692,16 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         : (appConfig?.theme || "light");
       if (state.phase === "step-active" && state.caption) {
         overlayMod.showBubble(state.caption, state.options || [], theme);
+        overlayMod.setOwlMode("pointing");
       } else if (state.phase === "waiting") {
         overlayMod.showBubble("Waiting...", [], theme);
+        overlayMod.setOwlMode("thinking");
       } else if (state.phase === "recapturing") {
         overlayMod.showBubble("Capturing...", [], theme);
+        overlayMod.setOwlMode("thinking");
       } else if (state.phase === "awaiting-ai") {
         overlayMod.showBubble("Thinking...", [], theme);
+        overlayMod.setOwlMode("thinking");
       } else if (state.phase === "idle" || state.phase === "offer") {
         overlayMod.hideBubble();
       }
@@ -991,6 +1006,9 @@ export function registerIpcHandlers(
       log("Follow-up message — skipping system prompt and context (already in session)");
       fullPrompt = stopNote + prompt;
     } else {
+      // First message of a new conversation — clear cached recent chats
+      // so the popup reflects the newly created session
+      recentChatsCache = null;
       let contextBlock = "";
       if (isAreaContext && areaElements.length > 0) {
         contextBlock = `\n--- SCREEN CONTEXT (use this data for actions, do not describe it back to the user) ---\n`;
@@ -1518,7 +1536,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     m.getController().handleUserChoice(option);
   });
 
-  ipcMain.handle(IPC.RESTORE_SESSION, async () => {
+  ipcMain.handle(IPC.RESTORE_SESSION, async (_e, sessionId?: string) => {
     try {
       const opencodeBin = findOpenCodeBinPath();
       if (!opencodeBin) { log("restoreSession: bin not found"); return null; }
@@ -1526,23 +1544,28 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const cwd = config.workingDir || os.homedir();
       const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
       env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
-      const listRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
-      });
-      const sessions = JSON.parse(listRaw);
-      if (!Array.isArray(sessions) || sessions.length === 0) { log("restoreSession: no sessions"); return null; }
-      // Filter to sessions created from Mudrik's working directory. Without
-      // this we restore the most recent GLOBAL OpenCode session — which may
-      // belong to a CLI run in the user's home dir and leak unrelated
-      // conversation history into Mudrik's chat.
-      const ourSessions = sessions
-        .filter((s: any) => s.directory === cwd)
-        .sort((a: any, b: any) => b.created - a.created);
-      if (ourSessions.length === 0) { log(`restoreSession: no sessions for directory ${cwd}`); return null; }
-      const sessionId = ourSessions[0].id;
-      log(`restoreSession: latest=${sessionId.slice(0, 30)}`);
+      let targetSessionId: string;
+      if (sessionId) {
+        targetSessionId = sessionId;
+      } else {
+        const listRaw = await new Promise<string>((res, rej) => {
+          execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        });
+        const sessions = JSON.parse(listRaw);
+        if (!Array.isArray(sessions) || sessions.length === 0) { log("restoreSession: no sessions"); return null; }
+        // Filter to sessions created from Mudrik's working directory. Without
+        // this we restore the most recent GLOBAL OpenCode session — which may
+        // belong to a CLI run in the user's home dir and leak unrelated
+        // conversation history into Mudrik's chat.
+        const ourSessions = sessions
+          .filter((s: any) => s.directory === cwd)
+          .sort((a: any, b: any) => b.created - a.created);
+        if (ourSessions.length === 0) { log(`restoreSession: no sessions for directory ${cwd}`); return null; }
+        targetSessionId = ourSessions[0].id;
+      }
+      log(`restoreSession: target=${targetSessionId.slice(0, 30)}`);
       const exportRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, env: { ...env, XDG_DATA_HOME: path.join(cwd, "opencode-data") }, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        execFile("node", [opencodeBin, "export", targetSessionId], { encoding: "utf-8", timeout: 15000, cwd, env: { ...env, XDG_DATA_HOME: path.join(cwd, "opencode-data") }, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
       const jsonStart = exportRaw.indexOf("{");
       if (jsonStart < 0) { log("restoreSession: no json"); return null; }
@@ -1580,7 +1603,49 @@ contextBlock += `\n--- END CONTEXT ---\n`;
               content = content.slice(lastUserIdx + "--- USER MESSAGE ---".length, lastEndIdx).trim();
               log(`restoreSession: regex missed but fallback extraction succeeded (${content.length} chars)`);
             } else {
-              log(`restoreSession: user message extraction failed — preserving raw content (${content.length} chars)`);
+              // Last resort: strip known prompt wrappers if present
+              const systemIdx = content.indexOf("--- SCREEN CONTEXT");
+              const settingIdx = content.indexOf("--- USER SETTING");
+              const msgIdx = content.indexOf("--- USER MESSAGE");
+              if (systemIdx !== -1 || settingIdx !== -1 || msgIdx !== -1) {
+                // Content contains prompt wrappers but no clear boundaries —
+                // strip everything before the last "--- USER MESSAGE ---" or
+                // after "--- END MESSAGE ---" if found.
+                const endMsgIdx = content.lastIndexOf("--- END MESSAGE ---");
+                if (endMsgIdx !== -1) {
+                  content = content.slice(0, endMsgIdx).trim();
+                  const lastUserMarker = content.lastIndexOf("--- USER MESSAGE ---");
+                  if (lastUserMarker !== -1) {
+                    content = content.slice(lastUserMarker + "--- USER MESSAGE ---".length).trim();
+                  }
+                }
+                log(`restoreSession: stripped prompt wrappers (${content.length} chars)`);
+              } else {
+                // Follow-up message without wrappers — extract just the user's
+                // choice text or click description instead of showing the entire
+                // prompt with candidates list and tool call artifacts.
+                const choiceMatch = content.match(/^User chose option:\s*"([^"]+)"/m);
+                if (choiceMatch) {
+                  // New format: just the quoted choice text
+                  content = `"${choiceMatch[1]}"`;
+                  log(`restoreSession: extracted choice text (${content.length} chars)`);
+                } else {
+                  const oldChoiceMatch = content.match(/^"([^"]+)"/m);
+                  if (oldChoiceMatch) {
+                    content = `"${oldChoiceMatch[1]}"`;
+                    log(`restoreSession: extracted choice text (${content.length} chars)`);
+                  } else {
+                    const clickMatch = content.match(/^User clicked at \((\d+),\s*(\d+)\)/m);
+                    if (clickMatch) {
+                      content = `Clicked at (${clickMatch[1]}, ${clickMatch[2]})`;
+                      log(`restoreSession: extracted click action (${content.length} chars)`);
+                    } else {
+                      // Truly raw user message — keep as-is
+                      log(`restoreSession: follow-up message without wrappers (${content.length} chars)`);
+                    }
+                  }
+                }
+              }
             }
           }
         } else {
@@ -1591,10 +1656,48 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const trimmed = history.slice(-10);
       const win = getPanelWindow();
       if (win && trimmed.length > 0) win.webContents.send(IPC.SESSION_HISTORY, trimmed);
-      client.setRestoredSession(sessionId);
-      log(`restoreSession: restored ${sessionId.slice(0, 30)}, ${trimmed.length}/${history.length} messages`);
-      return sessionId;
+      // Reset current session before restoring a different one
+      if (client.hasSession() && sessionId) {
+        client.resetSession();
+      }
+      client.setRestoredSession(targetSessionId);
+      log(`restoreSession: restored ${targetSessionId.slice(0, 30)}, ${trimmed.length}/${history.length} messages`);
+      return targetSessionId;
     } catch (err: any) { log(`restoreSession error: ${err.message}`); return null; }
+  });
+
+  ipcMain.handle(IPC.GET_RECENT_CHATS, async () => {
+    // Return cached list if available (avoids repeated CLI calls)
+    if (recentChatsCache) {
+      log(`getRecentChats: returning ${recentChatsCache.length} cached sessions`);
+      return recentChatsCache;
+    }
+    try {
+      const opencodeBin = findOpenCodeBinPath();
+      if (!opencodeBin) { log("getRecentChats: bin not found"); return []; }
+      const { execFile } = require("child_process");
+      const cwd = config.workingDir || os.homedir();
+      const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
+      env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
+      const listRaw = await new Promise<string>((res, rej) => {
+        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "5"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+      });
+      const sessions = JSON.parse(listRaw);
+      if (!Array.isArray(sessions) || sessions.length === 0) { log("getRecentChats: no sessions"); return []; }
+      const ourSessions = sessions
+        .filter((s: any) => s.directory === cwd)
+        .sort((a: any, b: any) => b.created - a.created)
+        .slice(0, 5);
+      if (ourSessions.length === 0) { log(`getRecentChats: no sessions for directory ${cwd}`); return []; }
+      const result = ourSessions.map((s: any) => ({
+        id: s.id,
+        title: new Date(s.created).toLocaleString(),
+        created: s.created,
+      }));
+      recentChatsCache = result;
+      log(`getRecentChats: fetched and cached ${result.length} sessions`);
+      return result;
+    } catch (err: any) { log(`getRecentChats error: ${err.message}`); return []; }
   });
 
   log("All IPC handlers registered");
@@ -1671,6 +1774,15 @@ function filterToolArtifactLines(text: string): string {
     if (/permitted to make file changes/i.test(trimmed)) return false;
     if (/permitted to.*run shell commands/i.test(trimmed)) return false;
     if (/permitted to.*utilize.*tools/i.test(trimmed)) return false;
+    // Filter out tool call descriptions from the model's internal monologue
+    if (/^Called the (Read|Write|Search|Run|Execute|List|Glob|Grep|Fetch) tool/i.test(trimmed)) return false;
+    if (/^\{["']?(filePath|command|query|url|pattern)/i.test(trimmed)) return false;
+    if (/^Image read successfully/i.test(trimmed)) return false;
+    if (/^User chose option:/i.test(trimmed)) return false;
+    if (/^Active window:/i.test(trimmed)) return false;
+    if (/^Element under cursor:/i.test(trimmed)) return false;
+    if (/^UIA CLICKABLE CANDIDATES/i.test(trimmed)) return false;
+    if (/^\[\d+\] ControlType\./i.test(trimmed)) return false;
     return true;
   });
   return filtered.join("\n");

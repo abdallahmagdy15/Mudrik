@@ -27,6 +27,7 @@ declare global {
       onBubbleShow: (h: (payload: BubblePayload) => void) => void;
       onBubbleHide: (h: () => void) => void;
       onBubbleFade: (h: (payload: { opacity: number }) => void) => void;
+      onSetOwlMode: (h: (payload: { mode: "pointing" | "thinking" }) => void) => void;
       sendChoice: (choice: string) => void;
       setIgnoreMouseEvents: (ignore: boolean) => void;
     };
@@ -76,8 +77,13 @@ window.guideOverlay?.onShow(({ target, fromCursor }) => {
   }, 16);
 });
 
+window.guideOverlay?.onSetOwlMode(({ mode }) => {
+  owl.classList.toggle("thinking", mode === "thinking");
+  owl.classList.toggle("pointing", mode === "pointing");
+});
+
 window.guideOverlay?.onHide(() => {
-  owl.classList.remove("visible", "bob");
+  owl.classList.remove("visible", "bob", "thinking", "pointing");
   hideBubble();
 });
 

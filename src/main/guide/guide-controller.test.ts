@@ -19,15 +19,18 @@ vi.mock("electron", () => ({
   },
 }));
 
+
+
 function makeDeps(overrides: Partial<GuideControllerDeps> = {}): GuideControllerDeps {
   return {
-    overlay: { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn() },
+    overlay: { show: vi.fn().mockResolvedValue(undefined), hide: vi.fn(), setOwlMode: vi.fn() },
     getActiveHwnd: vi.fn().mockResolvedValue(1234),
     getCursorPos: vi.fn().mockReturnValue({ x: 50, y: 50 }),
     sendFollowUp: vi.fn().mockResolvedValue(undefined),
     onStateUpdate: vi.fn(),
     hidePanel: vi.fn(),
     showPanel: vi.fn(),
+    showPanelAndFocusInput: vi.fn(),
     ...overrides,
   };
 }

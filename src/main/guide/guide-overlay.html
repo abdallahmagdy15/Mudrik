@@ -166,12 +166,25 @@
       filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
       transition: left 500ms cubic-bezier(0.22, 1, 0.36, 1),
                   top 500ms cubic-bezier(0.22, 1, 0.36, 1),
-                  opacity 200ms ease;
+                  opacity 200ms ease,
+                  transform 300ms ease;
       opacity: 0;
       pointer-events: none;
     }
     .owl.visible { opacity: 1; }
     .owl.bob { animation: bob 1.4s ease-in-out infinite; }
+    .owl.thinking {
+      width: 56px;
+      height: 56px;
+      background: url('icon.png') no-repeat center / contain;
+      animation: thinkingBob 2s ease-in-out infinite;
+    }
+    @keyframes thinkingBob {
+      0%, 100% { transform: translateY(0) scale(1); }
+      25% { transform: translateY(-6px) scale(1.05); }
+      50% { transform: translateY(0) scale(1); }
+      75% { transform: translateY(-3px) scale(1.02); }
+    }
     @keyframes bob {
       0%, 100% { transform: translateY(0); }
       50%      { transform: translateY(-4px); }

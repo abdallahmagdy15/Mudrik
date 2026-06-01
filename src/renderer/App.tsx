@@ -31,8 +31,9 @@ declare global {
       onScreenshotAttached: (cb: (data: { attached: boolean; hasImage: boolean }) => void) => void;
       getConfig: () => Promise<any>;
       setConfig: (config: any) => Promise<any>;
-      restoreSession: () => Promise<any>;
+      restoreSession: (sessionId?: string) => Promise<any>;
       onSessionHistory: (cb: (messages: any[]) => void) => void;
+      getRecentChats: () => Promise<{ id: string; title: string; created: number }[]>;
       stopResponse: () => void;
       validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[]; needsAuth?: boolean; provider?: string }>;
       saveApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
@@ -50,6 +51,7 @@ interface Message {
   content: string;
   toolUses: ToolUseEvent[];
   screenshotAttached?: boolean;
+  timestamp?: number;
 }
 
 interface ToolUseEvent {
@@ -114,8 +116,11 @@ export function App() {
   // Per-chip copied flag keyed by "<messageKey>::<segmentIndex>" so that
   // clicking one chip never highlights other chips that happen to have the
   // same text content. Cleared after 1.5s.
-  const [copiedChipId, setCopiedChipId] = useState<string | null>(null);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [recentChatsOpen, setRecentChatsOpen] = useState(false);
+  const [recentChats, setRecentChats] = useState<{ id: string; title: string; created: number }[]>([]);
+  const [recentChatsLoading, setRecentChatsLoading] = useState(false);
   const [actionsEnabled, setActionsEnabled] = useState(true);
   const [currentModel, setCurrentModel] = useState("ollama-cloud/gemini-3-flash-preview");
   const [recentModels, setRecentModels] = useState<string[]>(["ollama-cloud/gemini-3-flash-preview"]);
@@ -188,6 +193,19 @@ export function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [settingsOpen]);
+
+  // Close recent chats popup on click outside
+  useEffect(() => {
+    if (!recentChatsOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target) return;
+      if (target.closest(".recent-chats-popup") || target.closest(".btn-recent-chats")) return;
+      setRecentChatsOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [recentChatsOpen]);
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const [autoGuideEnabled, setAutoGuideEnabled] = useState(false);
@@ -275,7 +293,7 @@ export function App() {
         if (prev.trim()) {
           setMessages((msgs) => [
             ...msgs,
-            { role: "assistant", content: prev, toolUses: [] },
+            { role: "assistant", content: prev, toolUses: [], timestamp: Date.now() },
           ]);
         }
         return "";
@@ -340,7 +358,7 @@ if (!data?.hasImage) {
         if (finalMsg) {
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: finalMsg, toolUses: [] },
+            { role: "assistant", content: finalMsg, toolUses: [], timestamp: Date.now() },
           ]);
         }
         setStreaming(false);
@@ -439,13 +457,13 @@ if (!data?.hasImage) {
     // choice (they chose "Something else…" to type freely). Route through
     // guideUserChoice so the guide controller handles the recapture.
     if (guideStateRef.current && guideStateRef.current.phase === "step-active") {
-      setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [] }]);
+      setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], timestamp: Date.now() }]);
       setStreaming(true);
       window.hoverbuddy.guideUserChoice(prompt);
       return;
     }
     lastPromptRef.current = prompt;
-    setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], screenshotAttached: screenshotAttached }]);
+    setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], screenshotAttached: screenshotAttached, timestamp: Date.now() }]);
     setCurrentResponse("");
     setError(null);
     setStreaming(true);
@@ -502,7 +520,7 @@ if (!data?.hasImage) {
     if (currentResponse.trim()) {
       setMessages((msgs) => [
         ...msgs,
-        { role: "assistant", content: currentResponse + "\n\n*[Response stopped]*", toolUses: [] },
+        { role: "assistant", content: currentResponse + "\n\n*[Response stopped]*", toolUses: [], timestamp: Date.now() },
       ]);
       setCurrentResponse("");
     } else {
@@ -516,6 +534,43 @@ if (!data?.hasImage) {
     window.hoverbuddy.dismiss();
   }, []);
 
+  const handleToggleRecentChats = useCallback(() => {
+    if (guideState && guideState.phase !== "idle") return;
+    setRecentChatsOpen((prev) => {
+      const opening = !prev;
+      if (opening) {
+        setRecentChatsLoading(true);
+        window.hoverbuddy.getRecentChats().then((chats) => {
+          setRecentChats(chats);
+        }).catch((e) => {
+          console.log("[RENDERER] Failed to load recent chats", e);
+          setRecentChats([]);
+        }).finally(() => {
+          setRecentChatsLoading(false);
+        });
+      }
+      return opening;
+    });
+  }, [guideState]);
+
+  const handleRestoreChat = useCallback(async (sessionId: string) => {
+    console.log(`[RENDERER] Restore chat: ${sessionId.slice(0, 30)}`);
+    setRecentChatsOpen(false);
+    setMessages([]);
+    setCurrentResponse("");
+    setError(null);
+    setActionResults([]);
+    setStreaming(false);
+    setScreenshotAttached(false);
+    lastPromptRef.current = "";
+    setRestoringSession(true);
+    try {
+      await window.hoverbuddy.restoreSession(sessionId);
+    } finally {
+      setRestoringSession(false);
+    }
+  }, []);
+
   // Dragging is handled natively by Chromium via the CSS `-webkit-app-region:
   // drag` declaration on `.app-header`. No JS / IPC involved — it's smooth
   // at any framerate, which the previous per-mousemove IPC approach was not.
@@ -525,10 +580,10 @@ if (!data?.hasImage) {
     window.hoverbuddy.retryAction(action);
   }, []);
 
-  const handleCopyChip = useCallback((text: string, id: string) => {
+  const handleCopyChip = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedChipId(id);
-    setTimeout(() => setCopiedChipId((cur) => (cur === id ? null : cur)), 1500);
+    setCopyToast("Copied to clipboard");
+    setTimeout(() => setCopyToast(null), 2000);
   }, []);
 
   const handleToggleActionsEnabled = useCallback(() => {
@@ -687,21 +742,19 @@ if (!data?.hasImage) {
 
   // msgKey disambiguates chips across messages — e.g. two separate replies
   // can each have a <!--COPY:pwd--> chip without sharing highlight state.
-  const renderSegments = useCallback((content: string, msgKey: string) => {
+  const renderSegments = useCallback((content: string, _msgKey: string) => {
     const segments = parseMessageContent(content);
     return segments.map((seg, i) => {
       if (seg.type === "copy-chip") {
-        const id = `${msgKey}::${i}`;
-        const isCopied = copiedChipId === id;
         return (
-          <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content, id)}>
-            {isCopied ? <><i className="fa-solid fa-check"></i> Copied!</> : seg.content}
+          <span key={i} className="copy-chip" onClick={() => handleCopyChip(seg.content)}>
+            {seg.content}
           </span>
         );
       }
       return <span key={i}>{seg.content}</span>;
     });
-  }, [copiedChipId, handleCopyChip]);
+  }, [handleCopyChip]);
 
   return (
     <div className="app" dir={lang === "ar" ? "rtl" : "ltr"}>
@@ -721,6 +774,14 @@ if (!data?.hasImage) {
           <button className="btn-icon btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>
             <i className="fa-solid fa-plus"></i>
           </button>
+          <button
+            className="btn-icon btn-recent-chats"
+            onClick={handleToggleRecentChats}
+            title={t("recentChats")}
+            disabled={guideState && guideState.phase !== "idle"}
+          >
+            <i className="fa-solid fa-clock-rotate-left"></i>
+          </button>
           <button className="btn-icon btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>
             <i className="fa-solid fa-gear"></i>
           </button>
@@ -729,6 +790,34 @@ if (!data?.hasImage) {
           </button>
         </div>
       </div>
+      {recentChatsOpen && (
+        <div className="recent-chats-popup">
+          <div className="recent-chats-header">
+            <span className="recent-chats-title">{t("recentChats")}</span>
+            <button className="recent-chats-close" onClick={() => setRecentChatsOpen(false)} title={t("close")}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div className="recent-chats-list">
+            {recentChatsLoading ? (
+              <div className="recent-chats-empty"><i className="fa-solid fa-circle-notch fa-spin"></i> {t("loadingHistory")}</div>
+            ) : recentChats.length === 0 ? (
+              <div className="recent-chats-empty">{t("noRecentChats")}</div>
+            ) : (
+              recentChats.map((chat) => (
+                <button
+                  key={chat.id}
+                  className="recent-chat-item"
+                  onClick={() => handleRestoreChat(chat.id)}
+                >
+                  <span className="recent-chat-title">{chat.title}</span>
+                  <span className="recent-chat-arrow"><i className="fa-solid fa-chevron-right"></i></span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <div className="settings-panel">
           <div className="settings-panel-header">
@@ -1019,7 +1108,14 @@ if (!data?.hasImage) {
         )}
         {messages.filter(msg => msg.content.trim()).map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
-            <div className="message-role">{msg.role === "user" ? t("you") : "Mudrik"}</div>
+            <div className="message-header">
+              <div className="message-role">{msg.role === "user" ? t("you") : "Mudrik"}</div>
+              {msg.timestamp && (
+                <div className="message-timestamp">
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+            </div>
             <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
@@ -1070,13 +1166,18 @@ if (!data?.hasImage) {
             options={guideState.options}
             onChoose={(opt) => {
               if (opt !== "Cancel") {
-                setMessages((prev) => [...prev, { role: "user", content: opt, toolUses: [] }]);
+                setMessages((prev) => [...prev, { role: "user", content: opt, toolUses: [], timestamp: Date.now() }]);
                 setStreaming(true);
               }
               window.hoverbuddy.guideUserChoice(opt);
             }}
           />
       </React.Suspense>
+    )}
+    {copyToast && (
+      <div className="copy-toast">
+        <i className="fa-solid fa-check"></i> {copyToast}
+      </div>
     )}
     <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming || contextLoading} lang={lang} />
   </div>

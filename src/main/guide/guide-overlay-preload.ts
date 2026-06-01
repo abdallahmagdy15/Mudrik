@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld("guideOverlay", {
   onBubbleFade: (handler: (payload: { opacity: number }) => void) => {
     ipcRenderer.on("guide-overlay-bubble-fade", (_event, payload) => handler(payload));
   },
+  onSetOwlMode: (handler: (payload: { mode: "pointing" | "thinking" }) => void) => {
+    ipcRenderer.on("guide-overlay-owl-mode", (_event, payload) => handler(payload));
+  },
   sendChoice: (choice: string) => {
     ipcRenderer.send("guide-overlay-choice", choice);
   },
