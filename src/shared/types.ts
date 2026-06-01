@@ -242,4 +242,11 @@ export const IPC = {
   GUIDE_USER_CHOICE: "guide-user-choice",
   GUIDE_STATE_UPDATE: "guide-state-update",
   CONTEXT_LOADING: "context-loading",
+  GET_RECENT_CHATS: "get-recent-chats",
 } as const;
+
+export interface RecentChat {
+  id: string;
+  title: string;
+  created: number;
+}

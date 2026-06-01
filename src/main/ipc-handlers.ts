@@ -1518,7 +1518,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     m.getController().handleUserChoice(option);
   });
 
-  ipcMain.handle(IPC.RESTORE_SESSION, async () => {
+  ipcMain.handle(IPC.RESTORE_SESSION, async (_e, sessionId?: string) => {
     try {
       const opencodeBin = findOpenCodeBinPath();
       if (!opencodeBin) { log("restoreSession: bin not found"); return null; }
@@ -1526,23 +1526,28 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const cwd = config.workingDir || os.homedir();
       const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
       env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
-      const listRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
-      });
-      const sessions = JSON.parse(listRaw);
-      if (!Array.isArray(sessions) || sessions.length === 0) { log("restoreSession: no sessions"); return null; }
-      // Filter to sessions created from Mudrik's working directory. Without
-      // this we restore the most recent GLOBAL OpenCode session — which may
-      // belong to a CLI run in the user's home dir and leak unrelated
-      // conversation history into Mudrik's chat.
-      const ourSessions = sessions
-        .filter((s: any) => s.directory === cwd)
-        .sort((a: any, b: any) => b.created - a.created);
-      if (ourSessions.length === 0) { log(`restoreSession: no sessions for directory ${cwd}`); return null; }
-      const sessionId = ourSessions[0].id;
-      log(`restoreSession: latest=${sessionId.slice(0, 30)}`);
+      let targetSessionId: string;
+      if (sessionId) {
+        targetSessionId = sessionId;
+      } else {
+        const listRaw = await new Promise<string>((res, rej) => {
+          execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "1"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        });
+        const sessions = JSON.parse(listRaw);
+        if (!Array.isArray(sessions) || sessions.length === 0) { log("restoreSession: no sessions"); return null; }
+        // Filter to sessions created from Mudrik's working directory. Without
+        // this we restore the most recent GLOBAL OpenCode session — which may
+        // belong to a CLI run in the user's home dir and leak unrelated
+        // conversation history into Mudrik's chat.
+        const ourSessions = sessions
+          .filter((s: any) => s.directory === cwd)
+          .sort((a: any, b: any) => b.created - a.created);
+        if (ourSessions.length === 0) { log(`restoreSession: no sessions for directory ${cwd}`); return null; }
+        targetSessionId = ourSessions[0].id;
+      }
+      log(`restoreSession: target=${targetSessionId.slice(0, 30)}`);
       const exportRaw = await new Promise<string>((res, rej) => {
-        execFile("node", [opencodeBin, "export", sessionId], { encoding: "utf-8", timeout: 15000, cwd, env: { ...env, XDG_DATA_HOME: path.join(cwd, "opencode-data") }, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+        execFile("node", [opencodeBin, "export", targetSessionId], { encoding: "utf-8", timeout: 15000, cwd, env: { ...env, XDG_DATA_HOME: path.join(cwd, "opencode-data") }, maxBuffer: 5*1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
       });
       const jsonStart = exportRaw.indexOf("{");
       if (jsonStart < 0) { log("restoreSession: no json"); return null; }
@@ -1591,10 +1596,42 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       const trimmed = history.slice(-10);
       const win = getPanelWindow();
       if (win && trimmed.length > 0) win.webContents.send(IPC.SESSION_HISTORY, trimmed);
-      client.setRestoredSession(sessionId);
-      log(`restoreSession: restored ${sessionId.slice(0, 30)}, ${trimmed.length}/${history.length} messages`);
-      return sessionId;
+      // Reset current session before restoring a different one
+      if (client.hasSession() && sessionId) {
+        client.resetSession();
+      }
+      client.setRestoredSession(targetSessionId);
+      log(`restoreSession: restored ${targetSessionId.slice(0, 30)}, ${trimmed.length}/${history.length} messages`);
+      return targetSessionId;
     } catch (err: any) { log(`restoreSession error: ${err.message}`); return null; }
+  });
+
+  ipcMain.handle(IPC.GET_RECENT_CHATS, async () => {
+    try {
+      const opencodeBin = findOpenCodeBinPath();
+      if (!opencodeBin) { log("getRecentChats: bin not found"); return []; }
+      const { execFile } = require("child_process");
+      const cwd = config.workingDir || os.homedir();
+      const env = buildCleanOpenCodeEnv(process.env, config.apiKeys);
+      env.XDG_DATA_HOME = path.join(cwd, "opencode-data");
+      const listRaw = await new Promise<string>((res, rej) => {
+        execFile("node", [opencodeBin, "session", "list", "--format", "json", "-n", "5"], { encoding: "utf-8", timeout: 10000, cwd, env, maxBuffer: 1024*1024 }, (err: any, stdout: string) => err ? rej(err) : res(stdout));
+      });
+      const sessions = JSON.parse(listRaw);
+      if (!Array.isArray(sessions) || sessions.length === 0) { log("getRecentChats: no sessions"); return []; }
+      const ourSessions = sessions
+        .filter((s: any) => s.directory === cwd)
+        .sort((a: any, b: any) => b.created - a.created)
+        .slice(0, 5);
+      if (ourSessions.length === 0) { log(`getRecentChats: no sessions for directory ${cwd}`); return []; }
+      const result = ourSessions.map((s: any) => ({
+        id: s.id,
+        title: new Date(s.created).toLocaleString(),
+        created: s.created,
+      }));
+      log(`getRecentChats: returning ${result.length} sessions`);
+      return result;
+    } catch (err: any) { log(`getRecentChats error: ${err.message}`); return []; }
   });
 
   log("All IPC handlers registered");

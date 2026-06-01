@@ -161,6 +161,109 @@ body {
   border-color: var(--border);
 }
 
+.btn-recent-chats:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Recent Chats Popup ── */
+.recent-chats-popup {
+  position: absolute;
+  top: 52px;
+  right: 10px;
+  width: 260px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  z-index: 50;
+  overflow: hidden;
+  animation: popupIn 0.15s var(--ease-out);
+}
+
+.app[dir="rtl"] .recent-chats-popup {
+  right: auto;
+  left: 10px;
+}
+
+@keyframes popupIn {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.recent-chats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recent-chats-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.recent-chats-close {
+  background: none;
+  border: none;
+  color: var(--text-ghost);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: var(--radius-xs);
+  transition: all 0.15s var(--ease-out);
+}
+
+.recent-chats-close:hover {
+  color: var(--error);
+  background: rgba(196, 90, 90, 0.06);
+}
+
+.recent-chats-list {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.recent-chats-empty {
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-subtle);
+  font-size: 12px;
+}
+
+.recent-chat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+  transition: all 0.12s var(--ease-out);
+}
+
+.recent-chat-item:hover {
+  background: rgba(116, 153, 194, 0.08);
+}
+
+.recent-chat-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.recent-chat-arrow {
+  color: var(--text-ghost);
+  font-size: 10px;
+}
+
 /* ── Settings ── */
 .settings-panel {
   position: fixed;

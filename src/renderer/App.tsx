@@ -31,8 +31,9 @@ declare global {
       onScreenshotAttached: (cb: (data: { attached: boolean; hasImage: boolean }) => void) => void;
       getConfig: () => Promise<any>;
       setConfig: (config: any) => Promise<any>;
-      restoreSession: () => Promise<any>;
+      restoreSession: (sessionId?: string) => Promise<any>;
       onSessionHistory: (cb: (messages: any[]) => void) => void;
+      getRecentChats: () => Promise<{ id: string; title: string; created: number }[]>;
       stopResponse: () => void;
       validateModel: (model: string) => Promise<{ valid: boolean; modelId?: string; error?: string; suggestions?: string[]; needsAuth?: boolean; provider?: string }>;
       saveApiKey: (provider: string, key: string) => Promise<{ ok: boolean; error?: string }>;
@@ -116,6 +117,8 @@ export function App() {
   // same text content. Cleared after 1.5s.
   const [copiedChipId, setCopiedChipId] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [recentChatsOpen, setRecentChatsOpen] = useState(false);
+  const [recentChats, setRecentChats] = useState<{ id: string; title: string; created: number }[]>([]);
   const [actionsEnabled, setActionsEnabled] = useState(true);
   const [currentModel, setCurrentModel] = useState("ollama-cloud/gemini-3-flash-preview");
   const [recentModels, setRecentModels] = useState<string[]>(["ollama-cloud/gemini-3-flash-preview"]);
@@ -188,6 +191,19 @@ export function App() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [settingsOpen]);
+
+  // Close recent chats popup on click outside
+  useEffect(() => {
+    if (!recentChatsOpen) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target) return;
+      if (target.closest(".recent-chats-popup") || target.closest(".btn-recent-chats")) return;
+      setRecentChatsOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [recentChatsOpen]);
   const [fontSize, setFontSize] = useState(14);
   const [restoreSessionOnActivate, setRestoreSessionOnActivate] = useState(true);
   const [autoGuideEnabled, setAutoGuideEnabled] = useState(false);
@@ -516,6 +532,36 @@ if (!data?.hasImage) {
     window.hoverbuddy.dismiss();
   }, []);
 
+  const handleToggleRecentChats = useCallback(async () => {
+    if (guideState && guideState.phase !== "idle") return;
+    if (!recentChatsOpen) {
+      try {
+        const chats = await window.hoverbuddy.getRecentChats();
+        setRecentChats(chats);
+      } catch (e) {
+        console.log("[RENDERER] Failed to load recent chats", e);
+        setRecentChats([]);
+      }
+    }
+    setRecentChatsOpen((prev) => !prev);
+  }, [recentChatsOpen, guideState]);
+
+  const handleRestoreChat = useCallback(async (sessionId: string) => {
+    console.log(`[RENDERER] Restore chat: ${sessionId.slice(0, 30)}`);
+    setRecentChatsOpen(false);
+    setMessages([]);
+    setCurrentResponse("");
+    setError(null);
+    setActionResults([]);
+    setStreaming(false);
+    setRestoringSession(true);
+    try {
+      await window.hoverbuddy.restoreSession(sessionId);
+    } finally {
+      setRestoringSession(false);
+    }
+  }, []);
+
   // Dragging is handled natively by Chromium via the CSS `-webkit-app-region:
   // drag` declaration on `.app-header`. No JS / IPC involved — it's smooth
   // at any framerate, which the previous per-mousemove IPC approach was not.
@@ -718,6 +764,14 @@ if (!data?.hasImage) {
           </span>
         </div>
         <div className="header-actions">
+          <button
+            className="btn-icon btn-recent-chats"
+            onClick={handleToggleRecentChats}
+            title={t("recentChats")}
+            disabled={guideState && guideState.phase !== "idle"}
+          >
+            <i className="fa-solid fa-clock-rotate-left"></i>
+          </button>
           <button className="btn-icon btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>
             <i className="fa-solid fa-plus"></i>
           </button>
@@ -729,6 +783,32 @@ if (!data?.hasImage) {
           </button>
         </div>
       </div>
+      {recentChatsOpen && (
+        <div className="recent-chats-popup">
+          <div className="recent-chats-header">
+            <span className="recent-chats-title">{t("recentChats")}</span>
+            <button className="recent-chats-close" onClick={() => setRecentChatsOpen(false)} title={t("close")}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div className="recent-chats-list">
+            {recentChats.length === 0 ? (
+              <div className="recent-chats-empty">{t("noRecentChats")}</div>
+            ) : (
+              recentChats.map((chat) => (
+                <button
+                  key={chat.id}
+                  className="recent-chat-item"
+                  onClick={() => handleRestoreChat(chat.id)}
+                >
+                  <span className="recent-chat-title">{chat.title}</span>
+                  <span className="recent-chat-arrow"><i className="fa-solid fa-chevron-right"></i></span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
       {settingsOpen && (
         <div className="settings-panel">
           <div className="settings-panel-header">
