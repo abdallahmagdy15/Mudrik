@@ -51,6 +51,7 @@ interface Message {
   content: string;
   toolUses: ToolUseEvent[];
   screenshotAttached?: boolean;
+  timestamp?: number;
 }
 
 interface ToolUseEvent {
@@ -292,7 +293,7 @@ export function App() {
         if (prev.trim()) {
           setMessages((msgs) => [
             ...msgs,
-            { role: "assistant", content: prev, toolUses: [] },
+            { role: "assistant", content: prev, toolUses: [], timestamp: Date.now() },
           ]);
         }
         return "";
@@ -357,7 +358,7 @@ if (!data?.hasImage) {
         if (finalMsg) {
           setMessages((prev) => [
             ...prev,
-            { role: "assistant", content: finalMsg, toolUses: [] },
+            { role: "assistant", content: finalMsg, toolUses: [], timestamp: Date.now() },
           ]);
         }
         setStreaming(false);
@@ -456,13 +457,13 @@ if (!data?.hasImage) {
     // choice (they chose "Something else…" to type freely). Route through
     // guideUserChoice so the guide controller handles the recapture.
     if (guideStateRef.current && guideStateRef.current.phase === "step-active") {
-      setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [] }]);
+      setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], timestamp: Date.now() }]);
       setStreaming(true);
       window.hoverbuddy.guideUserChoice(prompt);
       return;
     }
     lastPromptRef.current = prompt;
-    setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], screenshotAttached: screenshotAttached }]);
+    setMessages((prev) => [...prev, { role: "user" as const, content: prompt, toolUses: [], screenshotAttached: screenshotAttached, timestamp: Date.now() }]);
     setCurrentResponse("");
     setError(null);
     setStreaming(true);
@@ -519,7 +520,7 @@ if (!data?.hasImage) {
     if (currentResponse.trim()) {
       setMessages((msgs) => [
         ...msgs,
-        { role: "assistant", content: currentResponse + "\n\n*[Response stopped]*", toolUses: [] },
+        { role: "assistant", content: currentResponse + "\n\n*[Response stopped]*", toolUses: [], timestamp: Date.now() },
       ]);
       setCurrentResponse("");
     } else {
@@ -1107,7 +1108,14 @@ if (!data?.hasImage) {
         )}
         {messages.filter(msg => msg.content.trim()).map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
-            <div className="message-role">{msg.role === "user" ? t("you") : "Mudrik"}</div>
+            <div className="message-header">
+              <div className="message-role">{msg.role === "user" ? t("you") : "Mudrik"}</div>
+              {msg.timestamp && (
+                <div className="message-timestamp">
+                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+            </div>
             <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
@@ -1158,7 +1166,7 @@ if (!data?.hasImage) {
             options={guideState.options}
             onChoose={(opt) => {
               if (opt !== "Cancel") {
-                setMessages((prev) => [...prev, { role: "user", content: opt, toolUses: [] }]);
+                setMessages((prev) => [...prev, { role: "user", content: opt, toolUses: [], timestamp: Date.now() }]);
                 setStreaming(true);
               }
               window.hoverbuddy.guideUserChoice(opt);

@@ -17,6 +17,11 @@ import {
 import { screen } from "electron";
 import { log } from "../logger";
 
+/** System-injected options that always appear in guide mode regardless of what
+ *  the AI sends. Cancel aborts the guide; Something else opens the panel so
+ *  the user can type a custom message. */
+const SYSTEM_OPTIONS = ["Cancel", "Something else"];
+
 function boundsHintToPhysical(bounds: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
   // The AI's boundsHint is in logical (DIP) pixels because the candidates
   // list we send is converted to logical. showOverlay expects physical
@@ -65,6 +70,7 @@ export interface GuideControllerDeps {
       fromCursor: { x: number; y: number },
     ) => Promise<void>;
     hide: () => void;
+    setOwlMode?: (mode: "pointing" | "thinking") => void;
   };
   getActiveHwnd: () => Promise<number>;
   getCursorPos: () => { x: number; y: number };
@@ -87,6 +93,8 @@ export interface GuideControllerDeps {
   /** Hide/show panel window */
   hidePanel: () => void;
   showPanel: () => void;
+  /** Show panel and focus the chat input (used by "Something else" option) */
+  showPanelAndFocusInput: () => void;
   /** Resolves the AI's target to pixel bounds via UIA lookup.
    *  The new dual-bounds system means the AI provides either:
    *  - uiaBounds: copied from UIA tree (pixel-perfect, high confidence)
@@ -151,15 +159,21 @@ export class GuideController {
       await this.cancel();
       return;
     }
+    if (option === "Something else") {
+      // Open panel so user can type a custom message; guide stays active
+      this.deps.showPanelAndFocusInput();
+      return;
+    }
     if (this.phase === "offer") {
       // User accepted the offer → hide panel and show owl with thinking state
       this.deps.hidePanel();
       const cursor = this.deps.getCursorPos();
-      // Show owl at cursor position with "Thinking..." bubble immediately
+      // Show thinking owl at cursor position with "Thinking..." bubble immediately
       await this.deps.overlay.show(
         { x: cursor.x - 32, y: cursor.y - 32, width: 64, height: 64 },
         cursor,
       );
+      this.deps.overlay.setOwlMode?.("thinking");
       this.deps.onStateUpdate({ phase: "awaiting-ai", caption: "Thinking...", options: [] });
       this.transitionToAwaitingAI();
       await this.deps.sendFollowUp({ kind: "option", choice: option });
@@ -252,11 +266,16 @@ export class GuideController {
     this.pendingAction = null;
     this.processing = false;
 
+    // Inject system options (Cancel + Something else) into the AI's option list.
+    // These are always available regardless of what the AI sends.
+    const aiOptions = p.options.filter((o) => !SYSTEM_OPTIONS.includes(o));
+    const mergedOptions = [...aiOptions, ...SYSTEM_OPTIONS];
+
     // Push the step UI to the renderer
     this.deps.onStateUpdate({
       phase: "step-active",
       caption: p.caption,
-      options: p.options,
+      options: mergedOptions,
       stepIndex: p.stepIndex,
       estStepsLeft: p.estStepsLeft,
     });
@@ -312,6 +331,7 @@ export class GuideController {
           cursor,
         );
       }
+      this.deps.overlay.setOwlMode?.("pointing");
     } else {
       // No target → show owl at cursor with caption bubble
       const cursor = this.deps.getCursorPos();
@@ -355,8 +375,8 @@ export class GuideController {
     this.pendingAction = null;
     this.processing = false;
     this.deps.onStateUpdate({ phase: "idle", finalMessage: p.summary });
-    // Show owl "Done!" for 3 seconds, then hide owl and show panel
-    this.deps.onStateUpdate({ phase: "step-active", caption: "Done!", options: [] });
+    // Show thinking owl "Done!" for 3 seconds, then hide owl and show panel
+    this.deps.overlay.setOwlMode?.("thinking");
     setTimeout(() => {
       this.deps.overlay.hide();
       this.deps.showPanel();
@@ -397,12 +417,13 @@ export class GuideController {
     // Get cursor position to keep owl visible
     const cursor = this.deps.getCursorPos();
 
-    // WAITING phase — show owl at cursor with "Waiting..." bubble
+    // WAITING phase — show thinking owl at cursor with "Waiting..." bubble
     this.phase = "waiting";
     await this.deps.overlay.show(
       { x: cursor.x - 32, y: cursor.y - 32, width: 64, height: 64 },
       cursor,
     );
+    this.deps.overlay.setOwlMode?.("thinking");
     this.deps.onStateUpdate({ phase: "waiting", caption: "Waiting...", options: [] });
     await sleep(waitMs);
     if (!isCurrent()) {

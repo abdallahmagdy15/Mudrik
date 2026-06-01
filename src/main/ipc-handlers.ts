@@ -111,6 +111,8 @@ let areaRect: { x1: number; y1: number; x2: number; y2: number } | null = null;
 let lastContextHash: string = "";
 let contextNeedsSending: boolean = false;
 let hasSentFirstMessage: boolean = false;
+// Cached recent chats list (cleared on startup and when a new chat starts)
+let recentChatsCache: { id: string; title: string; created: number }[] | null = null;
 // Mirror of the guide controller's phase, updated by onStateUpdate. Lets
 // callers (auto-show suppression, onContext message preservation) gate on
 // guide activity without forcing the lazy-loaded guide module to load.
@@ -380,6 +382,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
     overlay: {
       show: overlayMod.showOverlay,
       hide: overlayMod.hideOverlay,
+      setOwlMode: overlayMod.setOwlMode,
     },
     getActiveHwnd: winMod.getActiveHwnd,
     getCursorPos,
@@ -393,6 +396,14 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const win = getPanelWindow();
       if (win && !win.isDestroyed() && !win.isVisible()) {
         win.show();
+      }
+    },
+    showPanelAndFocusInput: () => {
+      const win = getPanelWindow();
+      if (win && !win.isDestroyed()) {
+        if (!win.isVisible()) win.show();
+        win.focus();
+        win.webContents.send(IPC.FOCUS_INPUT);
       }
     },
     sendFollowUp: async (actionDesc) => {
@@ -681,12 +692,16 @@ async function initGuideControllerIfNeeded(): Promise<void> {
         : (appConfig?.theme || "light");
       if (state.phase === "step-active" && state.caption) {
         overlayMod.showBubble(state.caption, state.options || [], theme);
+        overlayMod.setOwlMode("pointing");
       } else if (state.phase === "waiting") {
         overlayMod.showBubble("Waiting...", [], theme);
+        overlayMod.setOwlMode("thinking");
       } else if (state.phase === "recapturing") {
         overlayMod.showBubble("Capturing...", [], theme);
+        overlayMod.setOwlMode("thinking");
       } else if (state.phase === "awaiting-ai") {
         overlayMod.showBubble("Thinking...", [], theme);
+        overlayMod.setOwlMode("thinking");
       } else if (state.phase === "idle" || state.phase === "offer") {
         overlayMod.hideBubble();
       }
@@ -991,6 +1006,9 @@ export function registerIpcHandlers(
       log("Follow-up message — skipping system prompt and context (already in session)");
       fullPrompt = stopNote + prompt;
     } else {
+      // First message of a new conversation — clear cached recent chats
+      // so the popup reflects the newly created session
+      recentChatsCache = null;
       let contextBlock = "";
       if (isAreaContext && areaElements.length > 0) {
         contextBlock = `\n--- SCREEN CONTEXT (use this data for actions, do not describe it back to the user) ---\n`;
@@ -1649,6 +1667,11 @@ contextBlock += `\n--- END CONTEXT ---\n`;
   });
 
   ipcMain.handle(IPC.GET_RECENT_CHATS, async () => {
+    // Return cached list if available (avoids repeated CLI calls)
+    if (recentChatsCache) {
+      log(`getRecentChats: returning ${recentChatsCache.length} cached sessions`);
+      return recentChatsCache;
+    }
     try {
       const opencodeBin = findOpenCodeBinPath();
       if (!opencodeBin) { log("getRecentChats: bin not found"); return []; }
@@ -1671,7 +1694,8 @@ contextBlock += `\n--- END CONTEXT ---\n`;
         title: new Date(s.created).toLocaleString(),
         created: s.created,
       }));
-      log(`getRecentChats: returning ${result.length} sessions`);
+      recentChatsCache = result;
+      log(`getRecentChats: fetched and cached ${result.length} sessions`);
       return result;
     } catch (err: any) { log(`getRecentChats error: ${err.message}`); return []; }
   });

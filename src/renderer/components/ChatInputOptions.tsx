@@ -23,10 +23,11 @@ export const ChatInputOptions: React.FC<Props> = ({
 }) => {
   const layout = layoutFor(options.length);
   const ordered = React.useMemo(() => {
-    const cancelIdx = options.findIndex((o) => o === "Cancel");
-    if (cancelIdx <= 0) return options;
-    const rest = options.filter((o) => o !== "Cancel");
-    return ["Cancel", ...rest];
+    // System options (Cancel, Something else) always go at the end
+    const systemOpts = ["Cancel", "Something else"];
+    const aiOpts = options.filter((o) => !systemOpts.includes(o));
+    const presentSystem = systemOpts.filter((o) => options.includes(o));
+    return [...aiOpts, ...presentSystem];
   }, [options]);
   return (
     <div className={`chat-input-options ${layout}`}>
@@ -43,10 +44,11 @@ export const ChatInputOptions: React.FC<Props> = ({
       <div className="options-bar">
         {ordered.map((opt, i) => {
           const isCancel = opt === "Cancel";
+          const isSomethingElse = opt === "Something else";
           return (
             <button
               key={i}
-              className={`option-btn ${isCancel ? "cancel" : "ok"}`}
+              className={`option-btn ${isCancel ? "cancel" : isSomethingElse ? "secondary" : "ok"}`}
               onClick={() => onChoose(opt)}
             >
               {opt}

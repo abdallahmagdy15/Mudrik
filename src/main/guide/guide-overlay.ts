@@ -60,6 +60,12 @@ async function createOverlayWindow(): Promise<BrowserWindow> {
   // for any future hover-driven affordances; the user clicks pass to the
   // app underneath.
   w.setIgnoreMouseEvents(true, { forward: true });
+  // CRITICAL: use screen-saver level on Windows so the overlay stays above
+  // Chrome context menus, app popups, and other always-on-top windows.
+  // The standard alwaysOnTop:true isn't enough for system-level popups.
+  if (process.platform === "win32") {
+    w.setAlwaysOnTop(true, "screen-saver");
+  }
   log(`guide-overlay window created covering virtual desktop ${minX},${minY} ${maxX - minX}x${maxY - minY} (${displays.length} display${displays.length > 1 ? "s" : ""})`);
   return w;
 }
@@ -143,6 +149,11 @@ export function fadeBubble(opacity: number): void {
 export function setOverlayIgnoreMouseEvents(ignore: boolean): void {
   if (!overlayWin || overlayWin.isDestroyed()) return;
   overlayWin.setIgnoreMouseEvents(ignore, { forward: true });
+}
+
+export function setOwlMode(mode: "pointing" | "thinking"): void {
+  if (!overlayWin || overlayWin.isDestroyed()) return;
+  overlayWin.webContents.send("guide-overlay-owl-mode", { mode });
 }
 
 export function showOverlayLoading(text?: string): void {
