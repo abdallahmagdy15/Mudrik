@@ -117,7 +117,7 @@ describe("validateAction — guide markers", () => {
       },
       cfg(true)
     );
-    expect("error" in r && r.error).toMatch(/boundsHint/i);
+    expect("error" in r && r.error).toMatch(/uiaBounds or guessBounds/i);
   });
 
   it("accepts trackable=false without boundsHint (typing/scrolling steps)", () => {

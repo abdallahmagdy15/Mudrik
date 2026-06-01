@@ -78,6 +78,7 @@ window.guideOverlay?.onShow(({ target, fromCursor }) => {
 
 window.guideOverlay?.onHide(() => {
   owl.classList.remove("visible", "bob");
+  hideBubble();
 });
 
 // --- Bubble UI ---
@@ -120,55 +121,49 @@ function positionBubble() {
   const VW = window.innerWidth;
   const VH = window.innerHeight;
   const bubbleRect = bubble.getBoundingClientRect();
-  const owlRight = currentOwlX + OWL_SIZE;
-  const owlBottom = currentOwlY + OWL_SIZE;
 
-  // Default: below-right of owl
-  let bx = owlRight + 8;
+  // Default: to the right of owl
+  let bx = currentOwlX + OWL_SIZE + 12;
   let by = currentOwlY + 8;
-  let tailClass = "bottom-left";
 
-  // Check right edge
+  // Horizontal edge check
   if (bx + bubbleRect.width > VW - 10) {
-    bx = currentOwlX - bubbleRect.width - 8;
-    tailClass = "bottom-right";
+    bx = currentOwlX - bubbleRect.width - 12;
   }
+  if (bx < 10) bx = 10;
 
-  // Check bottom edge
+  // Vertical edge check
   if (by + bubbleRect.height > VH - 10) {
     by = currentOwlY - bubbleRect.height - 8;
-    tailClass = by < currentOwlY ? "top-right" : "top-left";
   }
-
-  // Check left edge
-  if (bx < 10) {
-    bx = 10;
-  }
-
-  // Check top edge
-  if (by < 10) {
-    by = 10;
-  }
+  if (by < 10) by = 10;
 
   bubble.style.left = `${bx}px`;
   bubble.style.top = `${by}px`;
 
-  // Position tail
-  const tailOffset = 16;
-  if (tailClass.includes("bottom")) {
-    bubbleTail.style.top = "-6px";
-    bubbleTail.style.bottom = "auto";
+  // Calculate centers to determine tail direction
+  const bubbleCX = bx + bubbleRect.width / 2;
+  const bubbleCY = by + bubbleRect.height / 2;
+  const owlCX = currentOwlX + OWL_SIZE / 2;
+  const owlCY = currentOwlY + OWL_SIZE / 2;
+
+  // Vector from bubble center to owl center
+  const dx = owlCX - bubbleCX;
+  const dy = owlCY - bubbleCY;
+
+  // Determine primary direction: tail points from bubble toward owl
+  let tailDir;
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal dominant
+    tailDir = dx > 0 ? "right" : "left";
   } else {
-    bubbleTail.style.bottom = "-6px";
-    bubbleTail.style.top = "auto";
+    // Vertical dominant
+    tailDir = dy > 0 ? "bottom" : "top";
   }
-  if (tailClass.includes("left")) {
-    bubbleTail.style.left = `${tailOffset}px`;
-    bubbleTail.style.right = "auto";
-  } else {
-    bubbleTail.style.right = `${tailOffset}px`;
-    bubbleTail.style.left = "auto";
-  }
+
+  // Apply tail direction class
+  bubble.classList.remove("tail-left", "tail-right", "tail-top", "tail-bottom");
+  bubble.classList.add(`tail-${tailDir}`);
 }
 
 window.guideOverlay?.onBubbleShow(({ caption, options, theme }) => {

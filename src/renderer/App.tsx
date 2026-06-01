@@ -23,7 +23,6 @@ declare global {
       onActionResult: (cb: (result: any) => void) => void;
       retryAction: (action: any) => void;
       dismiss: () => void;
-      minimize: () => void;
       windowMove: (deltaX: number, deltaY: number) => void;
       newSession: () => void;
       onFocusInput: (cb: () => void) => void;
@@ -517,11 +516,6 @@ if (!data?.hasImage) {
     window.hoverbuddy.dismiss();
   }, []);
 
-  const handleMinimize = useCallback(() => {
-    console.log("[RENDERER] Minimize clicked — panel will auto-show when AI responds");
-    window.hoverbuddy.minimize();
-  }, []);
-
   // Dragging is handled natively by Chromium via the CSS `-webkit-app-region:
   // drag` declaration on `.app-header`. No JS / IPC involved — it's smooth
   // at any framerate, which the previous per-mousemove IPC approach was not.
@@ -730,9 +724,6 @@ if (!data?.hasImage) {
           <button className="btn-icon btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>
             <i className="fa-solid fa-gear"></i>
           </button>
-          <button className="btn-icon btn-minimize" onClick={handleMinimize} title={t("minimize")}>
-            <i className="fa-solid fa-minus"></i>
-          </button>
           <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("close")}>
             <i className="fa-solid fa-xmark"></i>
           </button>
@@ -745,6 +736,9 @@ if (!data?.hasImage) {
               <i className="fa-solid fa-arrow-left"></i>
             </button>
             <span className="settings-panel-title">Settings</span>
+            <button className="settings-close" onClick={() => { setSettingsOpen(false); window.hoverbuddy.dismiss(); }} title={t("close")}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
           </div>
           <div className="settings-panel-body">
           <div className={`settings-section ${openSections.model ? "open" : "closed"}`}>
@@ -1023,7 +1017,7 @@ if (!data?.hasImage) {
             </div>
           </div>
         )}
-        {messages.map((msg, i) => (
+        {messages.filter(msg => msg.content.trim()).map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
             <div className="message-role">{msg.role === "user" ? t("you") : "Mudrik"}</div>
             <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>

@@ -63,7 +63,7 @@ function calculatePanelPosition(cursorX: number, cursorY: number): { x: number; 
 
   // Panel size as percentage of display
   const panelWidth = Math.round(workArea.width * 0.35);
-  const panelHeight = Math.round(workArea.height * 0.60);
+  const panelHeight = Math.round(workArea.height * 0.69);
 
   const PADDING = 8;
   const halfWidth = workArea.width / 2;

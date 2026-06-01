@@ -58,7 +58,7 @@ export const ChatInput = forwardRef<{ focus: () => void }, Props>(({ onSubmit, d
         title={tp("send")}
         aria-label={tp("send")}
       >
-        <i className="fa-solid fa-paper-plane" style={{ fontSize: 14 }}></i>
+        <i className="fa-solid fa-arrow-up" style={{ fontSize: 14 }}></i>
       </button>
     </div>
   );

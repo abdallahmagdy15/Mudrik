@@ -79,7 +79,7 @@ const ar: Record<Key, string> = {
   restoreChatOnPopup: "استعادة المحادثة عند الفتح",
   enableAutoGuide: "تفعيل وضع الإرشاد التلقائي",
   enableAutoGuideHint: "يتيح لمدرك إرشادك خطوة بخطوة في المهام متعددة الخطوات. يضيف سياقًا إضافيًا لاستدعاءات الذكاء الاصطناعي (نحو 700 رمز لكل رسالة) — أوقفه للحفاظ على إيجاز المطالبات.",
-  attachScreenshot: "📸 إرفاق لقطة شاشة",
+  attachScreenshot: "إرفاق لقطة شاشة",
   screenshotAttached: "✓ تم إرفاق لقطة الشاشة",
   removeScreenshot: "إزالة لقطة الشاشة",
   you: "أنت",

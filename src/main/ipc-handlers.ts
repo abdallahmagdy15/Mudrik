@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from "electron";
+import { ipcMain, BrowserWindow, app } from "electron";
 import { Config, ContextPayload, IPC, Action, VisibleWindow } from "../shared/types";
 import { OpenCodeClient, OpenCodeEvent } from "./opencode-client";
 import { buildSystemPrompt } from "../shared/prompts";
@@ -430,14 +430,21 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       try {
         const visionMod = await import("./vision");
         const ctxReader = await import("./context-reader");
-        const targetHwnd = currentContext?.windowInfo?.hwnd || 0;
+        // Get the CURRENT active window, not the cached one from initial capture.
+        // The user may have opened a dialog or switched windows mid-guide.
+        const { setForegroundHwnd, getActiveHwnd } = await import("./guide/active-window");
+        const currentActiveHwnd = await getActiveHwnd();
+        // If Mudrik panel is the active window, fall back to the cached context hwnd
+        const mudrikHwnd = win.getNativeWindowHandle().readInt32LE(0);
+        const targetHwnd = (currentActiveHwnd && currentActiveHwnd !== mudrikHwnd)
+          ? currentActiveHwnd
+          : (currentContext?.windowInfo?.hwnd || 0);
         
         // Only hide panel during actual screenshot capture, keep it visible otherwise
         const wasVisible = win.isVisible();
         
         if (targetHwnd) {
           try {
-            const { setForegroundHwnd, getActiveHwnd } = await import("./guide/active-window");
             const ok = await setForegroundHwnd(targetHwnd);
             log(`guide follow-up: setForegroundHwnd(${targetHwnd}) -> ${ok}`);
             await new Promise((r) => setTimeout(r, 200));
