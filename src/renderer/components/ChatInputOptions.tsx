@@ -41,15 +41,18 @@ export const ChatInputOptions: React.FC<Props> = ({
         </div>
       )}
       <div className="options-bar">
-        {ordered.map((opt, i) => (
-          <button
-            key={i}
-            className={`option-btn ${opt === "Cancel" ? "cancel" : "primary"}`}
-            onClick={() => onChoose(opt)}
-          >
-            {opt}
-          </button>
-        ))}
+        {ordered.map((opt, i) => {
+          const isCancel = opt === "Cancel";
+          return (
+            <button
+              key={i}
+              className={`option-btn ${isCancel ? "cancel" : "ok"}`}
+              onClick={() => onChoose(opt)}
+            >
+              {opt}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

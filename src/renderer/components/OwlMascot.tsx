@@ -50,7 +50,7 @@ const C = {
   hi:        "#FFFFFF",
 };
 
-export function OwlMascot({ state = "idle", size = 40 }: Props) {
+export function OwlMascot({ state = "idle", size = 32 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [pupilOffset, setPupilOffset] = useState({ dx: 0, dy: 0 });
   const [blink, setBlink] = useState(false);

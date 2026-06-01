@@ -112,6 +112,8 @@ export async function showOverlay(target: Bounds, fromCursor: { x: number; y: nu
   overlayWin.webContents.send("guide-overlay-show", { target: relTarget, fromCursor: relCursor });
   overlayWin.showInactive();
   overlayWin.moveTop();
+  // Ensure click-through is active when showing - bubble will disable it on hover
+  overlayWin.setIgnoreMouseEvents(true, { forward: true });
 }
 
 export function hideOverlay(): void {

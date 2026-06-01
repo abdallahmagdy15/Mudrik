@@ -23,7 +23,6 @@ declare global {
       onActionResult: (cb: (result: any) => void) => void;
       retryAction: (action: any) => void;
       dismiss: () => void;
-      minimize: () => void;
       windowMove: (deltaX: number, deltaY: number) => void;
       newSession: () => void;
       onFocusInput: (cb: () => void) => void;
@@ -155,6 +154,25 @@ export function App() {
     try { localStorage.setItem("mudrik-lang", lang); } catch {}
   }, [lang]);
 
+  // Sync data-theme attribute for CSS theme switching
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.setAttribute("data-theme", "dark");
+    } else if (theme === "light") {
+      root.removeAttribute("data-theme");
+    } else {
+      // system
+      const mq = window.matchMedia("(prefers-color-scheme: dark)");
+      root.setAttribute("data-theme", mq.matches ? "dark" : "");
+      const handler = (e: MediaQueryListEvent) => {
+        root.setAttribute("data-theme", e.matches ? "dark" : "");
+      };
+      mq.addEventListener("change", handler);
+      return () => mq.removeEventListener("change", handler);
+    }
+  }, [theme]);
+
   // Close settings dropdown on click outside. Mousedown (not click) so we
   // intercept before any focus shift that could swallow a click on the
   // dropdown itself. The settings gear and dropdown both opt out via their
@@ -164,7 +182,7 @@ export function App() {
     const handler = (e: MouseEvent) => {
       const target = e.target as Element | null;
       if (!target) return;
-      if (target.closest(".settings-dropdown") || target.closest(".btn-settings")) return;
+      if (target.closest(".settings-panel") || target.closest(".btn-settings")) return;
       setSettingsOpen(false);
     };
     document.addEventListener("mousedown", handler);
@@ -498,11 +516,6 @@ if (!data?.hasImage) {
     window.hoverbuddy.dismiss();
   }, []);
 
-  const handleMinimize = useCallback(() => {
-    console.log("[RENDERER] Minimize clicked — panel will auto-show when AI responds");
-    window.hoverbuddy.minimize();
-  }, []);
-
   // Dragging is handled natively by Chromium via the CSS `-webkit-app-region:
   // drag` declaration on `.app-header`. No JS / IPC involved — it's smooth
   // at any framerate, which the previous per-mousemove IPC approach was not.
@@ -682,7 +695,7 @@ if (!data?.hasImage) {
         const isCopied = copiedChipId === id;
         return (
           <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content, id)}>
-            {isCopied ? "✓ Copied!" : seg.content}
+            {isCopied ? <><i className="fa-solid fa-check"></i> Copied!</> : seg.content}
           </span>
         );
       }
@@ -696,264 +709,288 @@ if (!data?.hasImage) {
         <div className="app-brand">
           <OwlMascot
             state={streaming ? "thinking" : (currentResponse ? "replying" : "idle") as OwlState}
-            size={44}
+            size={32}
           />
           <span className="app-title">{t("appTitle")}</span>
+          <span className="status-pill">
+            <span className="dot"></span>
+            {streaming ? "Thinking" : "Watching"}
+          </span>
         </div>
         <div className="header-actions">
-          <button className="btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>&#9881;</button>
-          <button className="btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>+</button>
-          <button className="btn-minimize" onClick={handleMinimize} title={t("minimize")}>&#8211;</button>
-          <button className="btn-dismiss" onClick={handleDismiss} title={t("close")}>&times;</button>
+          <button className="btn-icon btn-new-session" onClick={handleNewSession} title={`${t("startNewConversation")} (${t("newSession")})`}>
+            <i className="fa-solid fa-plus"></i>
+          </button>
+          <button className="btn-icon btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>
+            <i className="fa-solid fa-gear"></i>
+          </button>
+          <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("close")}>
+            <i className="fa-solid fa-xmark"></i>
+          </button>
         </div>
-        {settingsOpen && (
-          <div className="settings-dropdown">
-            <div className={`settings-section ${openSections.model ? "open" : "closed"}`}>
-              <button
-                type="button"
-                className="settings-section-header"
-                onClick={() => toggleSection("model")}
-                aria-expanded={openSections.model}
-              >
-                <span className="settings-label">{t("model")}</span>
-                <span className="settings-section-meta">{currentModel.split("/").pop()}</span>
-                <span className={`settings-chevron ${openSections.model ? "open" : ""}`}>▾</span>
-              </button>
-              {openSections.model && (
-                <div className="settings-section-body">
-                  {recentModels.map((m) => (
-                    <div
-                      key={m}
-                      className={`model-option ${m === currentModel ? "model-active" : ""}`}
-                      onClick={() => handleSwitchModel(m)}
+      </div>
+      {settingsOpen && (
+        <div className="settings-panel">
+          <div className="settings-panel-header">
+            <button className="settings-back" onClick={() => setSettingsOpen(false)} title="Back">
+              <i className="fa-solid fa-arrow-left"></i>
+            </button>
+            <span className="settings-panel-title">Settings</span>
+            <button className="settings-close" onClick={() => { setSettingsOpen(false); window.hoverbuddy.dismiss(); }} title={t("close")}>
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+          <div className="settings-panel-body">
+          <div className={`settings-section ${openSections.model ? "open" : "closed"}`}>
+            <button
+              type="button"
+              className="settings-section-header"
+              onClick={() => toggleSection("model")}
+              aria-expanded={openSections.model}
+            >
+              <span className="settings-section-icon"><i className="fa-solid fa-brain"></i></span>
+              <span className="settings-label">{t("model")}</span>
+              <span className="settings-section-meta">{currentModel.split("/").pop()}</span>
+              <span className={`settings-chevron ${openSections.model ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
+            </button>
+            {openSections.model && (
+              <div className="settings-section-body">
+                {recentModels.map((m) => (
+                  <div
+                    key={m}
+                    className={`model-option ${m === currentModel ? "model-active" : ""}`}
+                    onClick={() => handleSwitchModel(m)}
+                  >
+                    <span className="model-name">{m.split("/").pop()}</span>
+                    <span className="model-provider">{m.split("/")[0]}</span>
+                    {m === currentModel && <span className="model-check"><i className="fa-solid fa-check"></i></span>}
+                    <button
+                      type="button"
+                      className="model-remove"
+                      onClick={(e) => handleRemoveModel(m, e)}
+                      title={`Remove ${m} from recent models`}
+                      aria-label={`Remove ${m}`}
                     >
-                      <span className="model-name">{m.split("/").pop()}</span>
-                      <span className="model-provider">{m.split("/")[0]}</span>
-                      {m === currentModel && <span className="model-check">&#10003;</span>}
+                      <i className="fa-solid fa-xmark"></i>
+                    </button>
+                    {recentModels.length > 1 && (
                       <button
                         type="button"
-                        className="model-edit-key"
-                        onClick={(e) => handleEditProviderKey(m, e)}
-                        title={`Edit API key for ${m.split("/")[0]}`}
-                        aria-label={`Edit key for ${m.split("/")[0]}`}
+                        className="model-remove"
+                        onClick={(e) => handleRemoveModel(m, e)}
+                        title={`Remove ${m} from recent models`}
+                        aria-label={`Remove ${m}`}
                       >
-                        &#9998;
+                        <i className="fa-solid fa-xmark"></i>
                       </button>
-                      {recentModels.length > 1 && (
-                        <button
-                          type="button"
-                          className="model-remove"
-                          onClick={(e) => handleRemoveModel(m, e)}
-                          title={`Remove ${m} from recent models`}
-                          aria-label={`Remove ${m}`}
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  <div className="settings-sublabel">Custom</div>
-                  <div className="model-input-row">
-                    <input
-                      className="model-input"
-                      type="text"
-                      placeholder="provider/model-name"
-                      value={customModelInput}
-                      onChange={(e) => { setCustomModelInput(e.target.value); setModelValidationError(null); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") handleCustomModelSubmit(); }}
-                      disabled={modelValidating}
-                    />
-                    <button className="model-input-btn" onClick={handleCustomModelSubmit} disabled={modelValidating || !customModelInput.trim()}>
-                      {modelValidating ? "..." : t("set")}
-                    </button>
+                    )}
                   </div>
-                  {modelValidationError && <div className="model-error">{modelValidationError}</div>}
-                  {authPromptProvider && (
-                    <div className="api-key-prompt">
-                      <div className="api-key-label">
-                        {customModelInput.trim() ? t("apiKeyFor") : t("replaceKeyFor")}
-                        <span className="api-key-provider">{authPromptProvider}</span>
-                      </div>
-                      <div className="model-input-row">
-                        <input
-                          className="model-input"
-                          type="password"
-                          placeholder={t("pasteKeyHint")}
-                          value={apiKeyInput}
-                          onChange={(e) => setApiKeyInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleSaveApiKey(); }}
-                          disabled={apiKeySaving}
-                          autoComplete="new-password"
-                          spellCheck={false}
-                          autoFocus
-                        />
-                        <button
-                          className="model-input-btn"
-                          onClick={handleSaveApiKey}
-                          disabled={apiKeySaving || !apiKeyInput.trim()}
-                        >
-                          {apiKeySaving ? "..." : t("save")}
-                        </button>
-                        <button
-                          className="model-input-btn model-input-btn-secondary"
-                          onClick={() => { setAuthPromptProvider(null); setApiKeyInput(""); setModelValidationError(null); }}
-                          disabled={apiKeySaving}
-                          title={t("cancel")}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                      <div className="api-key-hint">
-                        {t("storedLocally")}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className={`settings-section ${openSections.hotkeys ? "open" : "closed"}`}>
-              <button
-                type="button"
-                className="settings-section-header"
-                onClick={() => toggleSection("hotkeys")}
-                aria-expanded={openSections.hotkeys}
-              >
-                <span className="settings-label">{t("hotkeys")}</span>
-                <span className="settings-section-meta">{hotkeyPointer} · {hotkeyArea.replace("CommandOrControl", "Ctrl")}</span>
-                <span className={`settings-chevron ${openSections.hotkeys ? "open" : ""}`}>▾</span>
-              </button>
-              {openSections.hotkeys && (
-                <div className="settings-section-body">
-                  <label className="hotkey-row">
-                    <span>Pointer</span>
-                    <input
-                      className="hotkey-input"
-                      type="text"
-                      value={hotkeyPointer}
-                      onChange={(e) => setHotkeyPointer(e.target.value)}
-                      onBlur={() => { if (hotkeyPointer) commitHotkeys(hotkeyPointer, hotkeyArea); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                      placeholder="Alt+Space"
-                    />
-                  </label>
-                  <label className="hotkey-row">
-                    <span>Area</span>
-                    <input
-                      className="hotkey-input"
-                      type="text"
-                      value={hotkeyArea}
-                      onChange={(e) => setHotkeyArea(e.target.value)}
-                      onBlur={() => { if (hotkeyArea) commitHotkeys(hotkeyPointer, hotkeyArea); }}
-                      onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                      placeholder="CommandOrControl+Space"
-                    />
-                  </label>
-                  {hotkeyError && <div className="model-error">{hotkeyError}</div>}
-                </div>
-              )}
-            </div>
-            <div className={`settings-section ${openSections.appearance ? "open" : "closed"}`}>
-              <button
-                type="button"
-                className="settings-section-header"
-                onClick={() => toggleSection("appearance")}
-                aria-expanded={openSections.appearance}
-              >
-                <span className="settings-label">{t("appearance")}</span>
-                <span className="settings-section-meta">{theme === "system" ? t("themeAuto") : theme === "light" ? t("themeLight") : t("themeDark")} · {fontSize}px</span>
-                <span className={`settings-chevron ${openSections.appearance ? "open" : ""}`}>▾</span>
-              </button>
-              {openSections.appearance && (
-                <div className="settings-section-body">
-                  <div className="settings-sublabel">{t("theme")}</div>
-                  <div className="theme-picker">
-                    {(["system", "light", "dark"] as const).map((th) => (
-                      <button
-                        key={th}
-                        className={`theme-option ${theme === th ? "theme-active" : ""}`}
-                        onClick={() => handleSetTheme(th)}
-                      >
-                        {th === "system" ? t("themeAuto") : th === "light" ? t("themeLight") : t("themeDark")}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="settings-sublabel">{t("language")}</div>
-                  <div className="theme-picker">
-                    {(["en", "ar"] as const).map((l) => (
-                      <button
-                        key={l}
-                        className={`theme-option ${lang === l ? "theme-active" : ""}`}
-                        onClick={() => handleSetLang(l)}
-                      >
-                        {l === "en" ? "EN" : "عربي"}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="settings-sublabel">{t("fontSize")} <span className="settings-hint">{fontSize}px</span></div>
+                ))}
+                <div className="settings-sublabel">Custom</div>
+                <div className="model-input-row">
                   <input
-                    className="font-size-slider"
-                    type="range"
-                    min={11}
-                    max={20}
-                    step={1}
-                    value={fontSize}
-                    onChange={(e) => handleSetFontSize(Number(e.target.value))}
+                    className="model-input"
+                    type="text"
+                    placeholder="provider/model-name"
+                    value={customModelInput}
+                    onChange={(e) => { setCustomModelInput(e.target.value); setModelValidationError(null); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleCustomModelSubmit(); }}
+                    disabled={modelValidating}
                   />
+                  <button className="model-input-btn" onClick={handleCustomModelSubmit} disabled={modelValidating || !customModelInput.trim()}>
+                    {modelValidating ? "..." : t("set")}
+                  </button>
                 </div>
-              )}
-            </div>
-            <div className={`settings-section ${openSections.behavior ? "open" : "closed"}`}>
-              <button
-                type="button"
-                className="settings-section-header"
-                onClick={() => toggleSection("behavior")}
-                aria-expanded={openSections.behavior}
-              >
-                <span className="settings-label">{t("behavior")}</span>
-                <span className={`settings-chevron ${openSections.behavior ? "open" : ""}`}>▾</span>
-              </button>
-              {openSections.behavior && (
-                <div className="settings-section-body">
-                  <label className="settings-toggle" title={t("allowDesktopActionsHint")}>
-                    <span>{t("allowDesktopActions")}</span>
-                    <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
-                      <div className="toggle-knob" />
+                {modelValidationError && <div className="model-error">{modelValidationError}</div>}
+                {authPromptProvider && (
+                  <div className="api-key-prompt">
+                    <div className="api-key-label">
+                      {customModelInput.trim() ? t("apiKeyFor") : t("replaceKeyFor")}
+                      <span className="api-key-provider">{authPromptProvider}</span>
                     </div>
-                  </label>
-                  <label className="settings-toggle" title={t("enableAutoGuideHint")}>
-                    <span>{t("enableAutoGuide")}</span>
-                    <div className={`toggle-switch ${autoGuideEnabled ? "on" : ""}`} onClick={handleToggleAutoGuideEnabled}>
-                      <div className="toggle-knob" />
+                    <div className="model-input-row">
+                      <input
+                        className="model-input"
+                        type="password"
+                        placeholder={t("pasteKeyHint")}
+                        value={apiKeyInput}
+                        onChange={(e) => setApiKeyInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") handleSaveApiKey(); }}
+                        disabled={apiKeySaving}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        autoFocus
+                      />
+                      <button
+                        className="model-input-btn"
+                        onClick={handleSaveApiKey}
+                        disabled={apiKeySaving || !apiKeyInput.trim()}
+                      >
+                        {apiKeySaving ? "..." : t("save")}
+                      </button>
+                      <button
+                        className="model-input-btn model-input-btn-secondary"
+                        onClick={() => { setAuthPromptProvider(null); setApiKeyInput(""); setModelValidationError(null); }}
+                        disabled={apiKeySaving}
+                        title={t("cancel")}
+                      >
+                        <i className="fa-solid fa-xmark"></i>
+                      </button>
                     </div>
-                  </label>
-                  <label className="settings-toggle">
-                    <span>{t("launchOnStartup")}</span>
-                    <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
-                      <div className="toggle-knob" />
+                    <div className="api-key-hint">
+                      {t("storedLocally")}
                     </div>
-                  </label>
-                  <label className="settings-toggle">
-                    <span>{t("restoreChatOnPopup")}</span>
-                    <div className={`toggle-switch ${restoreSessionOnActivate ? "on" : ""}`} onClick={handleToggleRestoreSession}>
-                      <div className="toggle-knob" />
-                    </div>
-                  </label>
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+          <div className={`settings-section ${openSections.hotkeys ? "open" : "closed"}`}>
+            <button
+              type="button"
+              className="settings-section-header"
+              onClick={() => toggleSection("hotkeys")}
+              aria-expanded={openSections.hotkeys}
+            >
+              <span className="settings-section-icon"><i className="fa-solid fa-keyboard"></i></span>
+              <span className="settings-label">{t("hotkeys")}</span>
+              <span className="settings-section-meta">{hotkeyPointer} · {hotkeyArea.replace("CommandOrControl", "Ctrl")}</span>
+              <span className={`settings-chevron ${openSections.hotkeys ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
+            </button>
+            {openSections.hotkeys && (
+              <div className="settings-section-body">
+                <label className="hotkey-row">
+                  <span>Pointer</span>
+                  <input
+                    className="hotkey-input"
+                    type="text"
+                    value={hotkeyPointer}
+                    onChange={(e) => setHotkeyPointer(e.target.value)}
+                    onBlur={() => { if (hotkeyPointer) commitHotkeys(hotkeyPointer, hotkeyArea); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    placeholder="Alt+Space"
+                  />
+                </label>
+                <label className="hotkey-row">
+                  <span>Area</span>
+                  <input
+                    className="hotkey-input"
+                    type="text"
+                    value={hotkeyArea}
+                    onChange={(e) => setHotkeyArea(e.target.value)}
+                    onBlur={() => { if (hotkeyArea) commitHotkeys(hotkeyPointer, hotkeyArea); }}
+                    onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                    placeholder="CommandOrControl+Space"
+                  />
+                </label>
+                {hotkeyError && <div className="model-error">{hotkeyError}</div>}
+              </div>
+            )}
+          </div>
+          <div className={`settings-section ${openSections.appearance ? "open" : "closed"}`}>
+            <button
+              type="button"
+              className="settings-section-header"
+              onClick={() => toggleSection("appearance")}
+              aria-expanded={openSections.appearance}
+            >
+              <span className="settings-section-icon"><i className="fa-solid fa-palette"></i></span>
+              <span className="settings-label">{t("appearance")}</span>
+              <span className="settings-section-meta">{theme === "system" ? t("themeAuto") : theme === "light" ? t("themeLight") : t("themeDark")} · {fontSize}px</span>
+              <span className={`settings-chevron ${openSections.appearance ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
+            </button>
+            {openSections.appearance && (
+              <div className="settings-section-body">
+                <div className="settings-sublabel">{t("theme")}</div>
+                <div className="theme-picker">
+                  {(["system", "light", "dark"] as const).map((th) => (
+                    <button
+                      key={th}
+                      className={`theme-option ${theme === th ? "theme-active" : ""}`}
+                      onClick={() => handleSetTheme(th)}
+                    >
+                      {th === "system" ? t("themeAuto") : th === "light" ? t("themeLight") : t("themeDark")}
+                    </button>
+                  ))}
+                </div>
+                <div className="settings-sublabel">{t("language")}</div>
+                <div className="theme-picker">
+                  {(["en", "ar"] as const).map((l) => (
+                    <button
+                      key={l}
+                      className={`theme-option ${lang === l ? "theme-active" : ""}`}
+                      onClick={() => handleSetLang(l)}
+                    >
+                      {l === "en" ? "EN" : "عربي"}
+                    </button>
+                  ))}
+                </div>
+                <div className="settings-sublabel">{t("fontSize")} <span className="settings-hint">{fontSize}px</span></div>
+                <input
+                  className="font-size-slider"
+                  type="range"
+                  min={11}
+                  max={20}
+                  step={1}
+                  value={fontSize}
+                  onChange={(e) => handleSetFontSize(Number(e.target.value))}
+                />
+              </div>
+            )}
+          </div>
+          <div className={`settings-section ${openSections.behavior ? "open" : "closed"}`}>
+            <button
+              type="button"
+              className="settings-section-header"
+              onClick={() => toggleSection("behavior")}
+              aria-expanded={openSections.behavior}
+            >
+              <span className="settings-section-icon"><i className="fa-solid fa-sliders"></i></span>
+              <span className="settings-label">{t("behavior")}</span>
+              <span className={`settings-chevron ${openSections.behavior ? "open" : ""}`}><i className="fa-solid fa-chevron-down"></i></span>
+            </button>
+            {openSections.behavior && (
+              <div className="settings-section-body">
+                <label className="settings-toggle" title={t("allowDesktopActionsHint")}>
+                  <span>{t("allowDesktopActions")}</span>
+                  <div className={`toggle-switch ${actionsEnabled ? "on" : ""}`} onClick={handleToggleActionsEnabled}>
+                    <div className="toggle-knob" />
+                  </div>
+                </label>
+                <label className="settings-toggle" title={t("enableAutoGuideHint")}>
+                  <span>{t("enableAutoGuide")}</span>
+                  <div className={`toggle-switch ${autoGuideEnabled ? "on" : ""}`} onClick={handleToggleAutoGuideEnabled}>
+                    <div className="toggle-knob" />
+                  </div>
+                </label>
+                <label className="settings-toggle">
+                  <span>{t("launchOnStartup")}</span>
+                  <div className={`toggle-switch ${launchOnStartup ? "on" : ""}`} onClick={handleToggleLaunchOnStartup}>
+                    <div className="toggle-knob" />
+                  </div>
+                </label>
+                <label className="settings-toggle">
+                  <span>{t("restoreChatOnPopup")}</span>
+                  <div className={`toggle-switch ${restoreSessionOnActivate ? "on" : ""}`} onClick={handleToggleRestoreSession}>
+                    <div className="toggle-knob" />
+                  </div>
+                </label>
+              </div>
+            )}
+          </div>
+          </div>
+        </div>
+      )}
 {/* Context preview hidden from end users — the LLM receives it
            internally but the UI doesn't need to show the raw element data. */}
       {!screenshotAttached ? (
         <button className="btn-attach-screenshot" onClick={handleAttachScreenshot} disabled={streaming}>
-          {t("attachScreenshot")}
+          <i className="fa-solid fa-image"></i> {t("attachScreenshot")}
         </button>
       ) : (
         <div className="screenshot-badge">
-          {t("screenshotAttached")}
-          <button className="screenshot-badge-x" onClick={handleRemoveScreenshot} title={t("removeScreenshot")}>×</button>
+          <i className="fa-solid fa-image"></i> {t("screenshotAttached")}
+          <button className="screenshot-badge-x" onClick={handleRemoveScreenshot} title={t("removeScreenshot")}><i className="fa-solid fa-xmark"></i></button>
         </div>
       )}
       <div className="messages">
@@ -967,11 +1004,22 @@ if (!data?.hasImage) {
           </div>
         )}
         {!restoringSession && !contextLoading && messages.length === 0 && !currentResponse && (
-          <div className="new-conversation-hint">{t("startNewConversation")}</div>
+          <div className="empty-state">
+            <div className="owl-wrap">
+              <OwlMascot state="idle" size={88} />
+            </div>
+            <div className="wordmark">Mudrik</div>
+            <div className="hint">{t("startNewConversation")}</div>
+            <div className="caps">
+              <span className="cap-chip">Explain element</span>
+              <span className="cap-chip">Open settings</span>
+              <span className="cap-chip">Run command</span>
+            </div>
+          </div>
         )}
-        {messages.map((msg, i) => (
+        {messages.filter(msg => msg.content.trim()).map((msg, i) => (
           <div key={i} className={`message message-${msg.role}`}>
-            <div className="message-role">{msg.role === "user" ? t("you") : t("assistant")}{msg.screenshotAttached ? " 📸" : ""}</div>
+            <div className="message-role">{msg.role === "user" ? t("you") : "Mudrik"}</div>
             <pre className="message-content">{renderSegments(msg.content, `m${i}`)}</pre>
             {streaming && !currentResponse && msg.role === "user" && i === messages.length - 1 && (
               <div className="loading-bar-container">
@@ -984,13 +1032,13 @@ if (!data?.hasImage) {
         ))}
         {currentResponse && (
           <div className="message message-assistant">
-            <div className="message-role">{t("assistant")}</div>
+            <div className="message-role">Mudrik</div>
             <pre className="message-content">{renderSegments(currentResponse, "streaming")}</pre>
             {streaming && <span className="cursor-blink">|</span>}
             {streaming && <button className="btn-stop-inline" onClick={handleStopResponse}>{t("stop")}</button>}
           </div>
         )}
-        {actionResults.map((ar, i) => (
+        {actionResults.filter(ar => !ar.action.type.startsWith('guide_')).map((ar, i) => (
           <div key={`action-${i}`} className={`action-result ${ar.result.success ? "action-success" : "action-failed"}`}>
             <span className="action-result-label">{ar.action.type}{ar.action.selector ? `: ${ar.action.selector}` : ""}</span>
             <span className="action-result-status">{ar.result.success ? "OK" : "FAIL"}</span>
