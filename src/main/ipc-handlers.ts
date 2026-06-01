@@ -616,7 +616,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
 
       const cellW = Math.max(60, Math.round(pw / 20));
       const cellH = Math.max(60, Math.round(ph / 20));
-      const prompt = `${desc}\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions from the screenshot, count grid cells from the top-left for accuracy: x ≈ column × ${cellW}, y ≈ row × ${cellH}. The user's screen is ${pw}×${ph} pixels (DPI scale ${sf}×). Coordinates in the candidates list above and in the screenshot are in the SAME physical pixel space.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.uiaBounds. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n3. For Chromium/Electron apps where UIA is blind: estimate the position from the screenshot by counting grid cells and set target.guessBounds with your estimate.\n\nNEVER set both uiaBounds and guessBounds. Pick one: uiaBounds when the target IS in the UIA list, guessBounds when estimating from the screenshot, null when unsure.\n\nDo NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
+      const prompt = `--- USER MESSAGE ---\n${desc}\n--- END MESSAGE ---\n\n${screen}${candidatesBlock}\n\nA fresh full-screen screenshot is attached with a faint numbered coordinate grid overlay. Each grid cell is approximately ${cellW}×${cellH} pixels. Top-left cell is (0,0). When estimating positions from the screenshot, count grid cells from the top-left for accuracy: x ≈ column × ${cellW}, y ≈ row × ${cellH}. The user's screen is ${pw}×${ph} pixels (DPI scale ${sf}×). Coordinates in the candidates list above and in the screenshot are in the SAME physical pixel space.\n\nTarget rules (BINARY — pick one):\n1. Target IS in the candidates list above → COPY its name as selector, its automationId verbatim, its bounds verbatim into target.uiaBounds. The owl will land pixel-perfect.\n2. Target is NOT in the list, OR you're not sure, OR the step has no single point target (typing, scrolling, keyboard shortcut) → set target:null. The user navigates from your caption alone — better than a misplaced owl.\n3. For Chromium/Electron apps where UIA is blind: estimate the position from the screenshot by counting grid cells and set target.guessBounds with your estimate.\n\nNEVER set both uiaBounds and guessBounds. Pick one: uiaBounds when the target IS in the UIA list, guessBounds when estimating from the screenshot, null when unsure.\n\nDo NOT include a "confidence" field — it's no longer used.\n\nIMPORTANT: if "Active window" above is NOT what you'd expect for the current step (e.g. you told the user to click in Excel but active window is "unknown" / "Shell" / a different app), the user likely IS still in their app — Mudrik's panel hides briefly during recapture and Windows occasionally fails to restore the right foreground window. Trust the user's progress unless their captions clearly contradict it; only emit "click app in taskbar" if the candidates list AND the screenshot both confirm a different app is active.\n\nDecide the next guide marker (guide_step, guide_complete, or guide_abort).`;
 
       // Stream tokens to the renderer for visibility; accumulate the response
       // text; parse + dispatch guide markers when the subprocess exits.
@@ -1603,8 +1603,17 @@ contextBlock += `\n--- END CONTEXT ---\n`;
                 }
                 log(`restoreSession: stripped prompt wrappers (${content.length} chars)`);
               } else {
-                // Truly raw user message (follow-up without wrappers)
-                log(`restoreSession: follow-up message without wrappers (${content.length} chars)`);
+                // Follow-up message without wrappers — extract just the user's
+                // action description (first line) instead of showing the entire
+                // prompt with candidates list and tool call artifacts.
+                const followUpMatch = content.match(/^(User (clicked at|chose option):[^\n]+)/m);
+                if (followUpMatch) {
+                  content = followUpMatch[1].trim();
+                  log(`restoreSession: extracted follow-up action (${content.length} chars)`);
+                } else {
+                  // Truly raw user message — keep as-is
+                  log(`restoreSession: follow-up message without wrappers (${content.length} chars)`);
+                }
               }
             }
           }
