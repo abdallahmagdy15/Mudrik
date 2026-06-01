@@ -96,13 +96,14 @@
     }
 
     .guide-bubble-btn.primary {
-      background: #18BFE1;
+      background: linear-gradient(135deg, #F2A93A, #F2C94C);
       color: white;
+      box-shadow: 0 2px 8px rgba(242, 169, 58, 0.3);
     }
     .guide-bubble-btn.secondary {
       background: transparent;
       color: inherit;
-      border: 1px solid rgba(128, 128, 128, 0.4);
+      border: 1px solid rgba(116, 153, 194, 0.4);
     }
     .guide-bubble-btn.cancel {
       background: rgba(239, 68, 68, 0.15);
@@ -115,6 +116,28 @@
       height: 12px;
       transform: rotate(45deg);
       z-index: -1;
+    }
+
+    /* Tail directions - point toward the owl */
+    .guide-bubble.tail-left .guide-bubble-tail {
+      left: -7px;
+      top: 50%;
+      margin-top: -6px;
+    }
+    .guide-bubble.tail-right .guide-bubble-tail {
+      right: -7px;
+      top: 50%;
+      margin-top: -6px;
+    }
+    .guide-bubble.tail-top .guide-bubble-tail {
+      top: -7px;
+      left: 50%;
+      margin-left: -6px;
+    }
+    .guide-bubble.tail-bottom .guide-bubble-tail {
+      bottom: -7px;
+      left: 50%;
+      margin-left: -6px;
     }
 
     .guide-bubble-loading {
