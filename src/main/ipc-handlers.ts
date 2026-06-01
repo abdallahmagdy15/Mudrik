@@ -504,7 +504,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
       const desc =
         actionDesc.kind === "click"
           ? `User clicked at (${actionDesc.x}, ${actionDesc.y}).`
-          : `User chose option: "${actionDesc.choice}".`;
+          : `"${actionDesc.choice}"`;
       const screen = ctx
         ? `Active window: ${ctx.windowInfo?.title || "unknown"}. Element under cursor: ${ctx.element?.name || "none"} (${ctx.element?.type || "?"}).`
         : "No screen context captured.";
@@ -1604,15 +1604,28 @@ contextBlock += `\n--- END CONTEXT ---\n`;
                 log(`restoreSession: stripped prompt wrappers (${content.length} chars)`);
               } else {
                 // Follow-up message without wrappers — extract just the user's
-                // action description (first line) instead of showing the entire
+                // choice text or click description instead of showing the entire
                 // prompt with candidates list and tool call artifacts.
-                const followUpMatch = content.match(/^(User (clicked at|chose option):[^\n]+)/m);
-                if (followUpMatch) {
-                  content = followUpMatch[1].trim();
-                  log(`restoreSession: extracted follow-up action (${content.length} chars)`);
+                const choiceMatch = content.match(/^User chose option:\s*"([^"]+)"/m);
+                if (choiceMatch) {
+                  // New format: just the quoted choice text
+                  content = `"${choiceMatch[1]}"`;
+                  log(`restoreSession: extracted choice text (${content.length} chars)`);
                 } else {
-                  // Truly raw user message — keep as-is
-                  log(`restoreSession: follow-up message without wrappers (${content.length} chars)`);
+                  const oldChoiceMatch = content.match(/^"([^"]+)"/m);
+                  if (oldChoiceMatch) {
+                    content = `"${oldChoiceMatch[1]}"`;
+                    log(`restoreSession: extracted choice text (${content.length} chars)`);
+                  } else {
+                    const clickMatch = content.match(/^User clicked at \((\d+),\s*(\d+)\)/m);
+                    if (clickMatch) {
+                      content = `Clicked at (${clickMatch[1]}, ${clickMatch[2]})`;
+                      log(`restoreSession: extracted click action (${content.length} chars)`);
+                    } else {
+                      // Truly raw user message — keep as-is
+                      log(`restoreSession: follow-up message without wrappers (${content.length} chars)`);
+                    }
+                  }
                 }
               }
             }
