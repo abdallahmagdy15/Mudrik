@@ -6,14 +6,12 @@ import { buildCleanOpenCodeEnv, providerFromModelId, OpenCodeAuthFile } from "..
 
 /**
  * OpenCode reads provider credentials from `<XDG_DATA_HOME>/opencode/auth.json`.
- * On Windows there's no native `XDG_DATA_HOME`, so OpenCode (and Mudrik)
- * fall back to `~/.local/share/opencode/auth.json` — same as Linux/macOS.
+ * Mudrik spawns the CLI with `XDG_DATA_HOME=<workingDir>/opencode-data`, so
+ * the auth.json we care about lives under Mudrik's APPDATA. We never write
+ * to the global `~/.local/share/opencode/auth.json` — that path is reserved
+ * for the user's standalone opencode CLI invocations and is bootstrapped into
+ * the isolated dir once by `ensureIsolatedOpenCodeDataDir` on first launch.
  */
-function findOpenCodeAuthPath(): string {
-  const xdgData = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share");
-  return path.join(xdgData, "opencode", "auth.json");
-}
-
 function findIsolatedOpenCodeAuthPath(workingDir: string): string {
   return path.join(workingDir, "opencode-data", "opencode", "auth.json");
 }
@@ -52,25 +50,23 @@ function updateAuthFile(authPath: string, provider: string, key: string | null):
 }
 
 /**
- * Mirror Mudrik's apiKey changes into OpenCode's on-disk auth.json. Env-var
- * injection is enough to make a Mudrik-spawned `opencode run` use the right
- * key, but if the user later runs `opencode` from a terminal, they'd see a
- * stale or missing entry — so we keep the file in sync.
+ * Persist Mudrik's apiKey changes into OpenCode's on-disk auth.json inside
+ * Mudrik's isolated data dir. Env-var injection on the opencode spawn is
+ * enough for a running session to see the new key, but writing to auth.json
+ * also keeps the in-session store consistent (e.g. after a process restart
+ * that re-reads auth from disk).
  *
  * `key === null` clears the entry. Only touches `type: "api"` rows so any
  * OAuth credentials written by `opencode auth login` survive untouched.
  *
- * Writes to BOTH the global auth.json (for CLI usage) and the isolated
- * auth.json (for Mudrik-spawned runs with XDG_DATA_HOME isolation).
+ * Writes ONLY to the isolated auth.json. The user's standalone opencode CLI
+ * state at `~/.local/share/opencode/auth.json` is left alone — keys the user
+ * pastes into Mudrik must not leak into the global store.
  */
-function syncOpenCodeAuth(provider: string, key: string | null, workingDir?: string): void {
-  const globalPath = findOpenCodeAuthPath();
-  updateAuthFile(globalPath, provider, key);
-
-  if (workingDir) {
-    const isolatedPath = findIsolatedOpenCodeAuthPath(workingDir);
-    updateAuthFile(isolatedPath, provider, key);
-  }
+function writeIsolatedOpenCodeAuth(provider: string, key: string | null, workingDir?: string): void {
+  if (!workingDir) return;
+  const isolatedPath = findIsolatedOpenCodeAuthPath(workingDir);
+  updateAuthFile(isolatedPath, provider, key);
 }
 
 /** True while a SEND_PROMPT cycle is in-flight. STOP_RESPONSE flips this so
@@ -883,7 +879,7 @@ export function registerIpcHandlers(
     saveConfig(config);
     // Mirror into OpenCode's auth.json so a plain `opencode` invocation from
     // a terminal sees the same credentials Mudrik uses internally.
-    syncOpenCodeAuth(normalized, trimmed || null, config.workingDir);
+    writeIsolatedOpenCodeAuth(normalized, trimmed || null, config.workingDir);
     log(`SAVE_API_KEY: provider=${provider} (${trimmed ? "set" : "cleared"}), total providers=${Object.keys(map).length}`);
     return { ok: true };
   });
@@ -919,7 +915,7 @@ export function registerIpcHandlers(
       delete nextKeys[removedProvider];
       config.apiKeys = nextKeys;
       client.updateApiKeys(nextKeys);
-      syncOpenCodeAuth(removedProvider, null, config.workingDir);
+      writeIsolatedOpenCodeAuth(removedProvider, null, config.workingDir);
       log(`REMOVE_MODEL: cleared API key for provider=${removedProvider} (no remaining models use it)`);
     }
     saveConfig(config);
