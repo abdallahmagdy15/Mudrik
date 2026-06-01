@@ -115,7 +115,7 @@ export function App() {
   // Per-chip copied flag keyed by "<messageKey>::<segmentIndex>" so that
   // clicking one chip never highlights other chips that happen to have the
   // same text content. Cleared after 1.5s.
-  const [copiedChipId, setCopiedChipId] = useState<string | null>(null);
+  const [copyToast, setCopyToast] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recentChatsOpen, setRecentChatsOpen] = useState(false);
   const [recentChats, setRecentChats] = useState<{ id: string; title: string; created: number }[]>([]);
@@ -579,10 +579,10 @@ if (!data?.hasImage) {
     window.hoverbuddy.retryAction(action);
   }, []);
 
-  const handleCopyChip = useCallback((text: string, id: string) => {
+  const handleCopyChip = useCallback((text: string) => {
     navigator.clipboard.writeText(text);
-    setCopiedChipId(id);
-    setTimeout(() => setCopiedChipId((cur) => (cur === id ? null : cur)), 1500);
+    setCopyToast("Copied to clipboard");
+    setTimeout(() => setCopyToast(null), 2000);
   }, []);
 
   const handleToggleActionsEnabled = useCallback(() => {
@@ -741,21 +741,19 @@ if (!data?.hasImage) {
 
   // msgKey disambiguates chips across messages — e.g. two separate replies
   // can each have a <!--COPY:pwd--> chip without sharing highlight state.
-  const renderSegments = useCallback((content: string, msgKey: string) => {
+  const renderSegments = useCallback((content: string, _msgKey: string) => {
     const segments = parseMessageContent(content);
     return segments.map((seg, i) => {
       if (seg.type === "copy-chip") {
-        const id = `${msgKey}::${i}`;
-        const isCopied = copiedChipId === id;
         return (
-          <span key={i} className={`copy-chip ${isCopied ? "copied" : ""}`} onClick={() => handleCopyChip(seg.content, id)}>
-            {isCopied ? <><i className="fa-solid fa-check"></i> Copied!</> : seg.content}
+          <span key={i} className="copy-chip" onClick={() => handleCopyChip(seg.content)}>
+            {seg.content}
           </span>
         );
       }
       return <span key={i}>{seg.content}</span>;
     });
-  }, [copiedChipId, handleCopyChip]);
+  }, [handleCopyChip]);
 
   return (
     <div className="app" dir={lang === "ar" ? "rtl" : "ltr"}>
@@ -1167,6 +1165,11 @@ if (!data?.hasImage) {
             }}
           />
       </React.Suspense>
+    )}
+    {copyToast && (
+      <div className="copy-toast">
+        <i className="fa-solid fa-check"></i> {copyToast}
+      </div>
     )}
     <ChatInput ref={chatInputRef} onSubmit={handleSubmit} disabled={streaming || contextLoading} lang={lang} />
   </div>

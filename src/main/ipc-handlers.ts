@@ -1728,6 +1728,15 @@ function filterToolArtifactLines(text: string): string {
     if (/permitted to make file changes/i.test(trimmed)) return false;
     if (/permitted to.*run shell commands/i.test(trimmed)) return false;
     if (/permitted to.*utilize.*tools/i.test(trimmed)) return false;
+    // Filter out tool call descriptions from the model's internal monologue
+    if (/^Called the (Read|Write|Search|Run|Execute|List|Glob|Grep|Fetch) tool/i.test(trimmed)) return false;
+    if (/^\{["']?(filePath|command|query|url|pattern)/i.test(trimmed)) return false;
+    if (/^Image read successfully/i.test(trimmed)) return false;
+    if (/^User chose option:/i.test(trimmed)) return false;
+    if (/^Active window:/i.test(trimmed)) return false;
+    if (/^Element under cursor:/i.test(trimmed)) return false;
+    if (/^UIA CLICKABLE CANDIDATES/i.test(trimmed)) return false;
+    if (/^\[\d+\] ControlType\./i.test(trimmed)) return false;
     return true;
   });
   return filtered.join("\n");

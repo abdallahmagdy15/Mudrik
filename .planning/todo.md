@@ -1,7 +1,7 @@
 # Mudrik Todo List
 
 ## UI/UX Improvements
-- [ ] Restore top 5 recent chats
+- [x] Restore top 5 recent chats
 - [ ] Guide intro for new installer users (first-run onboarding)
 - [ ] Mudrik hide to system tray (top-notch / mac menu bar style)
 - [ ] Owl pointer: normal logo PNG when thinking/waiting, pointing owl PNG only during guide steps

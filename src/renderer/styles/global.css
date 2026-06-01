@@ -1068,7 +1068,7 @@ body {
   transition: background 0.15s var(--ease-out);
 }
 
-.message:hover {
+.message:hover:not(.message-user) {
   background: rgba(116, 153, 194, 0.04);
 }
 
@@ -1318,6 +1318,37 @@ body {
   background: rgba(74, 143, 107, 0.06);
   border-color: var(--success);
   color: var(--success);
+}
+
+.copy-toast {
+  position: fixed;
+  bottom: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-surface);
+  border: 1px solid var(--success);
+  color: var(--success);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  animation: toastSlideUp 0.2s ease-out;
+}
+
+@keyframes toastSlideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 .session-restoring {
