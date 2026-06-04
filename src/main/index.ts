@@ -151,8 +151,6 @@ function createWindow(cursorX: number, cursorY: number): BrowserWindow {
     resizable: true,
     minWidth: 320,
     minHeight: 360,
-    maxWidth: 900,
-    maxHeight: 1000,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
