@@ -808,7 +808,7 @@ export function registerIpcHandlers(
       const cursor = screen.getCursorScreenPoint();
       const display = screen.getDisplayNearestPoint(cursor);
       const wa = display.workArea;
-      const w = Math.min(restoreBounds.width, 700);
+      const w = 900;
       win.setBounds({
         x: Math.round(wa.x + (wa.width - w) / 2),
         y: wa.y,
