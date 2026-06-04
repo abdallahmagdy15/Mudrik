@@ -23,6 +23,8 @@ declare global {
       onActionResult: (cb: (result: any) => void) => void;
       retryAction: (action: any) => void;
       dismiss: () => void;
+      minimize: () => void;
+      toggleMaximize: () => void;
       windowMove: (deltaX: number, deltaY: number) => void;
       newSession: () => void;
       onFocusInput: (cb: () => void) => void;
@@ -119,6 +121,7 @@ export function App() {
   const [copyToast, setCopyToast] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [recentChatsOpen, setRecentChatsOpen] = useState(false);
+  const [isMaximized, setIsMaximized] = useState(false);
   const [recentChats, setRecentChats] = useState<{ id: string; title: string; created: number }[]>([]);
   const [recentChatsLoading, setRecentChatsLoading] = useState(false);
   const [actionsEnabled, setActionsEnabled] = useState(true);
@@ -534,6 +537,11 @@ if (!data?.hasImage) {
     window.hoverbuddy.dismiss();
   }, []);
 
+  const handleToggleMaximize = useCallback(() => {
+    window.hoverbuddy.toggleMaximize();
+    setIsMaximized((prev) => !prev);
+  }, []);
+
   const handleToggleRecentChats = useCallback(() => {
     if (guideState && guideState.phase !== "idle") return;
     setRecentChatsOpen((prev) => {
@@ -786,6 +794,9 @@ if (!data?.hasImage) {
           </button>
           <button className="btn-icon btn-settings" onClick={() => setSettingsOpen(!settingsOpen)} title={t("settings")}>
             <i className="fa-solid fa-gear"></i>
+          </button>
+          <button className="btn-icon btn-maximize" onClick={handleToggleMaximize} title={isMaximized ? t("restore") : t("maximize")}>
+            <i className={`fa-solid ${isMaximized ? "fa-window-restore" : "fa-window-maximize"}`}></i>
           </button>
           <button className="btn-icon btn-dismiss" onClick={handleDismiss} title={t("close")}>
             <i className="fa-solid fa-xmark"></i>

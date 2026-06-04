@@ -138,6 +138,7 @@ export function getPanelWindow(): BrowserWindow | null {
   return null;
 }
 let attachScreenshotNext: boolean = false;
+let restoreBounds: { x: number; y: number; width: number; height: number } | null = null;
 type ScreenshotMode = "none" | "chromium-auto" | "manual" | "area" | "area-chromium";
 let screenshotMode: ScreenshotMode = "none";
 let screenInfo: { physicalWidth: number; physicalHeight: number; scaleFactor: number } | null = null;
@@ -767,6 +768,22 @@ export function registerIpcHandlers(
   ipcMain.on(IPC.MINIMIZE, () => {
     log("MINIMIZE received — hiding panel, will notify when response arrives");
     hidePanel();
+  });
+
+  ipcMain.on(IPC.TOGGLE_MAXIMIZE, () => {
+    const win = getPanelWindow();
+    if (!win || win.isDestroyed()) return;
+    const { screen } = require("electron") as typeof import("electron");
+    if (restoreBounds) {
+      win.setBounds(restoreBounds);
+      restoreBounds = null;
+    } else {
+      restoreBounds = win.getBounds();
+      const cursor = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(cursor);
+      const wa = display.workArea;
+      win.setBounds({ x: wa.x, y: wa.y, width: wa.width, height: wa.height });
+    }
   });
 
   // WINDOW_MOVE IPC removed: dragging is handled natively via

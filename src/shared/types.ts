@@ -170,8 +170,8 @@ export const DEFAULT_CONFIG: Config = {
   apiKeys: {},
   hotkeyPointer: "Alt+Space",
   hotkeyArea: "CommandOrControl+Space",
-  panelWidth: 380,
-  panelHeight: 400,
+  panelWidth: 440,
+  panelHeight: 500,
   launchOnStartup: false,
   hasCompletedWelcome: false,
   theme: "system",
@@ -243,6 +243,7 @@ export const IPC = {
   GUIDE_STATE_UPDATE: "guide-state-update",
   CONTEXT_LOADING: "context-loading",
   GET_RECENT_CHATS: "get-recent-chats",
+  TOGGLE_MAXIMIZE: "toggle-maximize",
 } as const;
 
 export interface RecentChat {
