@@ -44,6 +44,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
+  max-width: 520px;
+  margin: 0 auto;
   padding: 10px;
   gap: 8px;
   background: var(--bg-panel);
