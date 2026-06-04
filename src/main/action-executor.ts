@@ -17,6 +17,7 @@
 
 import { Action, ActionType, GUIDE_ACTION_TYPES } from "../shared/types";
 import { log } from "./logger";
+import { startTimer, debugLog } from "./debug-timing";
 
 export interface ActionResult {
   success: boolean;
@@ -105,7 +106,9 @@ export async function executeAction(
       error: "Desktop actions are disabled (read-only mode). Toggle 'Allow desktop actions' in settings to enable.",
     };
   }
+  const tLoad = performance.now();
   const heavy = await import("./actions/action-executor-heavy");
+  debugLog("action-heavy-module-load", performance.now() - tLoad);
   return heavy.executeHeavyAction(action, lastContextElement || {});
 }
 
@@ -278,6 +281,7 @@ export interface ParsedActions {
 }
 
 export function parseActionsFromResponse(text: string): ParsedActions {
+  const timer = startTimer("parse-actions");
   const actions: Action[] = [];
   const blocked: Array<{ type: string; reason: string }> = [];
   const regex = /<!--ACTION:([\s\S]*?)-->/g;
@@ -361,5 +365,6 @@ export function parseActionsFromResponse(text: string): ParsedActions {
   if (actions.length === 0 && blocked.length === 0) {
     log("No actions found in response");
   }
+  timer?.done();
   return { actions, blocked };
 }

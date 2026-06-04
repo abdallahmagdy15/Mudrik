@@ -232,7 +232,7 @@ export async function scanArea(
 
   const [uiaResult, imagePath] = await Promise.all([
     scanAreaUIA(x1, y1, x2, y2),
-    captureAndOptimize(x1, y1, x2, y2).catch((err: Error) => {
+    captureAndOptimize(x1, y1, x2, y2, { noGrid: true }).catch((err: Error) => {
       log(`Image capture failed (non-fatal): ${err.message}`);
       return null;
     }),

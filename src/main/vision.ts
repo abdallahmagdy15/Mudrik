@@ -5,14 +5,16 @@ import * as os from "os";
 
 const log = (msg: string) => console.log(`[VISION] ${msg}`);
 
-const CAPTURE_SCRIPT_NAME = "hoverbuddy-capture-v4.ps1";
+const CAPTURE_SCRIPT_NAME = "hoverbuddy-capture-v5.ps1";
 const RESIZE_SCRIPT_NAME = "hoverbuddy-resize-v3.ps1";
 const MAX_IMAGE_BYTES = 200 * 1024;
 const HARD_IMAGE_CAP_BYTES = 1024 * 1024;
+const MAX_IMAGE_DIM = 1280;
+const JPEG_QUALITY = 85;
 
 function getCaptureScriptContent(): string {
   const lines: string[] = [];
-  lines.push("param([int]$X1, [int]$Y1, [int]$X2, [int]$Y2, [string]$OutFile, [switch]$NoGrid)");
+  lines.push("param([int]$X1, [int]$Y1, [int]$X2, [int]$Y2, [string]$OutFile, [switch]$NoGrid, [int]$MaxDim = 1280)");
   lines.push("Add-Type @\"");
   lines.push("using System;");
   lines.push("using System.Runtime.InteropServices;");
@@ -32,52 +34,70 @@ function getCaptureScriptContent(): string {
   lines.push("}");
   lines.push("");
   lines.push("try {");
-  lines.push("    $bmp = New-Object System.Drawing.Bitmap($w, $h)");
-  lines.push("    $g = [System.Drawing.Graphics]::FromImage($bmp)");
-  lines.push("    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic");
+  lines.push("    $fullBmp = New-Object System.Drawing.Bitmap($w, $h)");
+  lines.push("    $g = [System.Drawing.Graphics]::FromImage($fullBmp)");
   lines.push("    $g.CopyFromScreen($X1, $Y1, 0, 0, [System.Drawing.Size]::new($w, $h))");
+  lines.push("    $g.Dispose()");
   lines.push("");
-  lines.push("    # --- Coordinate ruler overlay: sequential numbers on edges, fine grid lines ---");
+  lines.push("    # Downscale if longest side exceeds MaxDim");
+  lines.push("    $newW = $w; $newH = $h");
+  lines.push("    $maxSide = [Math]::Max($w, $h)");
+  lines.push("    if ($maxSide -gt $MaxDim) {");
+  lines.push("        $scale = $MaxDim / $maxSide");
+  lines.push("        $newW = [int]($w * $scale)");
+  lines.push("        $newH = [int]($h * $scale)");
+  lines.push("        $bmp = New-Object System.Drawing.Bitmap($newW, $newH)");
+  lines.push("        $g2 = [System.Drawing.Graphics]::FromImage($bmp)");
+  lines.push("        $g2.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic");
+  lines.push("        $g2.DrawImage($fullBmp, 0, 0, $newW, $newH)");
+  lines.push("        $g2.Dispose()");
+  lines.push("        $fullBmp.Dispose()");
+  lines.push("    } else {");
+  lines.push("        $bmp = $fullBmp");
+  lines.push("    }");
+  lines.push("");
+  lines.push("    # --- Coordinate ruler overlay on final (possibly downscaled) bitmap ---");
   lines.push("    if (-not $NoGrid) {");
-  lines.push("        $cellW = [Math]::Max(60, [int][Math]::Round($w / 20))");
-  lines.push("        $cellH = [Math]::Max(60, [int][Math]::Round($h / 20))");
+  lines.push("        $g3 = [System.Drawing.Graphics]::FromImage($bmp)");
+  lines.push("        $cellW = [Math]::Max(60, [int][Math]::Round($newW / 25))");
+  lines.push("        $cellH = [Math]::Max(60, [int][Math]::Round($newH / 25))");
   lines.push("        $gridPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(50, 180, 180, 180), 1)");
-  lines.push("        for ($x = $cellW; $x -lt $w; $x += $cellW) { $g.DrawLine($gridPen, $x, 0, $x, $h) }");
-  lines.push("        for ($y = $cellH; $y -lt $h; $y += $cellH) { $g.DrawLine($gridPen, 0, $y, $w, $y) }");
+  lines.push("        for ($x = $cellW; $x -lt $newW; $x += $cellW) { $g3.DrawLine($gridPen, $x, 0, $x, $newH) }");
+  lines.push("        for ($y = $cellH; $y -lt $newH; $y += $cellH) { $g3.DrawLine($gridPen, 0, $y, $newW, $y) }");
   lines.push("        $gridPen.Dispose()");
   lines.push("");
   lines.push("        $font = New-Object System.Drawing.Font('Consolas', 10, [System.Drawing.FontStyle]::Bold)");
   lines.push("        $bg = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(140, 0, 0, 0))");
   lines.push("        $fg = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(210, 255, 255, 255))");
   lines.push("");
-  lines.push("        # Column numbers across top edge (0, 1, 2, 3... left to right)");
   lines.push("        $col = 0");
-  lines.push("        for ($x = 0; $x -lt $w; $x += $cellW) {");
+  lines.push("        for ($x = 0; $x -lt $newW; $x += $cellW) {");
   lines.push("            $label = \"$col\"");
-  lines.push("            $sz = $g.MeasureString($label, $font)");
+  lines.push("            $sz = $g3.MeasureString($label, $font)");
   lines.push("            $cx = $x + ($cellW - $sz.Width) / 2");
   lines.push("            $cy = 2");
-  lines.push("            $g.FillRectangle($bg, $cx - 2, $cy, $sz.Width + 4, $sz.Height + 2)");
-  lines.push("            $g.DrawString($label, $font, $fg, $cx, $cy)");
+  lines.push("            $g3.FillRectangle($bg, $cx - 2, $cy, $sz.Width + 4, $sz.Height + 2)");
+  lines.push("            $g3.DrawString($label, $font, $fg, $cx, $cy)");
   lines.push("            $col++");
   lines.push("        }");
   lines.push("");
-  lines.push("        # Row numbers down left edge (0, 1, 2, 3... top to bottom)");
   lines.push("        $row = 0");
-  lines.push("        for ($y = 0; $y -lt $h; $y += $cellH) {");
+  lines.push("        for ($y = 0; $y -lt $newH; $y += $cellH) {");
   lines.push("            $label = \"$row\"");
-  lines.push("            $sz = $g.MeasureString($label, $font)");
+  lines.push("            $sz = $g3.MeasureString($label, $font)");
   lines.push("            $cx = 2");
   lines.push("            $cy = $y + ($cellH - $sz.Height) / 2");
-  lines.push("            $g.FillRectangle($bg, $cx, $cy - 2, $sz.Width + 4, $sz.Height + 4)");
-  lines.push("            $g.DrawString($label, $font, $fg, $cx, $cy)");
+  lines.push("            $g3.FillRectangle($bg, $cx, $cy - 2, $sz.Width + 4, $sz.Height + 4)");
+  lines.push("            $g3.DrawString($label, $font, $fg, $cx, $cy)");
   lines.push("            $row++");
   lines.push("        }");
-  lines.push("        $font.Dispose(); $bg.Dispose(); $fg.Dispose()");
+  lines.push("        $font.Dispose(); $bg.Dispose(); $fg.Dispose(); $g3.Dispose()");
   lines.push("    }");
   lines.push("");
-  lines.push("    $g.Dispose()");
-  lines.push("    $bmp.Save($OutFile, [System.Drawing.Imaging.ImageFormat]::Png)");
+  lines.push("    $jpgCodec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1");
+  lines.push("    $encParams = New-Object System.Drawing.Imaging.EncoderParameters(1)");
+  lines.push("    $encParams.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawing.Imaging.Encoder]::Quality, [int64]" + JPEG_QUALITY + ")");
+  lines.push("    $bmp.Save($OutFile, $jpgCodec, $encParams)");
   lines.push("    $bmp.Dispose()");
   lines.push("    Write-Output 'OK'");
   lines.push("} catch {");
@@ -189,15 +209,16 @@ function ensureResizeScript(): string {
   return resizeScriptPath;
 }
 
-function captureRegion(x1: number, y1: number, x2: number, y2: number): Promise<string> {
+function captureRegion(x1: number, y1: number, x2: number, y2: number, opts?: { noGrid?: boolean }): Promise<string> {
   const tmpDir = path.join(os.tmpdir(), "hoverbuddy");
   if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true });
-  const outFile = path.join(tmpDir, `capture-${Date.now()}.png`);
+  const outFile = path.join(tmpDir, `capture-${Date.now()}.jpg`);
 
   return new Promise((resolve, reject) => {
     const script = ensureCaptureScript();
-    const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" ${x1} ${y1} ${x2} ${y2} "${outFile}"`;
-    log(`Capturing region (${x1},${y1})-(${x2},${y2})`);
+    const noGridFlag = opts?.noGrid ? " -NoGrid" : "";
+    const cmd = `powershell -NoProfile -ExecutionPolicy Bypass -File "${script}" ${x1} ${y1} ${x2} ${y2} "${outFile}"${noGridFlag}`;
+    log(`Capturing region (${x1},${y1})-(${x2},${y2})${opts?.noGrid ? " [no-grid]" : ""}`);
 
     exec(cmd, { timeout: 10000 }, (err: any, _stdout: string, stderr: string) => {
       if (err) {
@@ -284,13 +305,14 @@ export async function captureAndOptimize(
   x1: number,
   y1: number,
   x2: number,
-  y2: number
+  y2: number,
+  opts?: { noGrid?: boolean },
 ): Promise<string | null> {
-  log(`captureAndOptimize: (${x1},${y1}) to (${x2},${y2})`);
+  log(`captureAndOptimize: (${x1},${y1}) to (${x2},${y2})${opts?.noGrid ? " [no-grid]" : ""}`);
   try {
     let imagePath: string;
     try {
-      imagePath = await captureRegion(x1, y1, x2, y2);
+      imagePath = await captureRegion(x1, y1, x2, y2, opts);
     } catch (err: any) {
       log(`Screenshot capture failed: ${err.message}`);
       return null;

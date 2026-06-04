@@ -4,6 +4,7 @@ import * as fs from "fs";
 import * as os from "os";
 import { log } from "./logger";
 import { buildCleanOpenCodeEnv } from "../shared/providers";
+import { debugLog } from "./debug-timing";
 
 export interface OpenCodeEvent {
   type: string;
@@ -219,6 +220,8 @@ export class OpenCodeClient {
       let buffer = "";
       let errorOccurred = false;
       let resolved = false;
+      const tSpawn = performance.now();
+      let firstToken = true;
       // Accumulators for diagnostic when OpenCode bails silently (empty
       // error event, exit 0, no text streamed). Without these we just
       // logged "OpenCode error: undefined" and lost all signal — see
@@ -255,7 +258,8 @@ export class OpenCodeClient {
               log(msg);
               onEvent({ type: "error", error: { message: msg, data: { blockedTool } } });
               try { proc.kill("SIGKILL"); } catch (e: any) { log(`kill failed: ${e.message}`); }
-              this.activeProcess = null;
+        this.activeProcess = null;
+        debugLog("opencode:total", performance.now() - tSpawn);
               errorOccurred = true;
               if (!resolved) {
                 resolved = true;
@@ -268,6 +272,10 @@ export class OpenCodeClient {
             // distinguish "silent failure" from "graceful empty response").
             if (event.type === "text" && event.part?.text) {
               textWasStreamed = true;
+              if (firstToken) {
+                firstToken = false;
+                debugLog("opencode:first-token", performance.now() - tSpawn);
+              }
             }
             // Capture raw error event for close-time diagnostic. Some
             // provider failures (bad model name, auth) come through as

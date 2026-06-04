@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Mudrik — Cursor Calibration</title>
+  <title>Mudrik — Debug Tools</title>
   <style>
     * { box-sizing: border-box; }
     html, body {
@@ -12,9 +12,26 @@
       font-size: 13px; line-height: 1.4;
       height: 100vh; overflow: hidden;
     }
-    .wrap { display: flex; flex-direction: column; height: 100vh; padding: 12px; gap: 10px; }
+    .wrap { display: flex; flex-direction: column; height: 100vh; padding: 12px; gap: 8px; }
     h1 { font-size: 14px; margin: 0; color: #18BFE1; letter-spacing: 0.4px; }
     .sub { font-size: 11px; color: #8FBFCD; margin: 0 0 4px; }
+
+    /* Tabs */
+    .tabs {
+      display: flex; gap: 2px;
+      border-bottom: 1px solid #2D4A63; margin-bottom: 4px;
+    }
+    .tab {
+      padding: 8px 16px; font-size: 13px; font-family: inherit;
+      background: transparent; color: #8FBFCD; border: none; cursor: pointer;
+      border-bottom: 2px solid transparent; transition: all 0.15s;
+    }
+    .tab:hover { color: #E6F4F7; }
+    .tab.active { color: #18BFE1; border-bottom-color: #18BFE1; }
+    .tab-panel { flex: 1; overflow: auto; display: none; flex-direction: column; gap: 8px; }
+    .tab-panel.active { display: flex; }
+
+    /* Calibration tab */
     .controls { display: flex; gap: 8px; align-items: center; }
     button {
       padding: 8px 12px; font-size: 13px; font-family: inherit;
@@ -23,6 +40,11 @@
       font-weight: 600;
     }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.flat {
+      background: #1C2A3A; color: #E6F4F7; font-weight: 400;
+      border: 1px solid #2D4A63;
+    }
+    button.flat:hover { background: #243544; }
     label { font-size: 11px; color: #8FBFCD; display: flex; align-items: center; gap: 4px; }
     input[type=number] {
       width: 60px; padding: 4px 6px; background: #1C2A3A; color: #E6F4F7;
@@ -51,19 +73,93 @@
     .row .meta { color: #556A77; font-size: 10px; margin-top: 2px; word-break: break-all; }
     .row button { padding: 6px 10px; font-size: 11px; flex-shrink: 0; }
     .empty { color: #556A77; padding: 16px; text-align: center; font-style: italic; }
+
+    /* Timing tab */
+    .timing-bar {
+      display: flex; gap: 8px; align-items: center; padding: 4px 0;
+    }
+    .timing-bar label { font-size: 11px; color: #8FBFCD; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    .timing-bar input[type=checkbox] { accent-color: #18BFE1; }
+    .timing-record {
+      background: #1C2A3A; border: 1px solid #2D4A63; border-radius: 6px;
+      margin-bottom: 6px; overflow: hidden;
+    }
+    .timing-header {
+      display: flex; align-items: center; padding: 8px 10px;
+      cursor: pointer; user-select: none;
+    }
+    .timing-header:hover { background: rgba(24, 191, 225, 0.06); }
+    .timing-label {
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 12px; flex: 1; color: #E6F4F7;
+    }
+    .timing-total {
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 14px; font-weight: 700; color: #F2A93A; margin-right: 12px;
+    }
+    .timing-arrow {
+      font-size: 11px; color: #556A77; transition: transform 0.15s;
+      width: 18px; text-align: center;
+    }
+    .timing-arrow.open { transform: rotate(90deg); }
+    .timing-detail {
+      display: none; padding: 0 10px 8px 10px;
+      font-family: ui-monospace, "Cascadia Mono", "Consolas", monospace;
+      font-size: 11px;
+    }
+    .timing-detail.open { display: block; }
+    .timing-mark {
+      display: flex; padding: 3px 10px; gap: 8px;
+      border-top: 1px solid rgba(45, 74, 99, 0.4);
+    }
+    .timing-mark .mark-label { color: #8FBFCD; min-width: 160px; }
+    .timing-mark .mark-time { color: #5FD8F0; }
+    .timing-mark .mark-pct { color: #556A77; margin-left: auto; }
+    .timing-bar-chart {
+      height: 4px; background: #0F1822; border-radius: 2px;
+      margin: 2px 0 6px;
+    }
+    .timing-bar-chart .bar {
+      height: 100%; display: inline-block; vertical-align: top;
+    }
+    .bar.prompt { background: #8FBFCD; }
+    .bar.opencode { background: #18BFE1; }
+    .bar.parse { background: #5FD8F0; }
+    .bar.exec { background: #F2A93A; }
+    .timing-ts { color: #556A77; font-size: 10px; margin-left: 8px; }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Mudrik Cursor Calibration</h1>
-    <p class="sub">Open a target window, bring it to the foreground, then click <b>Capture</b>. Shows 50 random clickables. Click <b>Test cursor</b> to verify owl placement.</p>
-    <div class="controls">
-      <button id="btn-capture">Capture target</button>
-      <label>hide wait (ms): <input type="number" id="hide-wait" value="500" min="100" max="3000" step="50" /></label>
-      <span id="live-pos" style="font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #18BFE1; margin-left: auto; min-width: 110px; text-align: right;">--, --</span>
+    <h1>Mudrik Debug Tools</h1>
+    <div class="tabs">
+      <button class="tab active" data-tab="calibrate">Cursor Calibration</button>
+      <button class="tab" data-tab="timing">Timing Log</button>
     </div>
-    <div id="status" class="status">Ready.</div>
-    <div id="list" class="list"></div>
+
+    <!-- ==================== Calibration Tab ==================== -->
+    <div class="tab-panel active" id="panel-calibrate">
+      <p class="sub">Open a target window, bring it to the foreground, then click <b>Capture</b>. Shows 50 random clickables. Click <b>Test cursor</b> to verify owl placement.</p>
+      <div class="controls">
+        <button id="btn-capture">Capture target</button>
+        <label>hide wait (ms): <input type="number" id="hide-wait" value="500" min="100" max="3000" step="50" /></label>
+        <span id="live-pos" style="font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #18BFE1; margin-left: auto; min-width: 110px; text-align: right;">--, --</span>
+      </div>
+      <div id="status" class="status">Ready.</div>
+      <div id="list" class="list"></div>
+    </div>
+
+    <!-- ==================== Timing Tab ==================== -->
+    <div class="tab-panel" id="panel-timing">
+      <p class="sub">Cycle timings from message send to final response. Expand each record for phase breakdown. Only active in dev builds.</p>
+      <div class="timing-bar">
+        <label><input type="checkbox" id="timing-autorefresh" checked /> auto-refresh</label>
+        <span style="flex:1"></span>
+        <button class="flat" id="btn-clear-timings">Clear</button>
+        <button class="flat" id="btn-refresh-timings">Refresh</button>
+      </div>
+      <div id="timing-list" class="list" style="gap: 0;"></div>
+    </div>
   </div>
   <script src="./calibrate-renderer.js"></script>
 </body>

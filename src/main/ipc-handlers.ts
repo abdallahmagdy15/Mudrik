@@ -77,6 +77,7 @@ import * as path from "path";
 import * as fs from "fs";
 
 import { log } from "./logger";
+import { startTimer } from "./debug-timing";
 
 function computeContextHash(context: ContextPayload | null, isArea: boolean, areaEls: any[]): string {
   if (!context) return "";
@@ -483,6 +484,7 @@ async function initGuideControllerIfNeeded(): Promise<void> {
           Math.round(display.bounds.y * sf),
           Math.round((display.bounds.x + display.bounds.width) * sf),
           Math.round((display.bounds.y + display.bounds.height) * sf),
+          { noGrid: false },
         ).catch((e: any) => { log(`guide follow-up: screenshot failed (${e?.message || e})`); return null as string | null; });
         const ctxPromise = ctxReader.readContextAtPoint(point.x, point.y, targetHwnd).catch((e: any) => {
           log(`guide follow-up: UIA capture failed (${e?.message || e}) — falling back to cached context`);
@@ -1005,6 +1007,7 @@ export function registerIpcHandlers(
 
     fullResponseText = "";
     userStoppedCurrentResponse = false;
+    const cycleTimer = startTimer("msg-cycle");
 
     const isFollowUp = hasSentFirstMessage && !contextNeedsSending;
     log(`isFollowUp=${isFollowUp} (hasSent=${hasSentFirstMessage}, needsSend=${contextNeedsSending})`);
@@ -1236,6 +1239,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
     // is invalid, check ⚙ Settings"). Skip the duplicate.
     let errorEventSurfaced = false;
     try {
+      cycleTimer?.mark("prompt-built");
       armIdleTimer();
       await client.sendMessage(fullPrompt, (event: OpenCodeEvent) => {
         if (timeoutFired) return;
@@ -1254,6 +1258,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       stopIdleTimer();
       if (timeoutFired) return;
       log("OpenCode session completed");
+      cycleTimer?.mark("opencode-done");
 
       // If the process exited cleanly but produced zero text (e.g. Bun segfault
       // with exit code 0 suppressed), surface a friendly error instead of a
@@ -1275,6 +1280,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       }
 
       const { actions, blocked } = parseActionsFromResponse(fullResponseText);
+      cycleTimer?.mark("actions-parsed");
       if (blocked.length > 0) {
         log(`Blocked ${blocked.length} disallowed action marker(s): ${blocked.map((b) => b.type).join(", ")}`);
         for (const b of blocked) {
@@ -1301,7 +1307,9 @@ contextBlock += `\n--- END CONTEXT ---\n`;
       }
       if (actions.length > 0) {
         log(`Found ${actions.length} actions in response: ${actions.map((a) => a.type).join(", ")}`);
-        for (const action of actions) {
+        for (let i = 0; i < actions.length; i++) {
+          const action = actions[i];
+          const actionTimer = startTimer(`action-exec[${i}]:${action.type}`);
           // Read-only mode guard. Interactive actions are blocked with a clear
           // reason; copy_to_clipboard still passes through.
           if (!config.actionsEnabled && isInteractiveAction(action.type)) {
@@ -1314,6 +1322,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
           }
           log(`Executing action: type=${action.type} selector=${action.selector || ""}`);
           const result: ActionResult = await executeAction(action, { actionsEnabled: config.actionsEnabled, autoGuideEnabled: config.autoGuideEnabled });
+          actionTimer?.done();
           log(`Action result: success=${result.success}${result.error ? ` error=${result.error}` : ""}`);
 
           win.webContents.send(IPC.ACTION_RESULT, { action, result });
@@ -1323,7 +1332,9 @@ contextBlock += `\n--- END CONTEXT ---\n`;
           }
         }
       }
+      cycleTimer?.mark("actions-executed");
       win.webContents.send(IPC.STREAM_DONE);
+      cycleTimer?.done();
     } catch (err: any) {
       stopIdleTimer();
       // If the timeout already surfaced an error to the user, swallow the
@@ -1471,7 +1482,7 @@ contextBlock += `\n--- END CONTEXT ---\n`;
         overlayMod.showOverlayLoading("Capturing screenshot…");
       });
 
-      const imagePath = await captureAndOptimize(x1, y1, x2, y2);
+      const imagePath = await captureAndOptimize(x1, y1, x2, y2, { noGrid: false });
 
       // Hide overlay, re-show panel
       import("./guide/guide-overlay").then((overlayMod) => {

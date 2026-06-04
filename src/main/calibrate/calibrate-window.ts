@@ -8,6 +8,7 @@ import * as path from "path";
 import { log } from "../logger";
 import { showOverlay, hideOverlay } from "../guide/guide-overlay";
 import { readContextAtPoint, getCursorPos } from "../context-reader";
+import { getTimingHistory, clearTimingHistory } from "../debug-timing";
 
 const CLICKABLE_TYPES = new Set([
   "ControlType.Button","ControlType.MenuItem","ControlType.ListItem",
@@ -127,4 +128,15 @@ ipcMain.handle("calibrate-test-target", async (_e, bounds: { x: number; y: numbe
 // IPC: get current cursor position (physical screen pixels)
 ipcMain.handle("calibrate-get-cursor-pos", async () => {
   return getCursorPos();
+});
+
+// IPC: fetch debug timing history
+ipcMain.handle("calibrate-get-timings", async () => {
+  return getTimingHistory();
+});
+
+// IPC: clear debug timing history
+ipcMain.handle("calibrate-clear-timings", async () => {
+  clearTimingHistory();
+  return { ok: true };
 });
