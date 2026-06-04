@@ -808,10 +808,11 @@ export function registerIpcHandlers(
       const cursor = screen.getCursorScreenPoint();
       const display = screen.getDisplayNearestPoint(cursor);
       const wa = display.workArea;
+      const w = Math.min(restoreBounds.width, 700);
       win.setBounds({
-        x: restoreBounds.x,
+        x: Math.round(wa.x + (wa.width - w) / 2),
         y: wa.y,
-        width: restoreBounds.width,
+        width: w,
         height: wa.height,
       });
     }
