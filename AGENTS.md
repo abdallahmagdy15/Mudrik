@@ -140,6 +140,119 @@ Maintain a side section or dedicated file (`open-items.md`) to track future task
 - `.github/workflows/build.yml`: `npm ci` → `tsc --noEmit` → `npm run build` → `npm run check:no-env` → `electron-builder --win --dir`.
 - `.github/workflows/release.yml`: same, plus `electron-builder --win --publish always` on `v*.*.*` tags.
 
+## Private planning / development state (junctions to Mudrik-Plan)
+
+Several auto-generated directories exist in the hoverbuddy root but are **not part of the public hoverbuddy repo**. They are tracked by the **private Mudrik-Plan repo** (`D:\SandBoX\Mudrik-Plan`) and surfaced here via **NTFS directory junctions** (Windows symlinks):
+
+| Junction in hoverbuddy | Physical path (Mudrik-Plan) | Purpose |
+|--------|--------|---------|
+| `.impeccable/` | `D:\SandBoX\Mudrik-Plan\.impeccable` | Impeccable skill state |
+| `.planning/` | `D:\SandBoX\Mudrik-Plan\.planning` | Internal planning docs, architecture notes, TODOs |
+| `.claude/` | `D:\SandBoX\Mudrik-Plan\.claude` | Claude Code worktrees / session state |
+
+**Rules for agents:**
+- These folders are already in hoverbuddy's `.gitignore` — **never stage or commit them into hoverbuddy**.
+- Treat them as read/write workspace for internal planning, drafting, and brainstorming.
+- If a new skill/plugin creates another root-level folder that should follow the same pattern, add it to Mudrik-Plan, create a junction, and update `.gitignore`.
+
+## Documentation rules
+
+- **Internal docs** (`AGENTS.md`, `CLAUDE.md`, architecture notes, design specs) — auto-update without asking permission. Keep them in sync as part of the same task.
+- **Public docs** (`README.md`, `docs/index.html`, `SECURITY.md`, `CONTRIBUTING.md`, release notes) — **never edit without proposing the change and getting explicit user approval first.** Suggest the edit, show what would change, wait for "yes."
+- Internal planning docs live in the private Mudrik-Plan repo (`D:\SandBoX\Mudrik-Plan`). Specs at `Mudrik-Plan/docs/specs/`, plans at `Mudrik-Plan/docs/plans/`.
+
+## Architecture deep-dive
+
+### Request flow (pointer hotkey)
+
+```
+Alt+Space
+  → hotkey.ts                  (global shortcut, robotjs for cursor pos)
+  → index.ts#handlePointerActivate
+  → context-reader.ts          (spawns powershell running a UIA script → JSON)
+  → ipc-handlers.ts#setContext (stores ContextPayload, hashes to dedupe)
+  → highlight.ts               (brief frameless overlay around the element)
+  → panel window               (created or repositioned near cursor)
+  → renderer receives CONTEXT_READY, user types a prompt
+  → SEND_PROMPT → opencode-client.ts (spawns `opencode run --format json --agent readonly`)
+  → streams JSON events back as STREAM_TOKEN / TOOL_USE / STREAM_DONE
+  → action-executor.ts parses <!--ACTION:{...}--> markers from the text
+  → EXECUTE_ACTION → UIA/robotjs performs the action, ACTION_RESULT goes back
+```
+
+The pointer hotkey captures UIA data only — no screenshot. Vision is opt-in via the renderer's 📸 button (`ATTACH_SCREENSHOT` IPC → `vision.ts#captureAndOptimize`). The area hotkey (`Ctrl+Space`) is pixel-based: `area-selector.ts` (fullscreen overlay drag) + `area-scanner.ts` (captures the region + scans contained UIA elements).
+
+### Desktop actions are embedded markers, not tool calls
+
+Central architectural decision in `src/shared/prompts.ts`. The LLM may use OpenCode's read-only tools (`read`, `grep`, `glob`, `list`) for local file lookup, but **all desktop side effects** (click, type, paste, press keys, guide cursor) must flow through `<!--ACTION:{json}-->` markers in the LLM's plain text. The app parses those markers via `parseActionsFromResponse` in `action-executor.ts`. When editing `SYSTEM_PROMPT`, keep this split intact — do NOT introduce a tool-call story for desktop actions, and do NOT widen the runtime tool allowlist beyond reads.
+
+Action types are defined by the `ActionType` union in `src/shared/types.ts`. Each maps to a handler in `action-executor.ts` that uses either (a) PowerShell UIA scripts for element targeting by `automationId`/`selector`, or (b) `robotjs` for raw keyboard/mouse. UIA is strongly preferred — `click_element` is explicitly documented as "last resort".
+
+### Action gating is live (no snapshot)
+
+`Config.actionsEnabled` is the user's master switch for desktop-interactive actions (everything except `copy_to_clipboard`). It is read **live** in two places, never cached:
+
+1. **Runtime action guards** — `EXECUTE_ACTION`, `RETRY_ACTION` all read `config.actionsEnabled` directly at execution time. Toggling the setting in ⚙ blocks (or unblocks) the very next action attempt, even mid-stream.
+2. **System-prompt actionsBlock** — built fresh on every non-followup send (every Alt+Space / Ctrl+Space that captures new context). The block reads `config.actionsEnabled` at that moment.
+
+Mid-conversation toggles do **not** auto-trigger a re-send. The new setting lands on the **next context capture** (Alt+Space / Ctrl+Space). Earlier turns may carry the opposite instruction in their history; the actionsBlock explicitly tells the model to trust the latest block over older ones.
+
+If you add another setting that the model must see, build it into the same actionsBlock-style block so it refreshes naturally on every non-followup send.
+
+### Auto-Guide mode (multi-step UI walkthroughs)
+
+Opt-in feature, off by default (toggle in ⚙ → "Enable Auto-Guide"). When on, the AI walks the user through 3+ step UI tasks instead of doing them itself: shows an owl-wing pointer over each target, waits for the user to click, then captures the new screen state and decides the next step.
+
+`src/main/guide/` is **entirely lazy-loaded** via dynamic `import()` — nothing in this directory is statically referenced anywhere; the modules don't enter the runtime graph until the user toggles the feature on AND the AI emits a `guide_*` marker. Same pattern as `src/main/actions/action-executor-heavy.ts` (lazy-loaded for read-only mode). Keep it that way: a static import here would pull `mouse-hook` + the overlay window into the cold-start path for users who never use the feature.
+
+`buildSystemPrompt({ actionsEnabled, autoGuideEnabled })` in `src/shared/prompts.ts` composes three blocks: `BASE_PROMPT` (always) + `ACTION_PROMPT_FULL`/`ACTION_PROMPT_AWARE` + `GUIDE_PROMPT_FULL`/`GUIDE_PROMPT_AWARE`. The AWARE stubs (~50 words each) keep the model capability-aware when a feature is OFF — it knows the feature exists and can suggest enabling it, without spending tokens on the full instructions. When ON, the model gets the full constitution.
+
+`Config.autoGuideEnabled` is read live at three layers, never cached:
+1. `buildSystemPrompt` reads it on every non-followup send (same lifecycle as `actionsEnabled`).
+2. `validateAction` in `action-executor.ts` blocks `guide_*` markers if false — the IPC-level guard against a forged renderer payload.
+3. `executeAction` reads it from caller-supplied `cfg`, so toggling false mid-stream blocks the next guide marker even after the prompt was built with it true.
+
+`src/main/guide/mouse-hook.ts` uses a Windows global low-level mouse hook (WH_MOUSE_LL) via PowerShell + C# `Add-Type`. It runs **only** during the `STEP_ACTIVE` phase of a guide session — started in `handleStep`, stopped on every transition out of STEP_ACTIVE. Scoped to the foreground HWND so panel clicks don't trigger it.
+
+Full design rationale, state machine, prompt content, and edge cases live in `Mudrik-Plan/docs/specs/2026-05-03-auto-guide-design.md`.
+
+### UIA context capture — how it works
+
+The core capture flow (`context-reader.ts`):
+
+1. **Wake Chromium**: Register a no-op UIA focus event handler → flips `UiaClientsAreListening()` to true in Chrome's process. Then send `WM_GETOBJECT` to the foreground HWND via `SendMessageTimeout`. This triggers Chrome to populate its full accessibility tree.
+2. **Poll until stable**: `ShallowCount` (count elements at depth 0+1) every 100ms. Breaks when count stabilizes (same twice in a row) or after 5000ms.
+3. **Find deepest element**: `FromPoint(X, Y)` gets the element at cursor, then `FindDeepestElement` drills into containers (Pane/Group/Custom/Document) to find the actual interactive element.
+4. **Walk tree**: `CollectWindowTree` uses `TreeWalker.RawViewWalker` (not `FindAll`) to traverse children. `TreeWalker` crosses UIA fragment boundaries that `FindAll` misses — critical for iframes.
+5. **Return**: element at cursor + full window tree + visible windows list.
+
+**Key findings from iframe testing (2026-05-20):**
+
+Test page with 7 iframes (srcdoc, local file, external domain, data:, javascript:, about:blank):
+- **All 7 iframes had content in the UIA tree** — 254 total elements, 220 clickables
+- Cross-origin iframes (example.com, Wikipedia) appear as **named Documents** (e.g. "Example Domain")
+- Same-origin iframes appear as **unnamed Documents** but their children ARE in the tree
+- `TreeWalker` is essential — `FindAll(Children)` misses iframe content in some Chromium versions
+- The `DpiHelper` C# class only needs `SendMessageTimeout` + `GetForegroundWindow` + `SetProcessDPIAware`. `EnumChildWindows`/`WakeAllChildren` were tested and proven unnecessary.
+
+**Known limitation — Dynamics CRM on-premise v8**: The CRM iframe (`contentIFrame0`) appears as `Document "Content Area"` with only 8 nested elements (container scaffolding only). The actual form fields are NOT exposed to UIA. This is a Dynamics-specific rendering issue, not a general iframe problem.
+
+**Deep-dive reference**: `Mudrik-Plan/UIA-Chromium-Expert-Reference.md` — full UIA architecture, Chromium internals, wake-up mechanism, tree walking strategies, edge cases, CDP as alternative.
+
+### API key plumbing
+
+`Config.apiKeys` is a `provider → key` map persisted in `config.json` (plaintext — see comment on the field for the safeStorage trade-off). `src/shared/providers.ts#buildProviderEnv` translates the map into env vars per the convention OpenCode reads (`anthropic` → `ANTHROPIC_API_KEY`, `openai` → `OPENAI_API_KEY`, etc.) and is injected into both `OpenCodeClient.sendMessage` spawns and the `VALIDATE_MODEL` `opencode models` lookup. Existing shell-level env vars win over config — intentional, lets users override without editing the file.
+
+`SAVE_API_KEY` IPC writes a single `provider/key` pair (empty key clears). There is no pre-flight validation — OpenCode has no test endpoint, so a bad key surfaces as a runtime error on first message send. The renderer exposes per-row "edit key" (✎) and "remove model" (×) actions in the settings panel for recovery.
+
+### Config migration
+
+`config-store.ts#migrateLegacyConfig` runs once at startup to copy `%APPDATA%\hoverbuddy\` → `%APPDATA%\mudrik\` for users upgrading across the rebrand. `logger.ts` falls back to the legacy log dir until the migration runs. Do not rename the legacy paths until pre-rebrand installs are presumed extinct.
+
+### Windows-only assumptions
+
+This codebase is not cross-platform. UIA, PowerShell script embedding, robotjs build, DPI-aware GDI capture, and `findOpenCodeBin` path resolution are all Windows-specific. Don't add `process.platform` branches unless you're also porting the PS layer.
+
 ## Key files
 
 | File | What it owns |

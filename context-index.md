@@ -12,8 +12,8 @@ AI's map of hidden knowledge in this repo. Before acting on any task, read this 
 
 ## Project identity
 
-- `CLAUDE.md` | Internal dev guide — architecture, conventions, critical rules, UIA capture details | Always read first. Contains system architecture, request flow, sandbox enforcement, PowerShell bridge docs, UIA context capture findings.
-- `AGENTS.md` | AI agent operational instructions — build commands, architecture notes, security rules, key files table | Read when starting any session. Compact version of CLAUDE.md for agents.
+- `AGENTS.md` | **Canonical agent instruction file** — build commands, architecture, security rules, key files, UIA capture details, sandbox enforcement, PowerShell bridge docs | **Always read first.** Contains everything previously in CLAUDE.md plus the junction setup and planning repo rules.
+- `CLAUDE.md` | Deprecated. All content merged into AGENTS.md. Read AGENTS.md instead.
 - `.opencode/instructions.md` | LLM coding rules — simplicity, surgical changes, goal-driven execution | Read when making code changes.
 - `.opencode/agent/readonly.md` | Sandbox rules for OpenCode agent — tool allowlist | Read when working with OpenCode subprocess.
 
