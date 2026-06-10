@@ -4,6 +4,16 @@ All notable changes to Mudrik are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] — 2026-06-10
+
+### Added
+- **Quick-chat hotkey (`Alt+X`).** Opens the panel instantly without capturing UIA context, screenshot, or loading spinner. Pure chat mode — no element awareness needed. Rebindable from ⚙ settings.
+
+### Changed
+- **Log pruning on startup.** Log files older than 30 days are auto-deleted on every launch to prevent unbounded disk growth.
+- **README rewrite.** Tagline updated to include Auto-Guide, hotkeys table tightened, "What it does" refreshed with Chromium auto-screenshot info, features restructured, "How it works" diagram expanded, roadmap removed, privacy table fixed for current screenshot behavior.
+- **Website (`docs/`) refreshed** to match README: updated tagline, features, hotkeys (added Alt+X), privacy section. Removed vestigial "Reads files" card, "EN+AR" card, "How it works" code section, version badge, and "signed installer" claim. Nav trimmed to 4 links.
+
 ## [1.5.0] — 2026-06-04
 
 ### Changed
@@ -106,7 +116,8 @@ First public preview release. Pre-v1 — breaking changes possible while the API
 - Stale previous-context bug (monotonic `activationSeq` drops superseded reads).
 - Auto-screenshot on Alt+Space removed — manual 📸 button only.
 
-[Unreleased]: https://github.com/abdallahmagdy15/mudrik/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/abdallahmagdy15/mudrik/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/abdallahmagdy15/mudrik/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/abdallahmagdy15/mudrik/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/abdallahmagdy15/mudrik/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/abdallahmagdy15/mudrik/compare/v1.0.0...v1.3.0
